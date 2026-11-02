@@ -6,7 +6,8 @@ anything is built on them. Each spike writes a Markdown and JSON report to
 
 | Spike | Proves | Needs |
 | --- | --- | --- |
-| `pnpm spike:a` | Copilot SDK with your existing Copilot CLI login: auth, models, streaming, read-only and build sessions in a worktree, tests run, denied actions blocked in code, structured output, resume after a kill, error text | Copilot CLI signed in (`copilot` → `/login`). About 8 premium requests. |
+| `pnpm spike:a` | Copilot SDK with your existing Copilot CLI login: auth, policy access, model costs, tool list, forbidden actions denied in the real runtime, restart fallback. **No model calls** (checked: 0 usage events). | Copilot CLI signed in (`copilot` → `/login`) |
+| `pnpm spike:a -- --live` | Adds 2 real prompts on the cheapest model (asks first, hard cap): streaming + structured output, a real edit and test run, history restored after the runtime is killed. Saves event streams as test fixtures. | Your go-ahead; run once, at the end |
 | `pnpm spike:b` | CodeCommit over SSH with your `~/.ssh/config`: bare clone, worktree, commit, clean and conflicting rebase, push with explicit refspec, `--force-with-lease`, push guard, cleanup | `TANDEM_SPIKE_REPO_URL` |
 | `pnpm spike:c` | CodeCommit PR API with your AWS profile (permission probe, idempotent create, get, update, close) and the console-link fallback | `TANDEM_SPIKE_REPO_URL`, optional `TANDEM_SPIKE_AWS_PROFILE` |
 | `pnpm spike:d` | Local tracker on SQLite survives restarts and hard kills | nothing |
@@ -34,7 +35,7 @@ pnpm spike:all
 
 Spikes only create branches named `agent/spike-<id>-*` and delete them at the end. The
 default branch is never written to (seeding an empty repo is the one exception).
-`pnpm spike:b -- --local` rehearses the git logic against a local bare repo with no SSH.
+`pnpm spike:all` runs spike a in free mode. `pnpm spike:b -- --local` rehearses the git logic against a local bare repo with no SSH.
 
 `reports/container/` holds rehearsal runs from the Linux build container (no SSH keys,
 AWS profile or Copilot login there), kept for comparison.

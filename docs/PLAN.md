@@ -40,8 +40,49 @@ Only these, and only when the phase that needs them starts:
 | A way to run on your machine (option 1 or 2 above) | Phase 1 onward | – |
 | Three empty CodeCommit sandbox repos (SSH URLs), or permission for me to create them with your AWS profile | Phase 1b, 4 | Suggested names: `tandem-sandbox-fullstack`, `tandem-sandbox-frontend`, `tandem-sandbox-backend`. Tandem seeds them with small TypeScript apps from `spikes/sandbox/`. |
 | AWS profile name and region (if you have one) | Phase 1c | Optional. Without it the console-link fallback is what gets tested. |
-| Okay to spend Copilot premium requests on spikes and e2e | Phase 1a, 4 | Rough estimate: 10–20 requests per e2e scenario run, about 150–250 in total. |
+| Your approval before each live Copilot run | end of Phase 1, end of Phase 4 | Everything else uses no Copilot at all. See "Copilot budget" below: about 25 prompts in total, or about 14 on the minimum plan. |
 | A GitHub sandbox repo (optional) | Phase 2 GitHub adapter real test | Without it the GitHub adapter is tested against mocks and local remotes only. |
+
+---
+
+## Copilot budget
+
+Your Copilot plan is shared, so testing does not use it unless a test cannot be
+done any other way, and then only with your go-ahead.
+
+**Free (no model calls, used for all development and the full test suite):**
+
+- Everything about the Copilot runtime that doesn't need a model: starting it,
+  your login, the model list with each model's cost, the tool list, and the
+  safety rules. Tools can be run through the runtime's own pipeline without a
+  model (`session.rpc.tools.execute`), so the hook and permission checks are
+  tested in the real runtime for free. Verified in the container: 15 of 15
+  forbidden actions denied, 0 usage events.
+- All workflow, UI and end-to-end tests use the scripted agent
+  (`agent-scripted`): same `AgentRuntime` interface, deterministic edits and
+  answers, no network. Real git, real CodeCommit and real PRs are still used
+  where those are what's being tested.
+- Adapter tests replay Copilot event streams recorded once during the live
+  runs (`spikes/reports/fixtures/`), so the parsing of real SDK events is
+  covered without calling the model again.
+
+**Live (real model calls), only at the end, each run asks first:**
+
+| Run | When | Prompts (estimate) | Why it can't be free |
+| --- | --- | --- | --- |
+| Spike a live (`pnpm spike:a -- --live`) | end of Phase 1, optional | 2 (hard cap in code) | proves streaming, structured output and a real edit + test run with your login |
+| E2E (b) split frontend + backend, with a restart during BUILDING | end of Phase 4 | about 12 | the most demanding real case: two repos, API contract, resume after restart |
+| E2E (a) one full-stack repo | end of Phase 4 | about 10 | the second shape from the Definition of Done |
+
+That is about 25 prompts in total, or about 14 if you choose the minimum plan:
+spike a live plus E2E (b) only, with (a) covered by the scripted run against
+the real repo. Each live run defaults to the cheapest enabled model, as
+reported by `listModels` (on request-based billing some models cost 0×). It
+stops at a hard prompt cap and reports usage from the runtime's
+`assistant.usage` events.
+
+The same controls are product features, because Tandem itself will be used on
+a shared plan (see ARCHITECTURE.md §7, "Copilot budget").
 
 ---
 
@@ -58,20 +99,27 @@ Only these, and only when the phase that needs them starts:
 Each spike is a standalone TypeScript script with a pass/fail report. If
 one fails, I stop and explain the options before building anything on it.
 
-**a) Copilot SDK with your existing login**
+**a) Copilot SDK with your existing login** (`pnpm spike:a`, free)
 1. `CopilotClient` start, `getAuthStatus()` shows your login with no token
    passed; record whether the bundled runtime or `COPILOT_CLI_PATH` (your
    installed CLI) is needed.
-2. `listModels()`; record the default and whether `auto` exists.
-3. Streaming chat: read-only session, `assistant.message_delta` events
-   arrive before `session.idle`; time to first token recorded.
-4. Build session in a worktree of a sandbox repo: agent makes a small edit,
-   runs the repo's tests through the shell tool, a denied command (`git
-   push`, `aws …`) is rejected by the permission handler, a write outside
-   the worktree is rejected, session ends cleanly (`disconnect`, `stop`).
-5. Structured output with a zod schema returns parsed data.
-6. `resumeSession` after killing the Node process mid-turn.
-7. Record the error shown when the model or policy is unavailable.
+2. `listModels()`: policy access, and each model's cost, so the cheapest model
+   can be chosen.
+3. Tool list on your OS (shell tool name differs on Windows).
+4. Read-only and build sessions in a worktree of the sandbox repo, with
+   forbidden actions run through the runtime's tool pipeline: writes, shell
+   and web in read-only sessions; push, commit, git options, cloud CLIs,
+   network, command substitution, writes outside the worktree or into `.git`
+   in build sessions. All must be denied, with 0 model calls counted.
+5. Restart before the first turn: the session isn't stored yet (seen in the
+   container), so Tandem re-creates it with the same enforcement.
+6. Unknown model: record when and how the error appears.
+
+`pnpm spike:a -- --live` (2 prompts, asks first): streaming plus structured
+output in a read-only session; a real edit and test run in a build session
+with the forbidden actions attempted by the model; the session's history
+restored after the runtime is killed. It records the event streams as test
+fixtures.
 
 **b) CodeCommit over SSH**: bare clone with remote-tracking refspec, fetch,
 default branch via `ls-remote --symref`, worktree on `agent/spike-…`,
@@ -141,19 +189,19 @@ endpoint returning {status: 'ok'} and show the status on the main page."
 Each run: clarifying questions → readiness → spec → owner approval →
 recorded PM approval → build → verify → self-review → PRs.
 
-| Scenario | Scripted (container) | Real (your machine) |
-| --- | --- | --- |
-| (a) one full-stack repo | yes | Copilot + CodeCommit, PR visible |
-| (b) separate frontend + backend repos | yes | Copilot + CodeCommit, two linked PRs |
-| request that needs clarifying questions | yes | yes |
-| too-big task → split | yes | yes |
-| request changes → redraft from task chat | yes | yes |
-| spec edit resets approvals | yes | yes |
-| failing tests → "needs attention" | yes | scripted agent, real repos |
-| rebase conflict | yes | scripted agent, real repos (harness pushes a conflicting commit to the sandbox default branch) |
-| restart mid-build resumes | yes | Copilot, process killed during BUILDING |
-| cancel | yes | yes |
-| Jira flows | written, skipped unless `TANDEM_E2E_JIRA=1` | skipped |
+| Scenario | Scripted agent, local remotes (container) | Scripted agent, real CodeCommit (your machine, free) | Live Copilot (your machine, asks first) |
+| --- | --- | --- | --- |
+| (a) one full-stack repo | yes | yes, PR visible | yes, unless you choose the minimum plan |
+| (b) separate frontend + backend repos | yes | yes, two linked PRs | yes |
+| request that needs clarifying questions | yes | yes | part of (a) and (b) |
+| too-big task → split | yes | yes | – |
+| request changes → redraft from task chat | yes | yes | – |
+| spec edit resets approvals | yes | yes | – |
+| failing tests → "needs attention" | yes | yes | – |
+| rebase conflict | yes (harness pushes a conflicting commit) | yes | – |
+| restart mid-build resumes | yes | yes | part of (b) |
+| cancel | yes | yes | – |
+| Jira flows | written, skipped unless `TANDEM_E2E_JIRA=1` | skipped | – |
 
 **Exit:** every row above passes; links to the sandbox PRs (or working
 fallback links) in the evidence file.
@@ -175,7 +223,8 @@ following only the docs; tag `v1.0.0`.
 - [ ] `pnpm tandem doctor` passes on your machine (Jira shown as optional)
 - [ ] build, type-check, lint, all tests pass
 - [ ] both e2e scenarios pass from chat against real sandbox repos, PRs
-      visible in CodeCommit (or fallback links work)
+      visible in CodeCommit (or fallback links work). On the minimum Copilot
+      plan, (a) runs with the scripted agent and (b) with live Copilot.
 - [ ] every Phase 4 failure-path test passes
 - [ ] restart during BUILDING resumes correctly
 - [ ] Jira adapter unit tests pass; enabling Jira only needs a token in
@@ -195,5 +244,6 @@ following only the docs; tag `v1.0.0`.
 | CodeCommit permission probe behaves differently than expected | Spike c confirms it; if it doesn't hold, the fallback is "try to create, fall back to link on AccessDenied", which is also safe because of `clientRequestToken`. |
 | `node:sqlite` is experimental in Node 22 | Hidden behind the repository layer; `better-sqlite3` is a drop-in alternative there. |
 | No Secret Service on headless Linux | Doctor detects it; Jira/GitHub tokens can't be saved until one is installed (no file fallback by design). |
-| Premium request usage | Read-only steps reuse one session per step; chat sessions are resumed rather than recreated; e2e budget stated up front. |
+| Shared Copilot plan | Development and tests use the scripted agent and recorded fixtures; live runs only at the end with your approval and a hard cap; Tandem has per-task and per-day limits (ARCHITECTURE.md §7). |
+| The scripted agent hides a real-model problem | The live runs at the end cover the main path for real, and the free runtime checks cover enforcement in the real runtime. Recorded event streams keep the adapter honest about real event shapes. |
 | Squash merges defeat git-ancestry merge detection in fallback mode | "Mark as merged" button; API polling is used whenever a profile or token exists. |

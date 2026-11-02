@@ -150,3 +150,36 @@ export async function runTurn(session: CopilotSession, prompt: string, timeoutMs
   }
   return result;
 }
+
+export interface UsageMeter {
+  modelCalls: number;
+  cost: number;
+  nanoAiu: number;
+  models: Set<string>;
+}
+
+export function newMeter(): UsageMeter {
+  return { modelCalls: 0, cost: 0, nanoAiu: 0, models: new Set() };
+}
+
+/** Counts every model call the runtime reports for a session (assistant.usage events). */
+export function meter(session: CopilotSession, m: UsageMeter): () => void {
+  return session.on('assistant.usage', (e) => {
+    m.modelCalls++;
+    m.cost += e.data.cost ?? 0;
+    m.nanoAiu += e.data.copilotUsage?.totalNanoAiu ?? 0;
+    if (e.data.model) m.models.add(e.data.model);
+  });
+}
+
+/** Lowest-cost enabled model: by request multiplier (legacy billing) or token prices (AI credits). */
+export function cheapestModel(models: Array<{ id: string; policy?: { state: string }; billing?: { multiplier?: number; tokenPrices?: { inputPrice?: number; outputPrice?: number } } }>): { id: string; cost: string } | undefined {
+  const enabled = models.filter((m) => m.policy?.state !== 'disabled' && m.id !== 'auto');
+  const score = (m: (typeof enabled)[number]) =>
+    m.billing?.multiplier ?? (m.billing?.tokenPrices ? (m.billing.tokenPrices.inputPrice ?? 0) + (m.billing.tokenPrices.outputPrice ?? 0) * 4 : Number.POSITIVE_INFINITY);
+  const best = [...enabled].sort((a, b) => score(a) - score(b))[0];
+  if (!best) return undefined;
+  const b = best.billing;
+  const cost = b?.multiplier !== undefined ? `${b.multiplier}x request multiplier` : b?.tokenPrices ? `input ${b.tokenPrices.inputPrice ?? '?'} / output ${b.tokenPrices.outputPrice ?? '?'} per batch` : 'unknown';
+  return { id: best.id, cost };
+}

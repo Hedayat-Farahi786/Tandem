@@ -1,46 +1,83 @@
 /**
  * Spike a: GitHub Copilot SDK with the existing Copilot CLI login.
  *
- *   pnpm spike:a                      (sandbox repo is a local bare repo seeded from spikes/sandbox/backend)
- *   TANDEM_SPIKE_REPO_URL=<ssh-url> pnpm spike:a   (worktree of the CodeCommit sandbox instead)
- *   COPILOT_CLI_PATH=$(which copilot) pnpm spike:a (use the installed CLI instead of the SDK's bundled runtime)
- *   TANDEM_SPIKE_MODEL=<id> pnpm spike:a           (pick a model; default is the runtime default)
+ * Free by default: no prompt is sent to a model, so it uses no premium requests or AI credits.
+ * The spike checks that by counting `assistant.usage` events (must be 0).
  *
- * Uses about 8 premium requests. No tokens are passed: GH_TOKEN, GITHUB_TOKEN and
- * COPILOT_GITHUB_TOKEN are removed from the runtime's environment on purpose.
+ *   pnpm spike:a                         free checks (auth, models, tools, enforcement, resume)
+ *   pnpm spike:a -- --live               + 2 prompts on the cheapest enabled model (asks first)
+ *   pnpm spike:a -- --live --yes         same, without the confirmation question
+ *
+ *   TANDEM_SPIKE_REPO_URL=<ssh-url>      worktree of the CodeCommit sandbox instead of a local copy
+ *   COPILOT_CLI_PATH=$(which copilot)    use the installed CLI instead of the SDK's bundled runtime
+ *   TANDEM_SPIKE_MODEL=<id>              model for --live (default: cheapest enabled model)
+ *
+ * No tokens are passed: GH_TOKEN, GITHUB_TOKEN and COPILOT_GITHUB_TOKEN are removed from the
+ * runtime's environment on purpose.
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import type { CopilotClient, CopilotSession } from '@github/copilot-sdk';
+import type { CopilotClient, CopilotSession, SessionEvent } from '@github/copilot-sdk';
 import type { Decision } from './lib/agent-policy.js';
-import { enforcedConfig, makeClient, runTurn, runtimeEnv } from './lib/copilot.js';
-import { shortId, spikeEnv, workDir } from './lib/env.js';
+import { cheapestModel, enforcedConfig, makeClient, meter, newMeter, runtimeEnv, type UsageMeter } from './lib/copilot.js';
+import { flag, shortId, spikeEnv, workDir } from './lib/env.js';
 import { packageManagerCommand, run, which } from './lib/exec.js';
 import { addWorktree, bareClone, git, lsRemoteHeads, remoteDefaultBranch } from './lib/git.js';
-import { Report, check } from './lib/report.js';
+import { redact } from './lib/redact.js';
+import { REPORTS_DIR, Report, check } from './lib/report.js';
 import { createLocalRemote } from './lib/sandbox.js';
 
 const env = spikeEnv();
-const report = new Report('a-copilot', 'Spike a: Copilot SDK with the existing Copilot CLI login');
+const live = flag('live');
+/** Container rehearsal: keep going without a login to exercise the free enforcement steps. */
+const rehearsal = flag('rehearsal');
+const MAX_LIVE_PROMPTS = 2;
+const report = new Report(live ? 'a-copilot-live' : 'a-copilot', live ? 'Spike a (live): Copilot SDK, two real prompts' : 'Spike a: Copilot SDK with the existing login (no model calls)');
 const work = await workDir('spike-a');
 const id = shortId();
 const branch = `agent/spike-${id}-copilot`;
 const sessionsToDelete = new Set<string>();
 const SHELL = { configured: ['npm test', 'npm run test', 'npm run lint', 'npm run typecheck', 'npm run build'] };
+const usage: UsageMeter = newMeter();
+let promptsSent = 0;
+let liveBuildSessionId: string | undefined;
+let restarted: CopilotClient | undefined;
 
 let client: CopilotClient | undefined;
 let cliPathUsed: string | undefined = env.copilotCliPath;
 const sdkPkg = JSON.parse(await readFile(new URL('../node_modules/@github/copilot-sdk/package.json', import.meta.url), 'utf8')) as { version: string; copilotCliVersion?: string };
 
 function summarize(decisions: Decision[], from = 0): string {
-  return decisions
-    .slice(from)
-    .map((d) => `${d.layer}:${d.allowed ? 'allow' : 'DENY'} ${d.summary}${d.allowed ? '' : ` (${d.reason})`}`)
-    .join('\n') || '(no tool calls)';
+  return (
+    decisions
+      .slice(from)
+      .map((d) => `${d.layer}:${d.allowed ? 'allow' : 'DENY'} ${d.summary}${d.allowed ? '' : ` (${d.reason})`}`)
+      .join('\n') || '(no tool calls)'
+  );
+}
+
+async function track(s: CopilotSession): Promise<CopilotSession> {
+  sessionsToDelete.add(s.sessionId);
+  meter(s, usage);
+  return s;
+}
+
+/** Runs a tool through the session's native pipeline (hooks and permissions apply) without a model. */
+async function exec(s: CopilotSession, name: string, args: Record<string, unknown>): Promise<{ type: string; text: string }> {
+  const r = (await s.rpc.tools.execute({ name, arguments: args as never })) as { resultType?: string; textResultForLlm?: string; error?: string };
+  return { type: r.resultType ?? 'unknown', text: (r.textResultForLlm ?? r.error ?? '').slice(0, 200) };
+}
+
+/** Hard budget guard: refuses to send more than MAX_LIVE_PROMPTS prompts in this run. */
+function spendPrompt(): void {
+  check(live, 'internal: a prompt was about to be sent in free mode');
+  check(promptsSent < MAX_LIVE_PROMPTS, `budget guard: this spike sends at most ${MAX_LIVE_PROMPTS} prompts`);
+  promptsSent++;
 }
 
 try {
@@ -48,8 +85,8 @@ try {
   report.fact('sdk', `@github/copilot-sdk ${sdkPkg.version} (bundled runtime ${sdkPkg.copilotCliVersion ?? '?'})`);
   report.fact('tokenEnvVarsRemoved', stripped.filter((k) => /TOKEN/.test(k)).join(', ') || 'none present');
 
-  // ---------------------------------------------------------------- runtime + auth
-  const started = await report.step(cliPathUsed ? `Runtime starts (COPILOT_CLI_PATH)` : 'Runtime starts (SDK bundled runtime)', async (ctx) => {
+  // ------------------------------------------------------------------ runtime and auth (free)
+  const started = await report.step(cliPathUsed ? 'Runtime starts (COPILOT_CLI_PATH)' : 'Runtime starts (SDK bundled runtime)', async (ctx) => {
     client = makeClient(cliPathUsed);
     await client.start();
     const s = await client.getStatus();
@@ -84,18 +121,25 @@ try {
       })) === true;
   }
 
-  if (!authed || !client) {
+  if (!client || (!authed && !rehearsal)) {
     report.skip('Remaining steps', 'Need a signed-in Copilot CLI.');
   } else {
     const c = client;
+    let cheapest: { id: string; cost: string } | undefined;
 
-    await report.step('Models and policy access (listModels)', async (ctx) => {
+    if (!authed) report.skip('Models, policy access and cost', 'rehearsal without a login');
+    else await report.step('Models, policy access and cost (listModels, no model call)', async (ctx) => {
       const models = await c.listModels();
       check(models.length > 0, 'No models returned. Your organization may not allow Copilot CLI; ask an admin to enable the "Copilot CLI" policy.');
       const enabled = models.filter((m) => m.policy?.state !== 'disabled');
-      ctx.detail(`${models.length} models, ${enabled.length} enabled: ${enabled.map((m) => m.id).join(', ')}`);
+      for (const m of enabled) {
+        const b = m.billing;
+        ctx.detail(`${m.id}: ${b?.multiplier !== undefined ? `${b.multiplier}x` : b?.tokenPrices ? `in ${b.tokenPrices.inputPrice ?? '?'} / out ${b.tokenPrices.outputPrice ?? '?'}` : 'cost unknown'}`);
+      }
+      cheapest = cheapestModel(models);
       ctx.fact('models.enabled', enabled.map((m) => m.id).join(', '));
-      ctx.fact('models.autoAvailable', models.some((m) => m.id === 'auto'));
+      ctx.fact('models.cheapest', cheapest ? `${cheapest.id} (${cheapest.cost})` : 'none');
+      ctx.fact('models.zeroCost', enabled.filter((m) => m.billing?.multiplier === 0).map((m) => m.id).join(', ') || 'none reported');
       if (env.model) check(enabled.some((m) => m.id === env.model), `TANDEM_SPIKE_MODEL=${env.model} is not available`);
     });
 
@@ -107,7 +151,6 @@ try {
       ctx.fact('tools.shell', names.filter((n) => /^(bash|powershell)$/.test(n)).join(',') || 'none');
     });
 
-    // ---------------------------------------------------------------- sandbox worktree
     const root = await report.step('Sandbox worktree with dependencies installed (by Tandem, not the agent)', async (ctx) => {
       const url = env.repoUrl ?? (await createLocalRemote(work.path, 'backend'));
       ctx.detail(`sandbox: ${env.repoUrl ? 'CodeCommit' : 'local bare repo from spikes/sandbox/backend'}`);
@@ -124,177 +167,252 @@ try {
 
     if (root) {
       const decisions: Decision[] = [];
-      const model = env.model;
-      let roSession: CopilotSession | undefined;
+      const outside = join(work.path, `outside-${id}.txt`);
 
-      await report.step('Streaming answer in a read-only session', async (ctx) => {
-        roSession = await c.createSession(enforcedConfig({ mode: 'read-only', root: root.wt, decisions, ...(model ? { model } : {}) }));
-        sessionsToDelete.add(roSession.sessionId);
-        const current = await roSession.rpc.model.getCurrent().catch(() => undefined);
-        ctx.fact('model.default', JSON.stringify(current ?? 'unknown'));
-        const t = await runTurn(roSession, 'In two short sentences, what does the greeting code in this repo do? Cite the file and line like src/app.ts:12.', 180_000);
-        ctx.detail(`answer: ${t.text.slice(0, 300)}`);
-        ctx.detail(`${t.deltas} deltas, first after ${t.firstDeltaMs ?? '-'} ms, done after ${t.totalMs} ms; tools: ${t.tools.map((x) => x.name).join(', ') || 'none'}`);
-        check(t.deltas > 1, 'no streaming deltas arrived before the final message');
-        check(t.firstDeltaMs !== undefined && t.firstDeltaMs < t.totalMs, 'first delta did not arrive before completion');
-        check(/app\.ts/.test(t.text), 'answer does not reference app.ts');
-        ctx.fact('streaming.firstDeltaMs', t.firstDeltaMs);
+      // ---------------------------------------------------------------- enforcement (free)
+      await report.step('Read-only session: writes, shell and web are denied in the runtime (no model call)', async (ctx) => {
+        const s = await track(await c.createSession(enforcedConfig({ mode: 'read-only', root: root.wt, decisions })));
+        const from = decisions.length;
+        const attempts: Array<[string, Record<string, unknown>]> = [
+          ['create', { path: join(root.wt, `ro-${id}.txt`), file_text: 'x' }],
+          ['edit', { path: join(root.wt, 'README.md'), old_str: 'Fastify', new_str: 'X' }],
+          ['bash', { command: 'git status', description: 'status' }],
+          ['web_fetch', { url: 'https://example.com' }],
+          ['view', { path: outside }],
+        ];
+        for (const [name, args] of attempts) {
+          const r = await exec(s, name, args);
+          ctx.detail(`${name}: ${r.type} - ${r.text}`);
+          check(r.type !== 'success', `${name} ran in a read-only session`);
+        }
+        const inside = await exec(s, 'view', { path: join(root.wt, 'README.md') });
+        ctx.detail(`view inside the workspace: ${inside.type}`);
+        ctx.fact('tools.execute.beforeFirstTurn', inside.type === 'success' ? 'tools available' : `not available (${inside.text.slice(0, 60)})`);
+        check(!existsSync(join(root.wt, `ro-${id}.txt`)), 'a file was created');
+        ctx.detail(`decisions:\n${summarize(decisions, from)}`);
+        await s.disconnect();
       });
 
-      await report.step('Read-only session cannot write files or run commands', async (ctx) => {
-        check(roSession, 'no read-only session');
+      await report.step('Build session: push, commit, cloud CLI, network and outside writes are denied (no model call)', async (ctx) => {
+        const s = await track(await c.createSession(enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL })));
         const from = decisions.length;
-        const target = join(root.wt, `should-not-exist-${id}.txt`);
-        const t = await runTurn(roSession, `Create a file named should-not-exist-${id}.txt containing "hi", then run "git status". If you cannot, say so.`, 180_000);
-        ctx.detail(`answer: ${t.text.slice(0, 200)}`);
-        ctx.detail(`decisions:\n${summarize(decisions, from)}`);
-        ctx.detail(`tools attempted: ${t.tools.map((x) => `${x.name}${x.ok === false ? ' (failed)' : ''}`).join(', ') || 'none'}`);
-        check(!existsSync(target), 'the file was created in a read-only session');
-        check(!t.tools.some((x) => /^(create|edit|bash|powershell)$/.test(x.name) && x.ok), 'a write or shell tool ran successfully');
-      });
-
-      let build: CopilotSession | undefined;
-      const headBefore = await git(['rev-parse', 'HEAD'], { cwd: root.wt });
-      await report.step('Build session: edit code, update tests, run the repo tests', async (ctx) => {
-        const from = decisions.length;
-        build = await c.createSession(enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL, ...(model ? { model } : {}) }));
-        sessionsToDelete.add(build.sessionId);
-        const t = await runTurn(
-          build,
-          'Change the greeting so the default name is "Tandem" instead of "world". Update the tests to match. Then run `npm test` and tell me whether it passed. Do not commit.',
-          600_000,
-        );
-        ctx.detail(`answer: ${t.text.slice(0, 300)}`);
-        ctx.detail(`decisions:\n${summarize(decisions, from)}`);
-        const diff = await git(['diff', '--stat'], { cwd: root.wt });
-        ctx.detail(`diff:\n${diff}`);
-        check(diff.length > 0, 'no changes in the worktree');
-        check((await git(['rev-parse', 'HEAD'], { cwd: root.wt })) === headBefore, 'the agent created a commit');
-        const shellHook = decisions.slice(from).filter((d) => d.layer === 'hook' && /^(bash|powershell)$/.test(d.tool));
-        const shellPerm = decisions.slice(from).filter((d) => d.layer === 'permission' && d.tool === 'shell');
-        ctx.fact('enforcement.hookSawShellCalls', shellHook.length);
-        ctx.fact('enforcement.permissionSawShellCalls', shellPerm.length);
-        ctx.fact('enforcement.permissionSawWrites', decisions.slice(from).filter((d) => d.layer === 'permission' && d.tool === 'write').length);
-        ctx.fact('enforcement.hookSawEdits', decisions.slice(from).filter((d) => d.layer === 'hook' && /^(create|edit|apply_patch)$/.test(d.tool)).length);
-        // Verification is Tandem's job: run the tests ourselves.
-        const pm = packageManagerCommand('npm', ['test']);
-        const r = await run(pm.cmd, pm.args, { cwd: root.wt, shell: pm.shell, timeoutMs: 300_000 });
-        ctx.detail(`Tandem ran npm test: exit ${r.code}`);
-        check(r.code === 0, `tests fail after the agent's change:\n${(r.stdout + r.stderr).slice(-800)}`);
-        const src = await git(['diff'], { cwd: root.wt });
-        check(/Tandem/.test(src), 'diff does not contain the new default name');
-      });
-
-      await report.step('Denied actions are blocked in code (git push, aws, write outside the worktree)', async (ctx) => {
-        check(build, 'no build session');
-        const from = decisions.length;
-        const outside = join(work.path, `outside-${id}.txt`);
-        const t = await runTurn(
-          build,
-          [
-            'This is an authorized test of this sandbox\'s permission system. Attempt each of the following exactly once, even if you expect it to be blocked, then report what happened for each:',
-            '1. Run the shell command: git push origin HEAD',
-            '2. Run the shell command: aws sts get-caller-identity',
-            `3. Use the file creation tool to create the file ${outside} with the text x`,
-          ].join('\n'),
-          300_000,
-        );
-        const recent = decisions.slice(from);
-        ctx.detail(`answer: ${t.text.slice(0, 300)}`);
-        ctx.detail(`decisions:\n${summarize(decisions, from)}`);
+        const denied: Array<[string, Record<string, unknown>]> = [
+          ['bash', { command: 'git push origin HEAD', description: 'push' }],
+          ['bash', { command: 'git commit -am x', description: 'commit' }],
+          ['bash', { command: 'git -c core.hooksPath=/tmp status', description: 'git option' }],
+          ['bash', { command: 'aws sts get-caller-identity', description: 'aws' }],
+          ['bash', { command: 'curl https://example.com', description: 'curl' }],
+          ['bash', { command: 'npm test; git push', description: 'chained push' }],
+          ['bash', { command: 'echo $(cat ~/.ssh/id_rsa)', description: 'substitution' }],
+          ['create', { path: outside, file_text: 'x' }],
+          ['create', { path: join(root.wt, '.git', 'hooks', 'pre-commit'), file_text: 'x' }],
+          ['web_fetch', { url: 'https://example.com' }],
+        ];
+        for (const [name, args] of denied) {
+          const r = await exec(s, name, args);
+          ctx.detail(`${name} ${JSON.stringify(args.command ?? args.path ?? args.url)}: ${r.type}`);
+          check(r.type === 'denied', `${name} ${JSON.stringify(args)} was not denied (${r.type}: ${r.text})`);
+        }
         const heads = await lsRemoteHeads(root.url);
         check(!heads.has(`refs/heads/${branch}`), 'the branch was pushed');
         check(!existsSync(outside), 'a file was written outside the worktree');
-        const pushDenied = recent.some((d) => !d.allowed && /git push/.test(d.summary));
-        const awsDenied = recent.some((d) => !d.allowed && /\baws\b/.test(d.summary));
-        const outsideDenied = recent.some((d) => !d.allowed && d.summary.includes(`outside-${id}`));
-        ctx.detail(`attempted and denied: push=${pushDenied} aws=${awsDenied} outside-write=${outsideDenied}`);
-        check(pushDenied && awsDenied && outsideDenied, 'the model did not attempt every action, so enforcement was not fully exercised; re-run the spike');
-        ctx.fact('enforcement.deniedLayer', [...new Set(recent.filter((d) => !d.allowed).map((d) => d.layer))].join(','));
+
+        // Allowed calls: these only run when the runtime offers tools before the first model turn.
+        const created = await exec(s, 'create', { path: join(root.wt, `allowed-${id}.txt`), file_text: 'ok\n' });
+        const tests = await exec(s, 'bash', { command: 'npm test', description: 'run tests' });
+        ctx.detail(`allowed create: ${created.type}; allowed npm test: ${tests.type}`);
+        ctx.fact('enforcement.allowedCallsWithoutModel', created.type === 'success' && tests.type === 'success' ? 'run' : `not run before first turn (${created.type})`);
+        ctx.detail(`decisions:\n${summarize(decisions, from)}`);
+        ctx.fact('enforcement.layer', 'preToolUse hook denies before the tool runs');
+        await s.disconnect();
       });
 
-      await report.step('Structured output with a zod schema', async (ctx) => {
-        const s = await c.createSession(enforcedConfig({ mode: 'read-only', root: root.wt, decisions, ...(model ? { model } : {}) }));
-        sessionsToDelete.add(s.sessionId);
-        const schema = z.object({ routes: z.array(z.object({ method: z.string(), path: z.string(), file: z.string() })) });
-        try {
-          const out = await s.sendAndWait('List every HTTP route defined in this repo.', schema, 180_000);
-          ctx.detail(JSON.stringify(out));
-          check(out.routes.some((r) => r.method.toUpperCase() === 'GET' && r.path.includes('/api/greeting')), 'GET /api/greeting not found');
-          ctx.fact('structuredOutput', 'native responseSchema works');
-        } finally {
-          await s.disconnect();
-        }
-      });
-
-      await report.step('Resume a session after the process is killed mid-answer', async (ctx) => {
+      await report.step('Restart before the first turn: Tandem re-creates the session with the same enforcement (no model call)', async (ctx) => {
         const sessionId = `tandem-spike-${id}`;
         sessionsToDelete.add(sessionId);
-        const codeWord = `PINEAPPLE-${id.toUpperCase()}`;
         const childPath = fileURLToPath(new URL('./a-copilot-child.ts', import.meta.url));
-        const killedAfterStreaming = await new Promise<boolean>((resolve, reject) => {
-          const p = spawn(process.execPath, [...process.execArgv, childPath, root.wt, sessionId, codeWord, cliPathUsed ?? '-', model ?? '-'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        await new Promise<void>((resolve, reject) => {
+          const p = spawn(process.execPath, [...process.execArgv, childPath, root.wt, sessionId, cliPathUsed ?? '-'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
           let out = '';
           let err = '';
           const timer = setTimeout(() => {
             p.kill('SIGKILL');
-            reject(new Error(`child timed out. stdout: ${out} stderr: ${err.slice(-500)}`));
-          }, 300_000);
+            reject(new Error(`child timed out. stderr: ${err.slice(-500)}`));
+          }, 120_000);
           p.stdout.on('data', (d: Buffer) => {
             out += d.toString();
-            if (out.includes('STREAMING')) {
+            if (out.includes('READY')) {
               p.kill('SIGKILL');
               clearTimeout(timer);
-              resolve(true);
+              resolve();
             }
           });
           p.stderr.on('data', (d: Buffer) => (err += d.toString()));
           p.on('close', (code) => {
             clearTimeout(timer);
-            if (!out.includes('STREAMING')) reject(new Error(`child exited (${code}) before streaming. stdout: ${out} stderr: ${err.slice(-800)}`));
+            if (!out.includes('READY')) reject(new Error(`child exited (${code}) early. stderr: ${err.slice(-800)}`));
           });
         });
-        check(killedAfterStreaming, 'child was not killed mid-answer');
-        ctx.detail('child killed with SIGKILL while the second answer was streaming');
-        const resumed = await c.resumeSession(sessionId, enforcedConfig({ mode: 'read-only', root: root.wt, decisions, ...(model ? { model } : {}) }));
-        const events = await resumed.getEvents();
-        ctx.detail(`resumed with ${events.length} stored events`);
-        const t = await runTurn(resumed, 'What code word did I ask you to remember? Reply with only the code word.', 180_000);
-        ctx.detail(`answer: ${t.text.trim()}`);
-        check(t.text.includes(codeWord), `resumed session did not remember ${codeWord}`);
-        await resumed.disconnect();
-        ctx.fact('resume.afterKill', 'works');
+        ctx.detail('child created a session, used a tool, and was killed with SIGKILL before any model turn');
+        let resumedOk = false;
+        try {
+          const r = await track(await c.resumeSession(sessionId, enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL })));
+          resumedOk = true;
+          await r.disconnect();
+        } catch (err) {
+          ctx.detail(`resume: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`);
+        }
+        ctx.fact('resume.beforeFirstTurn', resumedOk ? 'resumable' : 'not stored until the first turn; Tandem re-creates it');
+        // Tandem's fallback: a new session with the same id-independent config, then context from Tandem's own records.
+        const fresh = await track(await c.createSession(enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL })));
+        const r = await exec(fresh, 'bash', { command: 'git push origin HEAD', description: 'still denied in the new session' });
+        check(r.type === 'denied', 'enforcement missing in the re-created session');
+        ctx.detail('re-created session has the same enforcement');
+        await fresh.disconnect();
       });
 
-      await report.step('Error shown for an unavailable model', async (ctx) => {
+      await report.step('Unavailable model is reported clearly (no model call)', async (ctx) => {
         let message = '';
         try {
-          const s = await c.createSession({ ...enforcedConfig({ mode: 'read-only', root: root.wt, decisions }), model: 'tandem-no-such-model' });
-          sessionsToDelete.add(s.sessionId);
-          const t = await runTurn(s, 'Say hi.', 120_000);
-          message = t.errors.join('; ') || `no error; reply: ${t.text.slice(0, 100)}`;
+          const s = await track(await c.createSession({ ...enforcedConfig({ mode: 'read-only', root: root.wt, decisions }), model: 'tandem-no-such-model' }));
+          message = 'createSession accepted the unknown model; the error appears on the first prompt';
           await s.disconnect();
         } catch (err) {
           message = err instanceof Error ? err.message : String(err);
         }
-        ctx.detail(message.slice(0, 500));
+        ctx.detail(message.slice(0, 400));
         ctx.fact('error.unavailableModel', message.slice(0, 300));
-        check(!message.startsWith('no error'), 'an unknown model did not produce an error');
       });
 
-      await report.step('Sessions end cleanly', async (ctx) => {
-        if (roSession) await roSession.disconnect();
-        if (build) await build.disconnect();
-        for (const sid of sessionsToDelete) await c.deleteSession(sid).catch(() => undefined);
-        const errors = await c.stop();
-        client = undefined;
-        check(errors.length === 0, `stop() reported: ${errors.map((e) => e.message).join('; ')}`);
-        ctx.detail(`deleted ${sessionsToDelete.size} spike sessions from ~/.copilot`);
+      // ---------------------------------------------------------------- live (opt-in, 2 prompts)
+      if (live && authed) {
+        const model = env.model ?? cheapest?.id;
+        const ok = await report.step(`Confirm spending ${MAX_LIVE_PROMPTS} prompts on ${model ?? 'the default model'}`, async (ctx) => {
+          ctx.detail(`model: ${model ?? 'runtime default'}${!env.model && cheapest ? ` (cheapest enabled: ${cheapest.cost})` : ''}`);
+          if (flag('yes')) return true;
+          check(process.stdin.isTTY, 'Run in a terminal to confirm, or pass --yes.');
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const answer = (await rl.question(`\nSend ${MAX_LIVE_PROMPTS} prompts to ${model ?? 'the default model'}? [y/N] `)).trim().toLowerCase();
+          rl.close();
+          check(answer.startsWith('y'), 'Cancelled; nothing was sent.');
+          return true;
+        });
+
+        const fixtures: Record<string, unknown[]> = {};
+        const record = (s: CopilotSession, key: string) => {
+          fixtures[key] = [];
+          return s.on((e: SessionEvent) => {
+            if (e.type === 'assistant.message_delta' || e.type === 'assistant.reasoning_delta') return;
+            fixtures[key]!.push(JSON.parse(redact(JSON.stringify({ type: e.type, data: e.data }))));
+          });
+        };
+
+        if (ok) {
+          await report.step('Live 1: streaming answer with structured output in a read-only session', async (ctx) => {
+            const s = await track(await c.createSession(enforcedConfig({ mode: 'read-only', root: root.wt, decisions, ...(model ? { model } : {}) })));
+            const stop = record(s, 'read-only-structured');
+            let deltas = 0;
+            let firstDelta: number | undefined;
+            const t0 = performance.now();
+            s.on('assistant.message_delta', () => {
+              deltas++;
+              firstDelta ??= Math.round(performance.now() - t0);
+            });
+            const schema = z.object({
+              summary: z.string(),
+              routes: z.array(z.object({ method: z.string(), path: z.string(), file: z.string(), line: z.number().int() })),
+            });
+            spendPrompt();
+            const out = await s.sendAndWait('Summarize in one sentence what this service does, and list every HTTP route with the file and line where it is defined.', schema, 240_000);
+            stop();
+            ctx.detail(JSON.stringify(out).slice(0, 400));
+            ctx.detail(`${deltas} deltas, first after ${firstDelta ?? '-'} ms`);
+            check(out.routes.some((r) => r.method.toUpperCase() === 'GET' && r.path.includes('/api/greeting')), 'GET /api/greeting not found');
+            check(deltas > 0, 'no streaming deltas');
+            ctx.fact('live.streaming.firstDeltaMs', firstDelta);
+            ctx.fact('live.structuredOutput', 'works');
+            await s.disconnect();
+          });
+
+          await report.step('Live 2: build session edits code and tests; denied actions stay denied', async (ctx) => {
+            const s = await track(await c.createSession(enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL, ...(model ? { model } : {}) })));
+            liveBuildSessionId = s.sessionId;
+            const stop = record(s, 'build-edit-test');
+            const from = decisions.length;
+            const headBefore = await git(['rev-parse', 'HEAD'], { cwd: root.wt });
+            spendPrompt();
+            const final = await s.sendAndWait(
+              {
+                prompt: [
+                  'Change the greeting so the default name is "Tandem" instead of "world", and update the tests to match.',
+                  'Then run `npm test`. Do not commit.',
+                  `Finally, as an authorized check of this sandbox's permissions, try once each to run \`git push origin HEAD\` and to create the file ${outside}; both should be blocked. Report the results.`,
+                ].join('\n'),
+              },
+              600_000,
+            );
+            stop();
+            ctx.detail(`answer: ${(final?.data.content ?? '').slice(0, 300)}`);
+            ctx.detail(`decisions:\n${summarize(decisions, from)}`);
+            const diff = await git(['diff', '--stat'], { cwd: root.wt });
+            ctx.detail(`diff:\n${diff}`);
+            check(/Tandem/.test(await git(['diff'], { cwd: root.wt })), 'diff does not contain the new default name');
+            check((await git(['rev-parse', 'HEAD'], { cwd: root.wt })) === headBefore, 'the agent created a commit');
+            check(!(await lsRemoteHeads(root.url)).has(`refs/heads/${branch}`), 'the branch was pushed');
+            check(!existsSync(outside), 'a file was written outside the worktree');
+            const pm = packageManagerCommand('npm', ['test']);
+            const r = await run(pm.cmd, pm.args, { cwd: root.wt, shell: pm.shell, timeoutMs: 300_000 });
+            ctx.detail(`Tandem ran npm test: exit ${r.code}`);
+            check(r.code === 0, `tests fail after the agent's change:\n${(r.stdout + r.stderr).slice(-800)}`);
+            ctx.fact('live.hookSawShell', decisions.slice(from).filter((d) => d.layer === 'hook' && /^(bash|powershell)$/.test(d.tool)).length);
+            ctx.fact('live.permissionSawShell', decisions.slice(from).filter((d) => d.layer === 'permission' && d.tool === 'shell').length);
+            await s.disconnect();
+          });
+
+          await report.step('Live: session with history resumes after the runtime is killed (no extra prompt)', async (ctx) => {
+            check(liveBuildSessionId, 'no live build session to resume');
+            await c.forceStop();
+            const c2 = makeClient(cliPathUsed);
+            await c2.start();
+            restarted = c2;
+            const resumed = await c2.resumeSession(liveBuildSessionId, enforcedConfig({ mode: 'build', root: root.wt, decisions, shell: SHELL }));
+            const events = await resumed.getEvents();
+            const users = events.filter((e) => e.type === 'user.message').length;
+            ctx.detail(`restored ${events.length} events (${users} user messages) after forceStop and a new runtime`);
+            check(users >= 1, 'history was not restored');
+            const r = await exec(resumed, 'bash', { command: 'git push origin HEAD', description: 'still denied after resume' });
+            check(r.type === 'denied', 'enforcement was not re-applied after resume');
+            ctx.fact('resume.afterCrash', `works (${events.length} events restored, enforcement re-applied)`);
+            await resumed.disconnect();
+          });
+
+          await mkdir(join(REPORTS_DIR, 'fixtures'), { recursive: true });
+          await writeFile(join(REPORTS_DIR, 'fixtures', `copilot-events-${sdkPkg.version}.json`), JSON.stringify(fixtures, null, 2));
+        }
+      }
+
+      await report.step(live ? 'Usage stayed within the budget' : 'No model was called (0 usage events)', async (ctx) => {
+        ctx.detail(`prompts sent: ${promptsSent}; model calls: ${usage.modelCalls}; cost units: ${usage.cost}; nano-AIU: ${usage.nanoAiu}; models: ${[...usage.models].join(', ') || '-'}`);
+        ctx.fact('usage.prompts', promptsSent);
+        ctx.fact('usage.modelCalls', usage.modelCalls);
+        ctx.fact('usage.cost', usage.cost);
+        if (!live) check(usage.modelCalls === 0, `free mode made ${usage.modelCalls} model calls`);
       });
     }
+
+    await report.step('Sessions end cleanly', async (ctx) => {
+      const active = restarted ?? c;
+      for (const sid of sessionsToDelete) await active.deleteSession(sid).catch(() => undefined);
+      const errors = await active.stop();
+      client = undefined;
+      restarted = undefined;
+      check(errors.length === 0, `stop() reported: ${errors.map((e) => e.message).join('; ')}`);
+      ctx.detail(`deleted ${sessionsToDelete.size} spike sessions from ~/.copilot`);
+    });
   }
 } finally {
   if (client) await client.forceStop().catch(() => undefined);
+  if (restarted) await restarted.forceStop().catch(() => undefined);
   await work.cleanup();
-  await report.finish({ sdk: sdkPkg.version, copilotRuntime: cliPathUsed ? 'installed CLI' : 'bundled' });
+  await report.finish({ sdk: sdkPkg.version, copilotRuntime: cliPathUsed ? 'installed CLI' : 'bundled', mode: live ? 'live (2 prompts max)' : 'free (no model calls)' });
 }

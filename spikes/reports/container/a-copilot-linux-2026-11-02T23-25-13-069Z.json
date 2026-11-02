@@ -1,0 +1,142 @@
+{
+  "id": "a-copilot",
+  "title": "Spike a: Copilot SDK with the existing login (no model calls)",
+  "startedAt": "2026-11-02T23:25:13.069Z",
+  "machine": {
+    "os": "linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.23.4",
+    "sdk": "1.0.28",
+    "copilotRuntime": "bundled",
+    "mode": "free (no model calls)"
+  },
+  "counts": {
+    "pass": 9,
+    "fail": 1,
+    "skip": 1
+  },
+  "steps": [
+    {
+      "name": "Runtime starts (SDK bundled runtime)",
+      "status": "pass",
+      "durationMs": 55,
+      "details": [
+        "runtime 1.0.105, protocol 3"
+      ]
+    },
+    {
+      "name": "Signed in with the existing Copilot CLI login (no token passed)",
+      "status": "fail",
+      "durationMs": 45,
+      "details": [
+        "bundled runtime: authenticated=false type=- Not authenticated"
+      ],
+      "error": "Not signed in. Run `copilot`, use /login, then run this spike again."
+    },
+    {
+      "name": "Models, policy access and cost",
+      "status": "skip",
+      "durationMs": 0,
+      "details": [
+        "rehearsal without a login"
+      ]
+    },
+    {
+      "name": "Built-in tools on this OS",
+      "status": "pass",
+      "durationMs": 4,
+      "details": [
+        "bash, read_bash, stop_bash, list_bash, glob, grep, create, edit, skill, view, web_fetch, task, read_agent, list_agents, write_agent"
+      ]
+    },
+    {
+      "name": "Sandbox worktree with dependencies installed (by Tandem, not the agent)",
+      "status": "pass",
+      "durationMs": 3101,
+      "details": [
+        "sandbox: local bare repo from spikes/sandbox/backend"
+      ]
+    },
+    {
+      "name": "Read-only session: writes, shell and web are denied in the runtime (no model call)",
+      "status": "pass",
+      "durationMs": 142,
+      "details": [
+        "create: denied - Denied by preToolUse hook: Blocked by Tandem: create is not available in read-only sessions",
+        "edit: denied - Denied by preToolUse hook: Blocked by Tandem: edit is not available in read-only sessions",
+        "bash: denied - Denied by preToolUse hook: Blocked by Tandem: bash is not available in read-only sessions",
+        "web_fetch: denied - Denied by preToolUse hook: Blocked by Tandem: web_fetch is not available in read-only sessions",
+        "view: denied - Denied by preToolUse hook: Blocked by Tandem: /tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt is outside the workspace",
+        "view inside the workspace: failure",
+        "decisions:\nhook:DENY create (create is not available in read-only sessions)\nhook:DENY edit (edit is not available in read-only sessions)\nhook:DENY bash (bash is not available in read-only sessions)\nhook:DENY web_fetch (web_fetch is not available in read-only sessions)\nhook:DENY view /tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt (/tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt is outside the workspace)\nhook:allow view /tmp/tandem-spike-a-QJoX1Z/tasks/vzppqi99/sandbox/README.md"
+      ]
+    },
+    {
+      "name": "Build session: push, commit, cloud CLI, network and outside writes are denied (no model call)",
+      "status": "pass",
+      "durationMs": 153,
+      "details": [
+        "bash \"git push origin HEAD\": denied",
+        "bash \"git commit -am x\": denied",
+        "bash \"git -c core.hooksPath=/tmp status\": denied",
+        "bash \"aws sts get-caller-identity\": denied",
+        "bash \"curl https://example.com\": denied",
+        "bash \"npm test; git push\": denied",
+        "bash \"echo $(cat ~/.ssh/id_rsa)\": denied",
+        "create \"/tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt\": denied",
+        "create \"/tmp/tandem-spike-a-QJoX1Z/tasks/vzppqi99/sandbox/.git/hooks/pre-commit\": denied",
+        "web_fetch \"https://example.com\": denied",
+        "allowed create: failure; allowed npm test: failure",
+        "decisions:\nhook:DENY bash: git push origin HEAD (git push is not allowed; Tandem commits, rebases and pushes for you)\nhook:DENY bash: git commit -am x (git commit is not allowed; Tandem commits, rebases and pushes for you)\nhook:DENY bash: git -c core.hooksPath=/tmp status (git options before the subcommand (like -c or -C) are not allowed)\nhook:DENY bash: aws sts get-caller-identity (\"aws\" is not allowed in Tandem build sessions)\nhook:DENY bash: curl https://example.com (\"curl\" is not allowed in Tandem build sessions)\nhook:DENY bash: npm test; git push (git push is not allowed; Tandem commits, rebases and pushes for you)\nhook:DENY bash: echo $(cat ~/.ssh/id_rsa) (command substitution, process substitution and heredocs are not allowed)\nhook:DENY create /tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt (/tmp/tandem-spike-a-QJoX1Z/outside-vzppqi99.txt is outside the workspace)\nhook:DENY create /tmp/tandem-spike-a-QJoX1Z/tasks/vzppqi99/sandbox/.git/hooks/pre-commit (writing inside .git is not allowed)\nhook:DENY web_fetch (web_fetch is not available in build sessions)\nhook:allow create /tmp/tandem-spike-a-QJoX1Z/tasks/vzppqi99/sandbox/allowed-vzppqi99.txt\nhook:allow bash: npm test"
+      ]
+    },
+    {
+      "name": "Restart before the first turn: Tandem re-creates the session with the same enforcement (no model call)",
+      "status": "pass",
+      "durationMs": 566,
+      "details": [
+        "child created a session, used a tool, and was killed with SIGKILL before any model turn",
+        "resume: Request session.resume failed with message: Failed to load session events: Session not found: tandem-spike-vzppqi99",
+        "re-created session has the same enforcement"
+      ]
+    },
+    {
+      "name": "Unavailable model is reported clearly (no model call)",
+      "status": "pass",
+      "durationMs": 124,
+      "details": [
+        "createSession accepted the unknown model; the error appears on the first prompt"
+      ]
+    },
+    {
+      "name": "No model was called (0 usage events)",
+      "status": "pass",
+      "durationMs": 0,
+      "details": [
+        "prompts sent: 0; model calls: 0; cost units: 0; nano-AIU: 0; models: -"
+      ]
+    },
+    {
+      "name": "Sessions end cleanly",
+      "status": "pass",
+      "durationMs": 28,
+      "details": [
+        "deleted 5 spike sessions from ~/.copilot"
+      ]
+    }
+  ],
+  "facts": {
+    "sdk": "@github/copilot-sdk 1.0.28 (bundled runtime 1.0.105)",
+    "tokenEnvVarsRemoved": "GITHUB_TOKEN, GH_TOKEN",
+    "runtime.version": "1.0.105",
+    "tools.builtin": "bash,read_bash,stop_bash,list_bash,glob,grep,create,edit,skill,view,web_fetch,task,read_agent,list_agents,write_agent",
+    "tools.shell": "bash",
+    "tools.execute.beforeFirstTurn": "not available (Tool 'view' does not exist. Available tools that can be call)",
+    "enforcement.allowedCallsWithoutModel": "not run before first turn (failure)",
+    "enforcement.layer": "preToolUse hook denies before the tool runs",
+    "resume.beforeFirstTurn": "not stored until the first turn; Tandem re-creates it",
+    "error.unavailableModel": "createSession accepted the unknown model; the error appears on the first prompt",
+    "usage.prompts": "0",
+    "usage.modelCalls": "0",
+    "usage.cost": "0"
+  }
+}

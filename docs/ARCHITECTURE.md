@@ -226,7 +226,7 @@ task.
 
 `readiness-missing` (list of missing items), `split-proposed`,
 `spec-invalid`, `rebase-conflict`, `push-rejected`, `preflight-failed`,
-`pm-changes-requested` (Jira). Each carries `resumeTo` (state + step) and a
+`pm-changes-requested` (Jira), `budget-reached` (Copilot limit, §7). Each carries `resumeTo` (state + step) and a
 plain message that says what to do next. Fixing the cause (editing the task,
 accepting the split, retrying) re-enters the workflow at `resumeTo`.
 
@@ -243,9 +243,11 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
    (`sendAndWait(prompt, zodSchema)`); the gate itself is never the model's
    opinion. Missing items → BLOCKED with the list (and a Jira comment when
    Jira is the source).
-3. **Size check.** A read-only agent session reads the reference checkouts
-   and returns, as structured output, estimated changed lines per repo,
-   the independent features it sees, and a proposed split. Code decides:
+3. **Size check.** The estimate is structured output: estimated changed
+   lines per repo, the independent features, and a proposed split. Tasks
+   from Request mode get it in the chat's final turn. Jira and form tasks
+   get it from one read-only call over the reference checkouts, combined
+   with extraction, so it costs no separate call. Code decides:
    too big if estimated lines > 400 (configurable) or features > 1.
    Too big → BLOCKED `split-proposed` with the proposal. The owner accepts
    (child tasks are created in READINESS, the parent is cancelled with a
@@ -332,9 +334,10 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
   limit (default 2).
 - Agent runs persist their Copilot session id. On restart mid-build the
   runner calls `resumeSession(id)` and sends a continuation prompt that
-  includes the current `git status` and diff summary. If resume fails, it
-  starts a new build session with the spec plus the current diff. Work on
-  disk in the worktree is never discarded by a restart.
+  includes the current `git status` and diff summary. If resume fails (for
+  example the session was killed before its first turn, when nothing is
+  stored yet), it starts a new build session with the spec plus the current
+  diff. Work on disk in the worktree is never discarded by a restart.
 - Retries: Copilot errors (rate limit, transient network, `session.error`)
   are retried with exponential backoff (2 s, 4 s, 8 s, 16 s, jittered,
   4 attempts) before the task goes to FAILED. Git network errors use the
@@ -495,6 +498,40 @@ them against a local test database, and any command with
 (`core/policies/commands.ts`), unit-tested with a table of allowed and
 denied examples, and shown read-only in Settings.
 
+Verified in the real runtime without a model (spike a, container rehearsal):
+`session.rpc.tools.execute` runs a tool through the runtime's own pipeline,
+and the `onPreToolUse` hook denied 15 of 15 forbidden actions with 0
+`assistant.usage` events. The hook is therefore the primary gate and fires
+before the tool runs; the permission handler is the second layer for calls
+the hook allows. A session is not stored until its first model turn, so
+resuming a session killed before that fails with "Session not found"; the
+runner then creates a new session with the same enforcement and Tandem's own
+context.
+
+### Copilot budget
+
+Copilot plans are often shared, so Tandem treats model calls as a budget:
+
+- **Metering.** Every `assistant.usage` event (model, cost multiplier, AI
+  credits) is stored against the task or chat that caused it and shown on the
+  task page and in Settings.
+- **Limits.** Per task (default 15 prompts) and per day (default 40), both
+  editable. When a limit is reached, the task goes to BLOCKED
+  `budget-reached` ("Raise the limit in Settings or continue tomorrow"), and
+  nothing is lost. `sessionLimits.maxAiCredits` is also set when the account
+  uses AI-credit billing.
+- **Model per step.** Settings picks a model for light steps (chat,
+  extraction, size, review) and one for build. Defaults: the cheapest enabled
+  model for light steps, the runtime default for build. Each model's cost
+  comes from `listModels().billing`.
+- **Fewer calls by design.** The readiness gate is code, so tasks created in
+  Request mode cost no extra call. The size estimate comes back as structured
+  output in the Request chat's final turn, or together with extraction for
+  Jira tasks. Self-review is one call; the build agent marks each finding
+  fixed through `tandem_resolve_finding`, and verify re-runs
+  deterministically instead of making a second review call. Sessions are
+  reused within a step.
+
 ### Secret redaction
 
 `core/policies/redact.ts` applies to every log line, persisted event, chat
@@ -640,9 +677,12 @@ automatically on first launch and from the Doctor screen.
 | End-to-end | both project shapes from chat Request mode to PRs, plus every failure path | scripted mode anywhere; real mode on the user's machine with CodeCommit + Copilot |
 
 The scripted agent (`agent-scripted`) implements `AgentRuntime` and replays
-scripted edits and answers. It exists so failure paths (failing tests,
-conflicts, restarts) are deterministic. The happy paths for both shapes are
-also run with real Copilot against real CodeCommit sandbox repos; failure
-paths that need a model to misbehave on purpose (for example tests it
-cannot fix) use the scripted agent against the same real repos. Jira
-end-to-end tests are written and skipped unless `TANDEM_E2E_JIRA=1`.
+scripted edits and answers. All development and the whole test suite use it,
+so normal testing makes no Copilot calls. It also makes failure paths
+(failing tests, conflicts, restarts) deterministic. The Copilot adapter is
+covered without model calls in two ways. Its enforcement is tested in the
+real runtime through `tools.execute`. Its event handling is tested against
+event streams recorded once during the live runs. Live Copilot runs happen
+only at the end, with the owner's approval and a hard prompt cap (see
+`docs/PLAN.md`, "Copilot budget"). Jira end-to-end tests are written and
+skipped unless `TANDEM_E2E_JIRA=1`.
