@@ -1,0 +1,25 @@
+{
+  "id": "d-jira",
+  "title": "Spike d (Jira): REST endpoints Tandem relies on",
+  "startedAt": "2026-11-02T23:19:08.230Z",
+  "machine": {
+    "os": "linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.23.4"
+  },
+  "counts": {
+    "pass": 0,
+    "fail": 0,
+    "skip": 1
+  },
+  "steps": [
+    {
+      "name": "All steps",
+      "status": "skip",
+      "durationMs": 0,
+      "details": [
+        "Jira is not configured (optional). Set JIRA_BASE_URL, JIRA_API_TOKEN and, for Jira Cloud, JIRA_EMAIL."
+      ]
+    }
+  ],
+  "facts": {}
+}

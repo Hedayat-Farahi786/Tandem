@@ -1,0 +1,27 @@
+{
+  "name": "tandem",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local agentic software development lifecycle, from request to reviewed pull requests.",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "spike:a": "pnpm --filter @tandem/spikes run a",
+    "spike:b": "pnpm --filter @tandem/spikes run b",
+    "spike:c": "pnpm --filter @tandem/spikes run c",
+    "spike:d": "pnpm --filter @tandem/spikes run d",
+    "spike:d-jira": "pnpm --filter @tandem/spikes run d-jira",
+    "spike:all": "pnpm --filter @tandem/spikes run all",
+    "typecheck": "pnpm -r run typecheck",
+    "spike:seed": "pnpm --filter @tandem/spikes run seed"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "koffi"
+    ]
+  }
+}

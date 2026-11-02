@@ -1,0 +1,58 @@
+{
+  "id": "d-local-tracker",
+  "title": "Spike d: local tracker survives restarts",
+  "startedAt": "2026-11-02T23:19:29.407Z",
+  "machine": {
+    "os": "linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.23.4",
+    "sqlite": "node:sqlite"
+  },
+  "counts": {
+    "pass": 5,
+    "fail": 0,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "Process 1: create task, add two comments, change status, exit",
+      "status": "pass",
+      "durationMs": 118,
+      "details": [
+        "created TND-1"
+      ]
+    },
+    {
+      "name": "Process 2: commit a comment, then hard kill (SIGKILL)",
+      "status": "pass",
+      "durationMs": 102,
+      "details": [
+        "child ended with SIGKILL"
+      ]
+    },
+    {
+      "name": "Process 3: hard kill in the middle of a transaction",
+      "status": "pass",
+      "durationMs": 132,
+      "details": [
+        "child ended with SIGKILL"
+      ]
+    },
+    {
+      "name": "Process 4: data intact after restarts, partial transaction rolled back",
+      "status": "pass",
+      "durationMs": 105,
+      "details": [
+        "status READINESS, 3 comments, 1 transition, integrity ok, journal wal"
+      ]
+    },
+    {
+      "name": "Same process: create a second task after restart (key sequence continues)",
+      "status": "pass",
+      "durationMs": 3,
+      "details": []
+    }
+  ],
+  "facts": {
+    "sqlite.journal": "wal"
+  }
+}

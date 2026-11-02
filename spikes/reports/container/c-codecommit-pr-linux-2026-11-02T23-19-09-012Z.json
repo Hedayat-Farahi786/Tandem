@@ -1,0 +1,26 @@
+{
+  "id": "c-codecommit-pr",
+  "title": "Spike c: CodeCommit pull requests (AWS SDK and console-link fallback)",
+  "startedAt": "2026-11-02T23:19:09.012Z",
+  "machine": {
+    "os": "linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.23.4",
+    "git": "2.43.0"
+  },
+  "counts": {
+    "pass": 0,
+    "fail": 0,
+    "skip": 1
+  },
+  "steps": [
+    {
+      "name": "All steps",
+      "status": "skip",
+      "durationMs": 0,
+      "details": [
+        "Set TANDEM_SPIKE_REPO_URL to the SSH URL of a CodeCommit sandbox repo."
+      ]
+    }
+  ],
+  "facts": {}
+}

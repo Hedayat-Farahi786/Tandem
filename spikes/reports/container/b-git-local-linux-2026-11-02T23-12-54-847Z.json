@@ -1,0 +1,151 @@
+{
+  "id": "b-git-local",
+  "title": "Spike b (rehearsal): git workflow against a local bare repo",
+  "startedAt": "2026-11-02T23:12:54.847Z",
+  "machine": {
+    "os": "linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.23.4",
+    "git": "2.43.0",
+    "mode": "local rehearsal"
+  },
+  "counts": {
+    "pass": 16,
+    "fail": 0,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "Create local stand-in remote (seeded with the backend template)",
+      "status": "pass",
+      "durationMs": 211,
+      "details": [
+        "remote: file:///tmp/tandem-spike-b-AeaWIV/backend-remote.git"
+      ]
+    },
+    {
+      "name": "SSH read access and default branch (ls-remote --symref)",
+      "status": "pass",
+      "durationMs": 9,
+      "details": [
+        "default branch: main"
+      ]
+    },
+    {
+      "name": "Bare clone with remote-tracking refspec (\"mirror\")",
+      "status": "pass",
+      "durationMs": 67,
+      "details": [
+        "origin/main = 01cdad6269"
+      ]
+    },
+    {
+      "name": "Create spike base branch agent/spike-vjw3mdkm-base from main (stands in for the default branch)",
+      "status": "pass",
+      "durationMs": 46,
+      "details": [
+        "origin/agent/spike-vjw3mdkm-base = 01cdad6269"
+      ]
+    },
+    {
+      "name": "Worktree on agent/spike-vjw3mdkm-work from origin/agent/spike-vjw3mdkm-base",
+      "status": "pass",
+      "durationMs": 23,
+      "details": [
+        "worktree: /tmp/tandem-spike-b-AeaWIV/tasks/vjw3mdkm/sandbox"
+      ]
+    },
+    {
+      "name": "Commit in the worktree",
+      "status": "pass",
+      "durationMs": 89,
+      "details": [
+        "commit e259a1e7ee"
+      ]
+    },
+    {
+      "name": "Push guard refuses anything outside agent/*",
+      "status": "pass",
+      "durationMs": 9,
+      "details": [
+        "refused: main, refs/heads/main, master, agent, feature/x, refs/tags/v1, agent/../main"
+      ]
+    },
+    {
+      "name": "Push with explicit refspec over SSH",
+      "status": "pass",
+      "durationMs": 44,
+      "details": [
+        "remote agent/spike-vjw3mdkm-work = e259a1e7ee"
+      ]
+    },
+    {
+      "name": "Base branch moves (non-conflicting commit from another clone)",
+      "status": "pass",
+      "durationMs": 142,
+      "details": [
+        "origin/agent/spike-vjw3mdkm-base moved to 87c265fcf8"
+      ]
+    },
+    {
+      "name": "Clean rebase onto the moved base",
+      "status": "pass",
+      "durationMs": 109,
+      "details": [
+        "history now:\ntest: spike vjw3mdkm change\ntest: upstream change vjw3mdkm\nchore: seed backend sandbox from Tandem template"
+      ]
+    },
+    {
+      "name": "Re-push after rebase with --force-with-lease (lease = last pushed sha)",
+      "status": "pass",
+      "durationMs": 41,
+      "details": []
+    },
+    {
+      "name": "Stale lease is rejected (someone else pushed to the agent branch)",
+      "status": "pass",
+      "durationMs": 270,
+      "details": [
+        "rejected as expected: !\trefs/heads/agent/spike-vjw3mdkm-work:refs/heads/agent/spike-vjw3mdkm-work\t[rejected] (stale info)"
+      ]
+    },
+    {
+      "name": "Conflicting rebase is detected and aborted cleanly",
+      "status": "pass",
+      "durationMs": 433,
+      "details": [
+        "conflicting files: README.md",
+        "abort restored the branch and left a clean worktree"
+      ]
+    },
+    {
+      "name": "Conflict resolved (as the agent would), rebase continued, re-pushed with lease",
+      "status": "pass",
+      "durationMs": 286,
+      "details": [
+        "resolved and pushed c27c135b0d"
+      ]
+    },
+    {
+      "name": "Default branch untouched",
+      "status": "pass",
+      "durationMs": 11,
+      "details": []
+    },
+    {
+      "name": "Cleanup: delete spike branches on the remote, remove worktree",
+      "status": "pass",
+      "durationMs": 50,
+      "details": [
+        "deleted agent/spike-vjw3mdkm-base",
+        "deleted agent/spike-vjw3mdkm-work"
+      ]
+    }
+  ],
+  "facts": {
+    "lsRemote.ms": "8",
+    "defaultBranch": "main",
+    "clone.ms": "42",
+    "fetch.noop.ms": "13",
+    "push.ms": "31"
+  }
+}
