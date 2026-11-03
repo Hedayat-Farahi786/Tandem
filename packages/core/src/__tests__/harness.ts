@@ -37,7 +37,7 @@ export const GOOD_REQUIREMENT = Requirement.parse({
 
 export const SINGLE_SPEC = VALID_SPEC;
 
-export type ScriptOverrides = Partial<Record<'size' | 'extract' | 'review' | 'spec' | 'implement' | 'fix' | 'coverage' | 'reviewFix' | 'conflict', (call: ScriptCall) => ScriptReply | Promise<ScriptReply>>>;
+export type ScriptOverrides = Partial<Record<'size' | 'extract' | 'review' | 'spec' | 'implement' | 'fix' | 'coverage' | 'reviewFix' | 'conflict' | 'chat', (call: ScriptCall) => ScriptReply | Promise<ScriptReply>>>;
 
 function route(call: ScriptCall): keyof Required<ScriptOverrides> | 'unknown' {
   const p = call.prompt;
@@ -50,6 +50,7 @@ function route(call: ScriptCall): keyof Required<ScriptOverrides> | 'unknown' {
   if (p.startsWith('These acceptance criteria have no recorded test')) return 'coverage';
   if (p.startsWith('A separate reviewer')) return 'reviewFix';
   if (p.startsWith('Rebasing')) return 'conflict';
+  if (p.startsWith('Repos in the workspace')) return 'chat';
   return 'unknown';
 }
 
@@ -77,6 +78,7 @@ const defaults: Required<ScriptOverrides> = {
   coverage: () => ({ text: 'Nothing to add.' }),
   reviewFix: (call) => ({ text: 'Fixed findings.', tools: [...call.prompt.matchAll(/- id (\S+)/g)].map((m) => ({ name: 'tandem_resolve_finding', args: { id: m[1], status: 'fixed', note: '' } })) }),
   conflict: () => ({ text: 'Resolved.' }),
+  chat: () => ({ text: 'OK.' }),
 };
 
 export interface HarnessOptions {

@@ -274,7 +274,15 @@ export const ChatThread = z.object({
   mode: ChatMode,
   title: z.string(),
   sessionId: z.string().optional(),
+  /** Request mode: the requirement gathered so far. */
   draft: Requirement.optional(),
+  draftTitle: z.string().optional(),
+  draftRepoIds: z.array(Id).optional(),
+  draftSize: SizeEstimate.optional(),
+  /** Set once "Create task" turned the draft into a task. */
+  createdTaskId: Id.optional(),
+  /** Task chat: a spec change the agent proposed, waiting for the owner to confirm. */
+  pendingSpecChange: z.object({ kind: z.enum(['redraft', 'edit']), feedback: z.string().optional(), markdown: z.string().optional(), summary: z.string() }).optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });

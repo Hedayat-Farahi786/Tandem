@@ -53,9 +53,10 @@ describe.skipIf(!REAL)('real CodeCommit (scripted agent, no Copilot)', () => {
   it('host: preflight, mirror, push, idempotent PR, status, description, close', async () => {
     const home = mkdtempSync(join(tmpdir(), 'tandem-real-'));
     const settings = async () => ({ ...DEFAULT_SETTINGS, aws: { profile: PROFILE ?? '', region: '' } });
-    let host!: CodeCommitHost;
-    const git = new RepoGit((r) => host.mirrorPath(r));
-    host = new CodeCommitHost({ home, git, settings });
+    const ref: { host?: CodeCommitHost } = {};
+    const git = new RepoGit((r) => ref.host!.mirrorPath(r));
+    const host = new CodeCommitHost({ home, git, settings });
+    ref.host = host;
     const r = repo();
 
     const checks = await host.preflight(r);

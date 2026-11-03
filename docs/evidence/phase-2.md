@@ -11,9 +11,9 @@ real-runtime self-test that sends no prompt.
 | --- | --- |
 | `pnpm typecheck` (build + tests) | exit 0 |
 | `pnpm lint` | exit 0 |
-| `vitest run --coverage` (unit + integration) | 14 files, 193 tests passed |
-| Line coverage, `packages/core/src` | 99.1 % (gate: 85 %) |
-| Line coverage, all packages | 92.9 % |
+| `vitest run --coverage` (unit + integration) | 16 files, 201 tests passed (2 real-CodeCommit tests skipped without `TANDEM_REAL=1`) |
+| Line coverage, `packages/core/src` | 99.4 % (gate: 85 %) |
+| Line coverage, all packages | 93.0 % |
 | Real CodeCommit (`pnpm test:real`, scripted agent) | 2/2 passed: host checks and a full workflow to a real PR |
 
 ## What is covered
@@ -30,7 +30,11 @@ real-runtime self-test that sends no prompt.
   rebase conflicts (resolved, unresolved, resolved but failing), push rejected and lease
   re-push, manual PR fallback followed to merge, a PR closed without merging, restart
   mid-build in the same agent session, cancel, transient and permanent agent errors, the
-  Copilot budget, learned rules.
+  Copilot budget, learned rules. Chat: Ask with checked file references and session
+  resume, Request mode clarifying until the Definition of Ready passes and creating the
+  task without a separate size call, task chat proposing a redraft or an exact edit that
+  the owner confirms. Repo detection for Node (npm, pnpm, yarn), Python, Go, Java,
+  Gradle, .NET and Rust, including the three sandbox templates.
 - **Store contract.** The same suite runs against the in-memory store and SQLite:
   every repository, rollback, isolation of open transactions, reopening the file,
   redaction on write.

@@ -166,7 +166,7 @@ anything.
    your machine.
 
 **Exit:** all green; core line coverage >= 85 % (report in evidence); real
-integration run on your machine.
+integration run on your machine. **Done:** see `docs/evidence/phase-2.md`.
 
 ## Phase 3 – Web UI
 

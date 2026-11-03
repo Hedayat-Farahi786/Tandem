@@ -12,3 +12,4 @@ export * from './agent-copilot/enforce.js';
 export * from './secrets/keychain.js';
 export * from './paths.js';
 export * from './compose.js';
+export * from './git/inspect.js';

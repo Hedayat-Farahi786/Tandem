@@ -19,3 +19,5 @@ export * from './workflow/verify.js';
 export * from './workflow/steps.js';
 export * from './workflow/service.js';
 export * from './store-lock.js';
+export * from './chat/chat-service.js';
+export * from './detect.js';
