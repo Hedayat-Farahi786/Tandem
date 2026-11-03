@@ -91,24 +91,93 @@ export function IconTile({ icon: Icon, tone = 'neutral', size = 'md' }: { icon: 
   );
 }
 
-/** A monogram for a project: its initials on a soft gradient picked from its name. */
-export function Monogram({ name, size = 40 }: { name: string; size?: number }) {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  const initials =
-    name
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join('') || '?';
+/** Curated, muted pairs (light → deep): calm next to the neutral UI, distinct from each other. */
+const AVATAR_PALETTES: ReadonlyArray<readonly [string, string]> = [
+  ['#7d95d6', '#34509c'], // ink
+  ['#8fb49b', '#3f6b53'], // sage
+  ['#dd9f80', '#a4533a'], // clay
+  ['#b394c6', '#68427c'], // plum
+  ['#dbb671', '#956624'], // ochre
+  ['#79b8b9', '#276c70'], // teal
+  ['#9a9ca5', '#3d3f46'], // graphite
+  ['#d993a6', '#96445d'], // rose
+];
+
+/** Simple geometric marks on a 24×24 grid, drawn in white. */
+const AVATAR_GLYPHS: ReadonlyArray<ReactNode> = [
+  // orbit
+  <>
+    <circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none" />
+    <ellipse cx="12" cy="12" rx="9" ry="4.4" transform="rotate(-28 12 12)" />
+  </>,
+  // layers
+  <>
+    <path d="M12 4.2 20 8.6l-8 4.4-8-4.4Z" fill="currentColor" stroke="none" />
+    <path d="m4 12.6 8 4.4 8-4.4M4 16.4l8 4.4 8-4.4" />
+  </>,
+  // stack
+  <path d="M6 7h12M6 12h8.5M6 17h4.5" />,
+  // diamond
+  <>
+    <path d="M12 3.8 20.2 12 12 20.2 3.8 12Z" />
+    <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
+  </>,
+  // grid
+  <>
+    <rect x="4.5" y="4.5" width="6.5" height="6.5" rx="1.8" fill="currentColor" />
+    <rect x="13" y="4.5" width="6.5" height="6.5" rx="1.8" />
+    <rect x="4.5" y="13" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13" y="13" width="6.5" height="6.5" rx="1.8" />
+  </>,
+  // waves
+  <path d="M3.5 9.5c2.8-3.4 5.7 3.4 8.5 0s5.7 3.4 8.5 0M3.5 15.5c2.8-3.4 5.7 3.4 8.5 0s5.7 3.4 8.5 0" />,
+  // spark
+  <path d="M12 3.5c.7 4.6 3.4 7.8 8.5 8.5-5.1.7-7.8 3.9-8.5 8.5-.7-4.6-3.4-7.8-8.5-8.5 5.1-.7 7.8-3.9 8.5-8.5Z" fill="currentColor" stroke="none" />,
+  // overlap
+  <>
+    <circle cx="9.2" cy="12" r="5.4" />
+    <circle cx="14.8" cy="12" r="5.4" />
+  </>,
+  // hexagon
+  <>
+    <path d="M12 3.6 19.3 7.8v8.4L12 20.4l-7.3-4.2V7.8Z" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+  </>,
+  // peaks
+  <path d="M3.5 18 9 9.5l3.6 5.4 2.6-3.6 5.3 6.7Z" />,
+];
+
+/** FNV-1a: a stable number from a name, so a project keeps its look everywhere. */
+function hashName(name: string): number {
+  let h = 0x811c9dc5;
+  for (const ch of name.trim().toLowerCase()) h = Math.imul(h ^ ch.codePointAt(0)!, 0x01000193) >>> 0;
+  return h;
+}
+
+/**
+ * A project's avatar: a softly lit gradient tile with a geometric mark, both picked from the name
+ * (like Linear's and Vercel's generated avatars). Decorative: the name is always next to it.
+ */
+export function ProjectAvatar({ name, size = 40 }: { name: string; size?: number }) {
+  const h = hashName(name);
+  const [light, deep] = AVATAR_PALETTES[h % AVATAR_PALETTES.length]!;
+  const glyph = AVATAR_GLYPHS[(h >>> 8) % AVATAR_GLYPHS.length];
+  const small = size < 26;
   return (
     <span
       aria-hidden
-      className="grid shrink-0 place-items-center rounded-xl font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]"
-      style={{ width: size, height: size, fontSize: size * 0.36, background: `linear-gradient(140deg, hsl(${h} 42% 58%), hsl(${(h + 36) % 360} 46% 40%))` }}
+      className="relative grid shrink-0 place-items-center overflow-hidden text-white"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.round(size * (small ? 0.3 : 0.28)),
+        background: `radial-gradient(120% 90% at 18% 8%, rgb(255 255 255 / 0.22), transparent 55%), linear-gradient(155deg, ${light}, ${deep})`,
+        boxShadow: small ? 'inset 0 0 0 0.5px rgb(255 255 255 / 0.18), 0 0 0 0.5px rgb(0 0 0 / 0.12)' : 'inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -1px 0 rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.12)',
+      }}
     >
-      {initials}
+      <svg viewBox="0 0 24 24" width={Math.round(size * (small ? 0.66 : 0.56))} height={Math.round(size * (small ? 0.66 : 0.56))} fill="none" stroke="currentColor" strokeWidth={small ? 2.6 : size < 36 ? 2.1 : 1.8} strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-[0_1px_1px_rgb(0_0_0/0.18)]">
+        {glyph}
+      </svg>
     </span>
   );
 }

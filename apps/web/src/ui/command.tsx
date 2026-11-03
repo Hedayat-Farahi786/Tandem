@@ -25,7 +25,7 @@ import { api } from "../lib/api";
 import { useRouter } from "../lib/router";
 import { useTheme } from "../lib/theme";
 import type { Bootstrap, TaskListItem } from "../lib/types";
-import { Monogram, StatusIcon } from "./visual";
+import { ProjectAvatar, StatusIcon } from "./visual";
 import { cx } from "./kit";
 
 interface Item {
@@ -133,7 +133,7 @@ export function CommandPalette({
       id: `p-${p.id}`,
       group: "Chat in project",
       label: p.name,
-      icon: <Monogram name={p.name} size={18} />,
+      icon: <ProjectAvatar name={p.name} size={18} />,
       run: go(`/chat?project=${p.id}`),
     }));
     const recent: Item[] = [...(tasks.data ?? [])]

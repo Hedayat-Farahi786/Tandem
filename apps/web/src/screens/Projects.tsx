@@ -4,7 +4,7 @@ import { BookOpen, ChevronRight, Cloud, FolderGit2, GitBranch, Pencil, Plus, Spa
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
-import { IconTile, LangDot, Monogram } from '../ui/visual';
+import { IconTile, LangDot, ProjectAvatar } from '../ui/visual';
 import { Button, LinkButton, SettingsSection, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
@@ -249,7 +249,7 @@ export function ProjectsScreen() {
         return (
           <section key={p.id} aria-label={p.name} className="rounded-2xl bg-surface p-5 shadow-panel">
             <div className="flex items-start gap-4">
-              <Monogram name={p.name} size={44} />
+              <ProjectAvatar name={p.name} size={44} />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-[17px] font-semibold tracking-tight">{p.name}</h2>
                 <p className="mt-0.5 text-[13px] text-muted">
