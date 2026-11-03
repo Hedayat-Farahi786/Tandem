@@ -220,17 +220,20 @@ following only the docs; tag `v1.0.0`.
 
 ## Definition of Done checklist
 
-- [ ] `pnpm tandem doctor` passes on your machine (Jira shown as optional)
-- [ ] build, type-check, lint, all tests pass
-- [ ] both e2e scenarios pass from chat against real sandbox repos, PRs
+All items met for v1.0.0 (2026-11-03); evidence for each is in
+[evidence/phase-5.md](evidence/phase-5.md#definition-of-done).
+
+- [x] `pnpm tandem doctor` passes on your machine (Jira shown as optional)
+- [x] build, type-check, lint, all tests pass
+- [x] both e2e scenarios pass from chat against real sandbox repos, PRs
       visible in CodeCommit (or fallback links work). On the minimum Copilot
       plan, (a) runs with the scripted agent and (b) with live Copilot.
-- [ ] every Phase 4 failure-path test passes
-- [ ] restart during BUILDING resumes correctly
-- [ ] Jira adapter unit tests pass; enabling Jira only needs a token in
+- [x] every Phase 4 failure-path test passes
+- [x] restart during BUILDING resumes correctly
+- [x] Jira adapter unit tests pass; enabling Jira only needs a token in
       Settings
-- [ ] no secrets in logs, DB, or committed files (scan output attached)
-- [ ] docs let a new user set up from scratch (walk-through recorded)
+- [x] no secrets in logs, DB, or committed files (scan output attached)
+- [x] docs let a new user set up from scratch (walk-through recorded)
 
 ---
 
