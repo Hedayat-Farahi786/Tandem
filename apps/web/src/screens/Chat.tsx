@@ -192,7 +192,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               className="block max-h-[220px] min-h-[40px] w-full resize-none bg-transparent px-2.5 pt-1.5 text-[14.5px] leading-relaxed focus:outline-none focus-visible:outline-none"
             />
             <div className="flex items-center justify-end gap-1.5">
-              <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} />
+              <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} align="end" />
               <Button type="submit" variant="primary" aria-label="Send" className="size-8 rounded-[10px] px-0" disabled={!text.trim() || send.isPending || done}>
                 {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>
@@ -295,7 +295,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
               ))}
             </div>
             <div className="flex items-center gap-1.5">
-              <ModelPicker value={usable} onChange={pick} placement="bottom" />
+              <ModelPicker value={usable} onChange={pick} placement="bottom" align="end" />
               <Button type="submit" variant="primary" aria-label="Start" className="size-9 rounded-xl px-0" disabled={!text.trim() || busy}>
                 {busy ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>

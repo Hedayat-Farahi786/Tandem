@@ -97,7 +97,8 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
   const uid = useId();
   const { navigate } = useRouter();
   const [open, setOpen] = useState(false);
-  // Opens toward the side with room, and fits the list to it (header, details and footer take ~320px).
+  // Opens toward the side with room and fits to it. Details sit beside the list (stacked below on narrow
+  // screens) in a fixed-size panel, so hovering models never resizes the popover.
   const [fit, setFit] = useState<{ side: 'top' | 'bottom'; list: number }>({ side: placement, list: 300 });
   const catalog = useModels(open || Boolean(value));
   const items = useMemo<Item[]>(() => [{ kind: 'auto' }, ...(catalog.data?.models ?? []).map((m): Item => ({ kind: 'model', m }))], [catalog.data]);
@@ -119,8 +120,10 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
     const r = button.current.getBoundingClientRect();
     const room = { top: r.top - 16, bottom: window.innerHeight - r.bottom - 16 };
     const other = placement === 'top' ? 'bottom' : 'top';
-    const side = room[placement] >= 560 || room[placement] >= room[other] ? placement : other;
-    setFit({ side, list: Math.max(120, Math.min(300, room[side] - 320)) });
+    const side = room[placement] >= 480 || room[placement] >= room[other] ? placement : other;
+    const stacked = window.innerWidth < 640;
+    // Narrow screens: a sheet along the bottom edge, so it never runs off the side.
+    setFit({ side, list: stacked ? Math.max(160, Math.min(280, window.innerHeight - 420)) : Math.max(160, Math.min(400, room[side] - 90)) });
   }, [open, placement]);
   useEffect(() => {
     if (open) setActive(selectedIndex);
@@ -162,7 +165,7 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
         onMouseEnter={() => setActive(index)}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => choose(index)}
-        className={cx('flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px]', index === active && 'bg-surface-2')}
+        className={cx('flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-100', index === active && 'bg-surface-2')}
       >
         <Check aria-hidden className={cx('size-3.5 shrink-0 text-accent', !selected && 'invisible')} />
         <span className="min-w-0 flex-1">
@@ -234,8 +237,9 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
       {open && (
         <div
           className={cx(
-            'absolute z-50 flex w-[min(380px,calc(100vw-32px))] animate-pop flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-lg',
+            'absolute z-50 flex w-[min(640px,calc(100vw-32px))] max-sm:fixed max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-3 max-sm:m-0 max-sm:w-auto max-sm:origin-bottom animate-pop flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-lg',
             fit.side === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
+            fit.side === 'top' ? (align === 'end' ? 'origin-bottom-right' : 'origin-bottom-left') : align === 'end' ? 'origin-top-right' : 'origin-top-left',
             align === 'end' ? 'right-0' : 'left-0',
           )}
         >
@@ -258,7 +262,8 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
             </div>
           ) : (
             <>
-              <div id={`${uid}-list`} role="listbox" aria-labelledby={`${uid}-title`} tabIndex={-1} style={{ maxHeight: fit.list }} className="overflow-y-auto px-1.5 pb-1.5">
+              <div className="flex flex-col sm:flex-row">
+              <div id={`${uid}-list`} role="listbox" aria-labelledby={`${uid}-title`} tabIndex={-1} style={{ maxHeight: fit.list }} className="overflow-y-auto overscroll-contain scroll-smooth px-1.5 pb-1.5 sm:w-[290px] sm:shrink-0">
                 {option(0, 'Auto', null, 'Tandem picks per step')}
                 {groups.map((g) => (
                     <div key={g.vendor} role="group" aria-labelledby={`${uid}-g-${g.vendor}`}>
@@ -275,7 +280,14 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
                     </div>
                 ))}
               </div>
-              <div className="border-t border-line bg-surface-2/60 px-3.5 py-3">{items[active] && <Details item={items[active]} catalog={catalog.data} />}</div>
+              <div className="min-h-[188px] border-t border-line bg-surface-2/60 px-4 py-3.5 sm:min-h-0 sm:flex-1 sm:border-t-0 sm:border-l">
+                {items[active] && (
+                  <div key={itemId(items[active])} className="animate-[fade-in_120ms_ease-out]">
+                    <Details item={items[active]} catalog={catalog.data} />
+                  </div>
+                )}
+              </div>
+              </div>
               <div className="flex items-center justify-between border-t border-line px-3.5 py-2 text-[11.5px] text-faint">
                 <span className="tabular-nums">
                   Today {formatCredits(catalog.data.credits.today)} of {catalog.data.credits.perDay} credits
