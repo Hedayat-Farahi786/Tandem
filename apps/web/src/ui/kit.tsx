@@ -324,11 +324,11 @@ export function Checkbox({ checked, onChange, label, description, disabled }: { 
   );
 }
 
-export function Switch({ checked, onChange, label, description }: { checked: boolean; onChange: (v: boolean) => void; label: string; description?: string }) {
+export function Switch({ checked, onChange, label, description, hideLabel }: { checked: boolean; onChange: (v: boolean) => void; label: string; description?: string; hideLabel?: boolean }) {
   const id = useId();
   return (
     <div className="flex items-start justify-between gap-4">
-      <span>
+      <span className={cx(hideLabel && 'sr-only')}>
         <label htmlFor={id} className="text-sm font-medium">
           {label}
         </label>
@@ -340,9 +340,9 @@ export function Switch({ checked, onChange, label, description }: { checked: boo
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={cx('relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors', checked ? 'bg-accent' : 'bg-surface-3')}
+        className={cx('relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors duration-200', checked ? 'bg-accent' : 'bg-line-strong')}
       >
-        <span className={cx('inline-block size-[18px] rounded-full bg-white shadow-sm transition-transform', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+        <span className={cx('inline-block size-[18px] rounded-full shadow-sm transition-transform duration-200 ease-out', checked ? 'translate-x-[18px] bg-accent-fg' : 'translate-x-0.5 bg-white')} />
       </button>
     </div>
   );
@@ -400,6 +400,47 @@ export function StatusDot({ tone, pulse }: { tone: Tone; pulse?: boolean }) {
       {pulse && <span className={cx('absolute inline-flex size-full animate-ping rounded-full opacity-60', DOT[tone])} />}
       <span className={cx('relative inline-flex size-1.5 rounded-full', DOT[tone])} />
     </span>
+  );
+}
+
+/**
+ * Settings-style layout: a titled section of rows separated by hairlines, no boxes. Used by
+ * Settings, Doctor and Projects.
+ */
+export function SettingsSection({ title, description, actions, children, className }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id} className={cx('scroll-mt-6', className)}>
+      <div className="flex items-end justify-between gap-4 pb-3">
+        <div className="min-w-0">
+          <h2 id={id} className="text-[15px] font-semibold tracking-tight">
+            {title}
+          </h2>
+          {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
+        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      </div>
+      <div className="divide-y divide-line border-t border-line">{children}</div>
+    </section>
+  );
+}
+
+/** One setting: its name and a short explanation on the left, the control on the right. */
+export function Row({ label, htmlFor, description, children, wide }: { label: ReactNode; htmlFor?: string; description?: ReactNode; children?: ReactNode; wide?: boolean }) {
+  return (
+    <div className={cx('grid gap-x-8 gap-y-2.5 py-4', children ? (wide ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]') : '')}>
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-[14px] font-medium">
+            {label}
+          </label>
+        ) : (
+          <p className="text-[14px] font-medium">{label}</p>
+        )}
+        {description && <p className="mt-0.5 text-[13px] leading-snug text-muted">{description}</p>}
+      </div>
+      {children && <div className="min-w-0 sm:justify-self-end sm:self-center sm:w-full">{children}</div>}
+    </div>
   );
 }
 

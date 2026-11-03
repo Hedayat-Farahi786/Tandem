@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, FolderGit2, Pencil, Plus } from 'lucide-react';
+import { BookOpen, ChevronRight, FolderGit2, Pencil, Plus } from 'lucide-react';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import type { Bootstrap } from '../lib/types';
-import { Button, IconButton, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
+import { Button, LinkButton, SettingsSection, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
 const COMMANDS: Array<{ key: keyof RepoCommands; label: string; placeholder: string }> = [
@@ -161,37 +161,36 @@ function RulesSection({ repos }: { repos: Repo[] }) {
     },
   });
   return (
-    <section aria-labelledby="rules-title">
-      <div className="mb-2 flex items-center justify-between gap-4">
-        <div>
-          <h2 id="rules-title" className="text-[15px] font-semibold">
-            Agent rules
-          </h2>
-          <p className="text-[12.5px] text-muted">Things the agent should always do in a repository, learned from reviews.</p>
-        </div>
-        {repos.length > 0 && (
-          <Button size="sm" variant="ghost" icon={Plus} onClick={() => setAdding(true)}>
-            Add rule
-          </Button>
-        )}
-      </div>
-      {rules.isLoading ? (
-        <Loading rows={2} />
-      ) : !rules.data?.length ? (
-        <p className="rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-muted">No rules yet. Save one from a review finding, or add it here.</p>
-      ) : (
-        <ul className="-mx-3 flex flex-col">
-          {rules.data.map((r) => (
-            <li key={r.id} className="flex items-baseline justify-between gap-4 rounded-xl px-3 py-2.5 text-[13.5px]">
+    <>
+      <SettingsSection
+        title="Agent rules"
+        description="Things the agent should always do in a repository, learned from reviews."
+        actions={
+          repos.length > 0 && (
+            <Button size="sm" variant="ghost" icon={Plus} onClick={() => setAdding(true)}>
+              Add rule
+            </Button>
+          )
+        }
+      >
+        {rules.isLoading ? (
+          <div className="py-3">
+            <Loading rows={2} />
+          </div>
+        ) : !rules.data?.length ? (
+          <p className="py-4 text-[13px] text-muted">No rules yet. Save one from a review finding, or add it here.</p>
+        ) : (
+          rules.data.map((r) => (
+            <div key={r.id} className="flex items-baseline justify-between gap-4 py-3 text-[14px]">
               <span className="min-w-0">
                 {r.text}
-                <span className="text-faint"> · {repos.find((x) => x.id === r.repoId)?.name ?? 'Removed repo'}</span>
+                <span className="text-[13px] text-faint"> · {repos.find((x) => x.id === r.repoId)?.name ?? 'Removed repo'}</span>
               </span>
-              <span className={cx('shrink-0 text-[12px]', r.status === 'committed' ? 'text-ok' : 'text-faint')}>{r.status === 'committed' ? 'In the repo' : 'Next task'}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+              <span className={cx('shrink-0 text-[12.5px]', r.status === 'committed' ? 'text-ok' : 'text-faint')}>{r.status === 'committed' ? 'In the repo' : 'Next task'}</span>
+            </div>
+          ))
+        )}
+      </SettingsSection>
       <Dialog
         open={adding}
         onClose={() => setAdding(false)}
@@ -212,7 +211,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
           {add.isError && <ErrorState error={add.error} />}
         </div>
       </Dialog>
-    </section>
+    </>
   );
 }
 
@@ -225,7 +224,7 @@ export function ProjectsScreen() {
   const { projects, repos } = boot.data;
   const pm = (p: Project) => (p.pmGate === 'tandem' ? 'PM approves in Tandem' : p.pmGate === 'jira' ? 'PM approves in Jira' : 'No PM approval');
   return (
-    <div className="mx-auto flex w-full max-w-[860px] flex-col gap-10">
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-12">
       <div className="flex items-end justify-between gap-4">
         <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Projects</h1>
         <LinkButton to="/setup" variant="primary" icon={Plus}>
@@ -233,44 +232,36 @@ export function ProjectsScreen() {
         </LinkButton>
       </div>
       {projects.length === 0 && <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />}
-      {projects.length > 0 && (
-        <div className="flex flex-col gap-4">
-          {projects.map((p) => {
-            const list = p.contractOrder.map((id) => repos.find((x) => x.id === id)).filter((r): r is Repo => Boolean(r));
-            return (
-              <section key={p.id} aria-label={p.name} className="rounded-2xl border border-line bg-surface">
-                <div className="flex items-center justify-between gap-4 px-5 pt-4 pb-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-[16px] font-semibold">{p.name}</h2>
-                    <p className="text-[12.5px] text-muted">
-                      {list.length} {list.length === 1 ? 'repository' : 'repositories'} · {pm(p)} · tasks {p.keyPrefix}-1, {p.keyPrefix}-2…
-                    </p>
-                  </div>
-                  <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => setEditProject(p)} />
-                </div>
-                <ul className="px-2 pb-2">
-                  {list.map((r, n) => (
-                    <li key={r.id}>
-                      <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2/80">
-                        <FolderGit2 aria-hidden className="size-4 shrink-0 text-faint" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium">{r.name}</span>
-                          <span className="block truncate text-[12.5px] text-muted">
-                            {[ROLE_LABEL[r.role], r.language, r.framework].filter(Boolean).join(' · ')}
-                            {p.specRepoId === r.id && list.length > 1 ? ' · holds the specs' : ''}
-                            {list.length > 1 ? ` · built ${n === 0 ? 'first' : `step ${n + 1}`}` : ''}
-                          </span>
-                        </span>
-                        <span className="text-[12.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100">Edit</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
-      )}
+      {projects.map((p) => {
+        const list = p.contractOrder.map((id) => repos.find((x) => x.id === id)).filter((r): r is Repo => Boolean(r));
+        return (
+          <SettingsSection
+            key={p.id}
+            title={p.name}
+            description={`${pm(p)} · tasks ${p.keyPrefix}-1, ${p.keyPrefix}-2…`}
+            actions={
+              <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
+                Edit
+              </Button>
+            }
+          >
+            {list.map((r, n) => (
+              <button key={r.id} type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3.5 text-left">
+                <FolderGit2 aria-hidden className="size-4 shrink-0 text-faint" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>
+                  <span className="block truncate text-[13px] text-muted">
+                    {[ROLE_LABEL[r.role], r.language, r.framework].filter(Boolean).join(' · ')}
+                    {p.specRepoId === r.id && list.length > 1 ? ' · holds the specs' : ''}
+                    {list.length > 1 ? ` · built ${n === 0 ? 'first' : `step ${n + 1}`}` : ''}
+                  </span>
+                </span>
+                <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
+              </button>
+            ))}
+          </SettingsSection>
+        );
+      })}
       <RulesSection repos={repos} />
       <p className="flex items-center gap-2 text-[12.5px] text-faint">
         <BookOpen aria-hidden className="size-3.5" />

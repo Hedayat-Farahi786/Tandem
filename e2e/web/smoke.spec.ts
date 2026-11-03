@@ -172,7 +172,7 @@ test('tasks, projects, settings and doctor screens', async () => {
   await page.getByRole('button', { name: 'Run checks' }).first().click();
   await expect(page.getByRole('button', { name: 'Running checks…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run checks' })).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByText('Last run just now.')).toBeVisible();
+  await expect(page.getByText(/checks pass · last run just now/)).toBeVisible();
   await expect(page.getByText(/Everything (required )?passes|need attention/)).toBeVisible();
   await checkScreen(page, '20-doctor', { fullPage: true });
 });

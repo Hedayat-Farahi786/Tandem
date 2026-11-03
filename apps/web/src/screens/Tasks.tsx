@@ -213,7 +213,7 @@ export function TasksScreen() {
   };
   const projectName = (id: string) => boot.data?.projects.find((p) => p.id === id)?.name ?? '';
   return (
-    <div className="mx-auto w-full max-w-[860px]">
+    <div className="mx-auto w-full max-w-[760px]">
       <div className="mb-7 flex items-end justify-between gap-4">
         <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Tasks</h1>
         <div className="flex items-center gap-2">
