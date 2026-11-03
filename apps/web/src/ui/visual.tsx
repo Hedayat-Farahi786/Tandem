@@ -91,60 +91,28 @@ export function IconTile({ icon: Icon, tone = 'neutral', size = 'md' }: { icon: 
   );
 }
 
-/** Curated, muted pairs (light → deep): calm next to the neutral UI, distinct from each other. */
-const AVATAR_PALETTES: ReadonlyArray<readonly [string, string]> = [
-  ['#7d95d6', '#34509c'], // ink
-  ['#8fb49b', '#3f6b53'], // sage
-  ['#dd9f80', '#a4533a'], // clay
-  ['#b394c6', '#68427c'], // plum
-  ['#dbb671', '#956624'], // ochre
-  ['#79b8b9', '#276c70'], // teal
-  ['#9a9ca5', '#3d3f46'], // graphite
-  ['#d993a6', '#96445d'], // rose
-];
-
-/** Simple geometric marks on a 24×24 grid, drawn in white. */
-const AVATAR_GLYPHS: ReadonlyArray<ReactNode> = [
-  // orbit
-  <>
-    <circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none" />
-    <ellipse cx="12" cy="12" rx="9" ry="4.4" transform="rotate(-28 12 12)" />
-  </>,
-  // layers
-  <>
-    <path d="M12 4.2 20 8.6l-8 4.4-8-4.4Z" fill="currentColor" stroke="none" />
-    <path d="m4 12.6 8 4.4 8-4.4M4 16.4l8 4.4 8-4.4" />
-  </>,
-  // stack
-  <path d="M6 7h12M6 12h8.5M6 17h4.5" />,
-  // diamond
-  <>
-    <path d="M12 3.8 20.2 12 12 20.2 3.8 12Z" />
-    <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
-  </>,
-  // grid
-  <>
-    <rect x="4.5" y="4.5" width="6.5" height="6.5" rx="1.8" fill="currentColor" />
-    <rect x="13" y="4.5" width="6.5" height="6.5" rx="1.8" />
-    <rect x="4.5" y="13" width="6.5" height="6.5" rx="1.8" />
-    <rect x="13" y="13" width="6.5" height="6.5" rx="1.8" />
-  </>,
-  // waves
-  <path d="M3.5 9.5c2.8-3.4 5.7 3.4 8.5 0s5.7 3.4 8.5 0M3.5 15.5c2.8-3.4 5.7 3.4 8.5 0s5.7 3.4 8.5 0" />,
-  // spark
-  <path d="M12 3.5c.7 4.6 3.4 7.8 8.5 8.5-5.1.7-7.8 3.9-8.5 8.5-.7-4.6-3.4-7.8-8.5-8.5 5.1-.7 7.8-3.9 8.5-8.5Z" fill="currentColor" stroke="none" />,
-  // overlap
-  <>
-    <circle cx="9.2" cy="12" r="5.4" />
-    <circle cx="14.8" cy="12" r="5.4" />
-  </>,
-  // hexagon
-  <>
-    <path d="M12 3.6 19.3 7.8v8.4L12 20.4l-7.3-4.2V7.8Z" />
-    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
-  </>,
-  // peaks
-  <path d="M3.5 18 9 9.5l3.6 5.4 2.6-3.6 5.3 6.7Z" />,
+/**
+ * Page layouts drawn inside a browser frame (24×24 grid, content area x 5–19, y 10–18). "s" is a
+ * solid block, "f" a faint one, "l" a text line; they read as a site's silhouette, not a picture.
+ */
+type Part = ['s' | 'f' | 'l', number, number, number, number];
+const LAYOUTS: ReadonlyArray<{ name: string; parts: Part[]; small: Part[] }> = [
+  // hero with a call to action
+  { name: 'hero', parts: [['s', 5, 10.2, 9, 2.1], ['l', 5, 13.6, 7, 1], ['f', 5, 16.1, 4.2, 1.9], ['f', 15.2, 10.2, 3.8, 7.8]], small: [['s', 5, 10.5, 9, 2.6], ['f', 5, 15, 5, 2.6]] },
+  // three cards
+  { name: 'cards', parts: [['l', 5, 10.2, 8, 1], ['f', 5, 12.6, 4.2, 5.4], ['f', 9.9, 12.6, 4.2, 5.4], ['s', 14.8, 12.6, 4.2, 5.4]], small: [['f', 5, 10.5, 4, 7.5], ['f', 10, 10.5, 4, 7.5], ['s', 15, 10.5, 4, 7.5]] },
+  // sidebar and content
+  { name: 'sidebar', parts: [['f', 5, 10.2, 3.6, 7.8], ['s', 10.2, 10.2, 6.5, 1.8], ['l', 10.2, 13.3, 8.8, 1], ['l', 10.2, 15.3, 7.2, 1], ['l', 10.2, 17, 5, 1]], small: [['f', 5, 10.5, 3.8, 7.5], ['s', 10.5, 10.5, 8.5, 2.6], ['f', 10.5, 15, 6, 2.6]] },
+  // text beside an image
+  { name: 'split', parts: [['s', 5, 10.6, 6, 1.8], ['l', 5, 13.6, 6.5, 1], ['l', 5, 15.5, 5, 1], ['f', 12.6, 10.2, 6.4, 7.8]], small: [['s', 5, 10.5, 6, 2.6], ['f', 12.5, 10.5, 6.5, 7.5]] },
+  // gallery
+  { name: 'grid', parts: [['s', 5, 10.2, 6.6, 3.6], ['f', 12.4, 10.2, 6.6, 3.6], ['f', 5, 14.4, 6.6, 3.6], ['f', 12.4, 14.4, 6.6, 3.6]], small: [['s', 5, 10.5, 6.5, 3.4], ['f', 12.5, 10.5, 6.5, 3.4], ['f', 5, 14.6, 6.5, 3.4], ['f', 12.5, 14.6, 6.5, 3.4]] },
+  // article
+  { name: 'article', parts: [['s', 7, 10.2, 10, 1.9], ['l', 6, 13.2, 12, 1], ['l', 6, 15, 12, 1], ['l', 6, 16.8, 8, 1]], small: [['s', 6.5, 10.5, 11, 2.6], ['f', 6.5, 15, 11, 2.6]] },
+  // dashboard
+  { name: 'dashboard', parts: [['f', 5, 10.2, 4.3, 2.6], ['f', 9.9, 10.2, 4.3, 2.6], ['s', 14.7, 10.2, 4.3, 2.6], ['f', 5, 13.6, 14, 4.4]], small: [['s', 5, 10.5, 6.5, 2.8], ['f', 12.5, 10.5, 6.5, 2.8], ['f', 5, 14.6, 14, 3.4]] },
+  // store
+  { name: 'store', parts: [['f', 5, 10.2, 4.2, 4.2], ['f', 9.9, 10.2, 4.2, 4.2], ['f', 14.8, 10.2, 4.2, 4.2], ['l', 5, 15.6, 3, 1], ['l', 9.9, 15.6, 3, 1], ['s', 14.8, 15.4, 4.2, 1.6]], small: [['f', 5, 10.5, 4, 4.4], ['f', 10, 10.5, 4, 4.4], ['s', 15, 10.5, 4, 4.4], ['f', 5, 16, 14, 2]] },
 ];
 
 /** FNV-1a: a stable number from a name, so a project keeps its look everywhere. */
@@ -155,28 +123,37 @@ function hashName(name: string): number {
 }
 
 /**
- * A project's avatar: a softly lit gradient tile with a geometric mark, both picked from the name
- * (like Linear's and Vercel's generated avatars). Decorative: the name is always next to it.
+ * A project's avatar: a small website silhouette (a browser frame around a page layout picked from
+ * the name), in ink on a neutral tile, so it follows the theme and never competes with content.
+ * Decorative: the name is always next to it.
  */
 export function ProjectAvatar({ name, size = 40 }: { name: string; size?: number }) {
-  const h = hashName(name);
-  const [light, deep] = AVATAR_PALETTES[h % AVATAR_PALETTES.length]!;
-  const glyph = AVATAR_GLYPHS[(h >>> 8) % AVATAR_GLYPHS.length];
+  const layout = LAYOUTS[hashName(name) % LAYOUTS.length]!;
   const small = size < 26;
+  const parts = small ? layout.small : layout.parts;
+  // The tile is the browser window: chrome across the top, the page layout below it.
   return (
     <span
       aria-hidden
-      className="relative grid shrink-0 place-items-center overflow-hidden text-white"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * (small ? 0.3 : 0.28)),
-        background: `radial-gradient(120% 90% at 18% 8%, rgb(255 255 255 / 0.22), transparent 55%), linear-gradient(155deg, ${light}, ${deep})`,
-        boxShadow: small ? 'inset 0 0 0 0.5px rgb(255 255 255 / 0.18), 0 0 0 0.5px rgb(0 0 0 / 0.12)' : 'inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -1px 0 rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.12)',
-      }}
+      data-layout={layout.name}
+      className="relative block shrink-0 overflow-hidden bg-surface text-fg"
+      style={{ width: size, height: size, borderRadius: Math.max(5, Math.round(size * 0.24)), boxShadow: '0 0 0 1px var(--border-strong), 0 1px 2px rgb(0 0 0 / 0.06), inset 0 1px 0 var(--hairline-highlight)' }}
     >
-      <svg viewBox="0 0 24 24" width={Math.round(size * (small ? 0.66 : 0.56))} height={Math.round(size * (small ? 0.66 : 0.56))} fill="none" stroke="currentColor" strokeWidth={small ? 2.6 : size < 36 ? 2.1 : 1.8} strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-[0_1px_1px_rgb(0_0_0/0.18)]">
-        {glyph}
+      <svg viewBox="0 0 24 24" width={size} height={size} className="block">
+        <rect x="0" y="0" width="24" height={small ? 6.2 : 6.6} fill="currentColor" fillOpacity="0.06" />
+        <path d={small ? 'M0 6.2h24' : 'M0 6.6h24'} stroke="currentColor" strokeOpacity="0.16" strokeWidth={small ? 1 : 0.6} />
+        {!small && (
+          <g fill="currentColor" fillOpacity="0.45">
+            <circle cx="3.6" cy="3.3" r="0.85" />
+            <circle cx="6.1" cy="3.3" r="0.85" />
+            <circle cx="8.6" cy="3.3" r="0.85" />
+          </g>
+        )}
+        <g transform={small ? 'translate(4 8.6) scale(1.143 1.43) translate(-5 -10)' : 'translate(4 9.4) scale(1.143 1.3) translate(-5 -10)'}>
+          {parts.map(([k, x, y, w, h], i) => (
+            <rect key={i} x={x} y={y} width={w} height={h} rx={k === 'l' ? h / 2 : Math.min(0.8, h / 2)} fill="currentColor" fillOpacity={k === 's' ? 0.82 : k === 'f' ? 0.16 : 0.32} />
+          ))}
+        </g>
       </svg>
     </span>
   );
