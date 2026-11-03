@@ -148,6 +148,20 @@ describe('repositories, projects and tasks', () => {
     expect((await app.inject({ method: 'GET', url: '/api/bootstrap', headers: H })).json().setupComplete).toBe(true);
   });
 
+  it('keeps the build order and spec repository to the repositories a project has', async () => {
+    const other = (await app.inject({ method: 'POST', url: '/api/repos', headers: W, payload: JSON.stringify({ url: 'codecommit::eu-central-1://web', defaultBranch: 'main', role: 'frontend', commands: {} }) })).json();
+    // Switch the project to the other repository, sending the old order and spec repo along (as an edit form would).
+    const moved = await app.inject({ method: 'PUT', url: `/api/projects/${projectId}`, headers: W, payload: JSON.stringify({ repoIds: [other.id], contractOrder: [repoId], specRepoId: repoId }) });
+    expect(moved.json()).toMatchObject({ repoIds: [other.id], contractOrder: [other.id], specRepoId: other.id });
+    // A project stored with stale fields reads consistently.
+    const stale = (await tandem.store.projects.get(projectId))!;
+    await tandem.store.projects.upsert({ ...stale, repoIds: [repoId], contractOrder: [other.id], specRepoId: other.id });
+    const read = (await app.inject({ method: 'GET', url: '/api/bootstrap', headers: H })).json().projects.find((p: { id: string }) => p.id === projectId);
+    expect(read).toMatchObject({ repoIds: [repoId], contractOrder: [repoId], specRepoId: repoId });
+    await tandem.store.projects.upsert({ ...stale, repoIds: [repoId], contractOrder: [repoId], specRepoId: repoId });
+    await app.inject({ method: 'DELETE', url: `/api/repos/${other.id}`, headers: D });
+  });
+
   it("shows each project's site icon from its repository, sandboxed", async () => {
     expect((await app.inject({ method: 'GET', url: '/api/project-icons', headers: H })).json()).toEqual({ [projectId]: null });
     // Put a site with an icon in the repository's mirror, as a fetch would.

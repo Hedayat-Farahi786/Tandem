@@ -35,13 +35,20 @@ const RepoInput = z.object({
   packageManager: z.string().optional(),
 });
 
+/** A project saved before its repositories changed may still name old ones in its order or spec repo. */
+export function consistent(p: Project): Project {
+  const order = [...p.contractOrder.filter((id) => p.repoIds.includes(id)), ...p.repoIds.filter((id) => !p.contractOrder.includes(id))];
+  return { ...p, contractOrder: order, specRepoId: p.repoIds.includes(p.specRepoId) ? p.specRepoId : p.repoIds[0]! };
+}
+
 export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   const { tandem } = ctx;
   const store = tandem.store;
 
   /* ------------------------------------------------------------------ bootstrap and settings */
   app.get('/api/bootstrap', async () => {
-    const [projects, repos, settings] = await Promise.all([store.projects.list(), store.repos.list(), tandem.settings()]);
+    const [stored, repos, settings] = await Promise.all([store.projects.list(), store.repos.list(), tandem.settings()]);
+    const projects = stored.map(consistent);
     return {
       setupComplete: projects.length > 0,
       projects,
@@ -146,14 +153,17 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   });
 
   /* ------------------------------------------------------------------ projects */
-  app.get('/api/projects', async () => store.projects.list());
+  app.get('/api/projects', async () => (await store.projects.list()).map(consistent));
 
   const toProject = async (input: z.infer<typeof ProjectInput>, base?: Project): Promise<Project> => {
     const repos = (await Promise.all(input.repoIds.map((id) => store.repos.get(id)))).filter((r): r is Repo => Boolean(r));
     if (repos.length !== input.repoIds.length) throw new HttpError(400, 'One of the repositories no longer exists.');
     const rank = (r: Repo) => (r.role === 'backend' ? 0 : r.role === 'full-stack' ? 1 : r.role === 'other' ? 2 : 3);
-    const contractOrder = input.contractOrder?.length ? input.contractOrder : [...repos].sort((a, b) => rank(a) - rank(b)).map((r) => r.id);
-    const specRepoId = input.specRepoId ?? (repos.find((r) => r.role === 'full-stack') ?? repos.find((r) => r.role === 'backend') ?? repos[0]!).id;
+    // The build order and the spec repository only ever name repositories of this project, even
+    // when its repositories change (an order or spec repo from before keeps only what still applies).
+    const kept = (input.contractOrder ?? []).filter((id) => input.repoIds.includes(id));
+    const contractOrder = [...kept, ...[...repos].sort((a, b) => rank(a) - rank(b)).map((r) => r.id).filter((id) => !kept.includes(id))];
+    const specRepoId = input.specRepoId && input.repoIds.includes(input.specRepoId) ? input.specRepoId : (repos.find((r) => r.role === 'full-stack') ?? repos.find((r) => r.role === 'backend') ?? repos[0]!).id;
     if (input.pmGate === 'jira' && input.jiraPmAccountIds.length === 0) throw new HttpError(400, 'Add the Jira account IDs of the PMs whose replies count, or pick another PM gate.');
     return Project.parse({ ...base, ...input, contractOrder, specRepoId, id: base?.id ?? randomUUID(), createdAt: base?.createdAt ?? new Date().toISOString() });
   };

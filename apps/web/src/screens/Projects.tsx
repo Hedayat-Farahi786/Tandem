@@ -5,8 +5,8 @@ import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, del, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
-import { ProjectAvatar, StatusIcon } from '../ui/visual';
-import { Button, IconButton, LinkButton, SettingsSection, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, Textarea, cx, useToast } from '../ui/kit';
+import { ProjectAvatar } from '../ui/visual';
+import { Button, IconButton, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, Textarea, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
 const COMMANDS: Array<{ key: keyof RepoCommands; label: string; placeholder: string }> = [
@@ -225,26 +225,29 @@ function RulesSection({ repos }: { repos: Repo[] }) {
   const repoOf = (id: string) => repos.find((x) => x.id === id);
   return (
     <>
-      <SettingsSection
-        icon={<BrandTile brand="copilot" />}
-        title="Rules for Copilot"
-        description="Short instructions Copilot follows every time it changes your code."
-        actions={
-          repos.length > 0 && (
+      <section aria-labelledby="rules-title" className="overflow-hidden rounded-2xl bg-surface shadow-panel">
+        <div className="flex items-center gap-3.5 px-5 py-4">
+          <BrandTile brand="copilot" size="lg" />
+          <div className="min-w-0 flex-1">
+            <h2 id="rules-title" className="text-[15px] font-semibold tracking-[-0.01em]">
+              Rules for Copilot
+            </h2>
+            <p className="mt-0.5 text-[12.5px] text-muted">Short instructions Copilot follows every time it changes your code.</p>
+          </div>
+          {repos.length > 0 && (
             <Button size="sm" icon={Plus} onClick={() => setAdding('')}>
               Add rule
             </Button>
-          )
-        }
-      >
+          )}
+        </div>
+        <div className="divide-y divide-line border-t border-line px-5">
         {rules.isLoading ? (
           <div className="py-4">
             <Loading rows={2} />
           </div>
         ) : !rules.data?.length ? (
           <div className="py-5">
-            <p className="text-[13.5px] font-medium">No rules yet</p>
-            <p className="mt-0.5 text-[13px] text-muted">Rules are things your team always wants, written in plain words. Pick one to start:</p>
+            <p className="text-[13px] text-muted">No rules yet. Write them in plain words, or start from one of these:</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {RULE_EXAMPLES.map((ex) => (
                 <button key={ex} type="button" onClick={() => setAdding(ex)} disabled={!repos.length} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] text-muted shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg">
@@ -285,7 +288,8 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             );
           })
         )}
-      </SettingsSection>
+        </div>
+      </section>
       {adding !== null && <RuleDialog repos={repos} initial={adding} onClose={() => setAdding(null)} />}
     </>
   );
@@ -299,77 +303,72 @@ export function ProjectsScreen() {
   if (boot.isLoading) return <Loading />;
   if (boot.isError || !boot.data) return <ErrorState error={boot.error} retry={() => void boot.refetch()} />;
   const { projects, repos } = boot.data;
-  const pm = (p: Project) => (p.pmGate === 'tandem' ? 'PM approves in Tandem' : p.pmGate === 'jira' ? 'PM approves in Jira' : 'No PM approval');
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto w-full max-w-[760px]">
+      <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Projects</h1>
-          <p className="mt-1 text-[13.5px] text-muted">Repositories grouped into the products you build.</p>
+          <p className="mt-1 text-[13.5px] text-muted">Your products, and the repositories Copilot works in.</p>
         </div>
-        <LinkButton to="/setup" variant="primary" icon={Plus}>
+        <LinkButton to="/setup" icon={Plus}>
           Add repository
         </LinkButton>
       </div>
       {projects.length === 0 && <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />}
-      {projects.map((p) => {
-        const list = p.contractOrder.map((id) => repos.find((x) => x.id === id)).filter((r): r is Repo => Boolean(r));
-        const mine = (tasks.data ?? []).filter((t) => t.projectId === p.id);
-        const stats = [
-          ['Open', mine.filter((t) => !['DONE', 'CANCELLED', 'PR_OPEN'].includes(t.state)).length, 'BUILDING'],
-          ['In review', mine.filter((t) => t.state === 'PR_OPEN').length, 'PR_OPEN'],
-          ['Done', mine.filter((t) => t.state === 'DONE').length, 'DONE'],
-        ] as const;
-        return (
-          <section key={p.id} aria-label={p.name} className="rounded-2xl bg-surface p-5 shadow-panel">
-            <div className="flex items-center gap-3.5">
-              <ProjectAvatar name={p.name} projectId={p.id} size={40} />
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{p.name}</h2>
-                <p className="mt-0.5 truncate text-[13px] text-muted">
-                  {pm(p)} · tasks {p.keyPrefix}-1, {p.keyPrefix}-2…
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
-                Edit
-              </Button>
-            </div>
-            <dl className="mt-4 grid grid-cols-3 divide-x divide-line rounded-xl bg-surface-2/60 py-2.5">
-              {stats.map(([k, v, state]) => (
-                <div key={k} className="flex items-center gap-2 px-4">
-                  <StatusIcon state={state} className="size-3.5" />
-                  <dt className="text-[12.5px] text-muted">{k}</dt>
-                  <dd className="ml-auto text-[15px] font-semibold tabular-nums">{v}</dd>
+      <div className="flex flex-col gap-4">
+        {projects.map((p) => {
+          // The project's repositories, in the order Tandem builds them.
+          const rank = (id: string) => (p.contractOrder.includes(id) ? p.contractOrder.indexOf(id) : p.contractOrder.length);
+          const list = p.repoIds
+            .map((id) => repos.find((x) => x.id === id))
+            .filter((r): r is Repo => Boolean(r))
+            .sort((a, b) => rank(a.id) - rank(b.id));
+          const mine = (tasks.data ?? []).filter((t) => t.projectId === p.id);
+          const open = mine.filter((t) => !['DONE', 'CANCELLED', 'PR_OPEN'].includes(t.state)).length;
+          const review = mine.filter((t) => t.state === 'PR_OPEN').length;
+          const done = mine.filter((t) => t.state === 'DONE').length;
+          const meta = [`${list.length} ${list.length === 1 ? 'repository' : 'repositories'}`, open ? `${open} open` : '', review ? `${review} in review` : '', done ? `${done} done` : '', !mine.length ? 'no tasks yet' : ''].filter(Boolean).join(' · ');
+          return (
+            <section key={p.id} aria-label={p.name} className="overflow-hidden rounded-2xl bg-surface shadow-panel">
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <ProjectAvatar name={p.name} projectId={p.id} size={36} />
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{p.name}</h2>
+                  <p className="mt-0.5 truncate text-[12.5px] text-muted">{meta}</p>
                 </div>
-              ))}
-            </dl>
-            <ul className="mt-2 divide-y divide-line">
-              {list.map((r, n) => (
-                <li key={r.id}>
-                  <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3 text-left">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-muted shadow-[0_0_0_1px_var(--border)]">
-                      <BrandLogo brand={hostBrand(r.host.kind)} size={16} title={r.host.kind === 'github' ? 'GitHub' : 'AWS CodeCommit'} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>
-                      <TechStack language={r.language} framework={r.framework} className="mt-0.5 text-[12px] text-muted" />
-                    </span>
-                    <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
-                      <span className="inline-flex h-6 items-center rounded-md bg-surface-2 px-2 text-[12px] text-muted">{ROLE_LABEL[r.role]}</span>
-                      {p.specRepoId === r.id && list.length > 1 && <span className="inline-flex h-6 items-center rounded-md bg-surface-2 px-2 text-[12px] text-muted">Specs</span>}
-                      {list.length > 1 && <span className="inline-flex h-6 items-center rounded-md bg-surface-2 px-2 text-[12px] text-muted tabular-nums">Step {n + 1}</span>}
-                    </span>
-                    <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
-      <RulesSection repos={repos} />
-      <p className="flex items-center gap-2 text-[12.5px] text-faint">
-        <BookOpen aria-hidden className="size-3.5" />
+                <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
+                  Edit
+                </Button>
+              </div>
+              <ul className="divide-y divide-line border-t border-line">
+                {list.map((r, n) => {
+                  const notes = [ROLE_LABEL[r.role], list.length > 1 ? `builds ${n === 0 ? 'first' : n === 1 ? 'second' : `${n + 1}th`}` : '', list.length > 1 && p.specRepoId === r.id ? 'holds the specs' : ''].filter(Boolean).join(' · ');
+                  return (
+                    <li key={r.id}>
+                      <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 px-5 py-3 text-left transition-colors duration-150 hover:bg-surface-2/60">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface shadow-[0_0_0_1px_var(--border)]">
+                          <BrandLogo brand={hostBrand(r.host.kind)} size={16} title={r.host.kind === 'github' ? 'GitHub' : 'AWS CodeCommit'} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-medium">{r.name}</span>
+                          <TechStack language={r.language} framework={r.framework} className="mt-0.5 text-[12px] text-muted" />
+                        </span>
+                        <span className="hidden shrink-0 text-[12px] text-faint sm:block">{notes}</span>
+                        <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+      <div className="mt-10">
+        <RulesSection repos={repos} />
+      </div>
+      <p className="mt-4 flex items-start gap-2 px-1 text-[12px] text-faint">
+        <BookOpen aria-hidden className="mt-0.5 size-3.5 shrink-0" />
         Copilot also follows the instruction files already in your repositories (.github/copilot-instructions.md and .github/agents/).
       </p>
       {editRepo && <RepoDialog repo={editRepo} onClose={() => setEditRepo(null)} />}
