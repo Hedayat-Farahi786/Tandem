@@ -162,7 +162,7 @@ describe('CopilotRuntime', () => {
       { type: 'reasoning', text: 'The handler lives in app.ts.' },
       { type: 'tool-start', id: 'c1', tool: 'bash', title: 'Run tests', input: 'npm test' },
       { type: 'tool-end', id: 'c1', ok: false, output: '1 test failed' },
-      { type: 'tool-start', id: 'c2', tool: 'edit', input: join(ws, 'src', 'app.ts') },
+      { type: 'tool-start', id: 'c2', tool: 'edit', input: 'src/app.ts' },
       { type: 'tool-end', id: 'c2', ok: true, output: 'ok', files: [{ kind: 'edit', path: 'src/app.ts' }] },
       // A structured (JSON) answer is not repeated as a message.
       { type: 'message', text: 'Fixed the route.' },

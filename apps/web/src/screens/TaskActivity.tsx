@@ -5,6 +5,7 @@ import { Brain, CheckCircle2, ChevronRight, CircleAlert, FileText, FlaskConical,
 import { api } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import { BrandLogo, providerOf } from '../ui/brands';
+import { Collapse, LiveActivity, StepTimeline } from '../ui/agent-steps';
 import { EmptyState, ErrorState, Loading, Markdown, Spinner, cx } from '../ui/kit';
 
 export type RunActivity = AgentRun & { model?: string; prompts: number; modelCalls: number; aiCredits: number; steps: AgentStep[] };
@@ -200,23 +201,23 @@ function RunCard({ run, open, onToggle }: { run: RunActivity; open: boolean; onT
         </span>
         {!empty && <ChevronRight aria-hidden className={cx('size-4 shrink-0 text-faint transition-transform duration-200', open && 'rotate-90')} />}
       </button>
-      {open && !empty && (
-        <div className="animate-in border-t border-line px-3 py-2.5">
-          {run.steps.map((s) => (
-            <Step key={s.id} s={s} />
-          ))}
-          {running && (
-            <p className="flex items-center gap-2.5 px-2 py-1.5 text-[12.5px] text-muted">
-              <span className="thinking-dots" aria-hidden>
-                <i />
-                <i />
-                <i />
-              </span>
-              {lastIntent ?? 'Working'}
-            </p>
-          )}
+      <Collapse open={open && !empty}>
+        <div className="border-t border-line px-4 py-3">
+          {run.steps
+            .filter((s) => s.kind === 'prompt')
+            .map((s) => (
+              <Step key={s.id} s={s} />
+            ))}
+          <div className="py-1.5">
+            {running ? <LiveActivity steps={run.steps} since={Date.parse(run.startedAt)} answering={false} /> : <StepTimeline steps={run.steps.filter((s) => s.kind !== 'prompt' && s.kind !== 'message' && s.kind !== 'intent')} />}
+          </div>
+          {run.steps
+            .filter((s) => s.kind === 'message')
+            .map((s) => (
+              <Step key={s.id} s={s} />
+            ))}
         </div>
-      )}
+      </Collapse>
     </li>
   );
 }

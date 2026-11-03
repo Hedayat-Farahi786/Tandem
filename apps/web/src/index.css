@@ -122,11 +122,13 @@
 /* "Thinking…": a soft light sweeping across the text. */
 @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 .shimmer-text { background-image: linear-gradient(90deg, var(--text-faint) 0%, var(--text-faint) 40%, var(--text) 50%, var(--text-faint) 60%, var(--text-faint) 100%); background-size: 250% 100%; background-position: 150% 0; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.9s linear infinite; }
+/* A step arriving in the live activity card. */
+@keyframes step-in { from { opacity: 0; transform: translateY(6px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
 /* The end of a streaming answer. */
 @keyframes caret-blink { 0%, 45% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .stream-caret > :last-child::after { content: ''; display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: currentColor; opacity: 0.55; animation: caret-blink 1s step-end infinite; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .shimmer-text { background: none; color: var(--text-muted); } .animate-pop, .animate-in, .animate-rise, .thinking-dots i, [class*='animate-[fade-in'] { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { [class*='animate-[step-in'], [class*='animate-[rise-in'] { animation: none !important; } .shimmer-text { background: none; color: var(--text-muted); } .animate-pop, .animate-in, .animate-rise, .thinking-dots i, [class*='animate-[fade-in'] { animation: none !important; } }
 
 @layer base {
 html, body, #root { height: 100%; }

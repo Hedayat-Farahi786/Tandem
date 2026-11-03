@@ -255,7 +255,7 @@ export class CopilotRuntime implements AgentRuntime {
       if (e.type === 'assistant.reasoning' && typeof d.content === 'string') emit({ type: 'reasoning', text: d.content });
       // Structured answers arrive as JSON messages; they are shown elsewhere (spec, review), not here.
       if (e.type === 'assistant.message' && typeof d.content === 'string' && !/^\s*[{[]/.test(d.content)) emit({ type: 'message', text: d.content });
-      if (e.type === 'tool.execution_start' && typeof d.toolCallId === 'string') emit({ type: 'tool-start', id: d.toolCallId, tool: String(d.toolName ?? 'tool'), ...(typeof d.toolTitle === 'string' ? { title: d.toolTitle } : {}), input: toolInput(d.arguments) });
+      if (e.type === 'tool.execution_start' && typeof d.toolCallId === 'string') emit({ type: 'tool-start', id: d.toolCallId, tool: String(d.toolName ?? 'tool'), ...(typeof d.toolTitle === 'string' ? { title: d.toolTitle } : {}), input: relativeIn(opts.workspace, toolInput(d.arguments)) });
       if (e.type === 'tool.execution_complete' && typeof d.toolCallId === 'string') {
         const result = d.result as { content?: string } | undefined;
         const error = d.error as { message?: string } | undefined;
@@ -373,4 +373,9 @@ export function toolInput(args: unknown): string {
 /** Paths inside the task folder are shown relative to it. */
 function relativeTo(root: string, p: string): string {
   return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
+}
+
+/** Every mention of the workspace folder in a tool's input becomes relative ("app/src/x.ts"). */
+function relativeIn(root: string, text: string): string {
+  return root ? text.split(`${root}/`).join('').split(root).join('.') : text;
 }

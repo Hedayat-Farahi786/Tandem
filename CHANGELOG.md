@@ -23,9 +23,13 @@ All notable changes to Tandem. The format follows
   Copilot propose a way forward to confirm. The guidance goes with every
   later Copilot step; a pull request that needs attention gets another round
   of fixes and is updated when checks pass.
-- **Chat like a chat app**: a shimmering "Thinking…", Copilot's steps inline
-  while it works and folded into one line above each answer, and the answer
-  streaming in; a slim title bar and a centred column.
+- **Chat like a chat app**: while Copilot works, a live card shows what it is
+  doing now in plain words ("Reading app.routes.ts"), a timer and its latest
+  steps; afterwards they fold into one line ("Worked for 25s · read 10 files ·
+  9 searches") that opens into a grouped timeline with Copilot's thinking. The
+  view follows new content while you are at the bottom, glides down when you
+  send, and offers a "jump to latest" button when you scroll up; answers have
+  a copy action; a slim title bar and a centred column.
 - **Settings › Audit log**: verification of the audit log, its head hash, and
   CSV or JSON export of everything recorded.
 - **Task › Trace**: request → criteria and their tests → spec versions and

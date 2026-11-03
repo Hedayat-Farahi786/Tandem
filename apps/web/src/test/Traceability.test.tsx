@@ -53,18 +53,17 @@ describe('Task activity', () => {
     expect(build.getAttribute('aria-expanded')).toBe('true');
     expect(within(list).getByRole('button', { name: /Wrote the spec/ }).getAttribute('aria-expanded')).toBe('false');
     expect(within(build).getByText('2 actions · 1 file changed')).toBeTruthy();
-    expect(within(list).getByText('Implementing the change in shop')).toBeTruthy();
     expect(within(list).getByText('Implemented shop: src/app.ts.')).toBeTruthy();
     expect(within(list).getByText(/Tandem blocked: curl/)).toBeTruthy();
     // Instructions, thinking and tool output open on demand.
     expect(within(list).queryByText('Implement the approved spec in shop.')).toBeNull();
     await user.click(within(list).getByRole('button', { name: /Tandem's instructions/ }));
     expect(within(list).getByText('Implement the approved spec in shop.')).toBeTruthy();
-    await user.click(within(list).getByRole('button', { name: /Thinking: I will add the route first\./ }));
+    await user.click(within(list).getByRole('button', { name: /I will add the route first\./ }));
     expect(within(list).getByText(/Then the component\./)).toBeTruthy();
-    await user.click(within(list).getByRole('button', { name: /Run tests/ }));
+    await user.click(within(list).getByRole('button', { name: /Ran npm test/ }));
     expect(within(list).getByText('1 failed')).toBeTruthy();
-    expect(within(list).getByRole('button', { name: /Edited src\/app\.ts/ })).toBeTruthy();
+    expect(within(list).getByText('Edited app.ts')).toBeTruthy();
   });
 
   it('explains when Copilot has not started yet', async () => {

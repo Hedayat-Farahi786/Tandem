@@ -41,10 +41,12 @@ describe('task chat for a stuck task', () => {
     renderApp('/tasks/task1');
     await user.click(await screen.findByRole('tab', { name: 'Chat' }));
     // The steps fold into one line above the answer and open on demand.
-    const summary = await screen.findByRole('button', { name: /Read 1 file · searched once · thought it through/ });
+    const summary = await screen.findByRole('button', { name: /Thought it through · read 1 file · 1 search/ });
     expect(summary.getAttribute('aria-expanded')).toBe('false');
     await user.click(summary);
-    expect(screen.getByRole('button', { name: /Thinking: Local time differs on CI\./ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Local time differs on CI\./ })).toBeTruthy();
+    expect(screen.getByText('Read health.test.ts')).toBeTruthy();
+    expect(screen.getByText('Searched for Date')).toBeTruthy();
     // The composer knows the task is stuck.
     const box = screen.getByPlaceholderText('Tell Copilot how to continue, or ask what went wrong…');
     await user.type(box, 'Use UTC in the date test.');

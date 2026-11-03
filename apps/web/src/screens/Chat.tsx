@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
 import type { AgentStep, ChatMessage, ChatThread } from '@tandem/shared';
-import { LiveAnswer, StepsSummary } from './ChatSteps';
+import { ActivitySummary, LiveActivity } from '../ui/agent-steps';
 import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
 import { relativeTime } from '../lib/format';
@@ -17,6 +17,28 @@ import { ReadinessChecklist } from './Tasks';
 /** Your message animates once, as you send it; replies animate as they arrive (not on reload). */
 const isFresh = (m: ChatMessage) => m.role === 'assistant' && Date.now() - Date.parse(m.createdAt) < 5_000;
 
+/** Under an answer, on hover: copy it (like a chat app's message actions). */
+function CopyAnswer({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="mt-1.5 -ml-1.5 flex h-7 items-center opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100 focus-within:opacity-100">
+      <button
+        type="button"
+        aria-label={done ? 'Copied' : 'Copy answer'}
+        onClick={() => {
+          void navigator.clipboard?.writeText(text).then(() => {
+            setDone(true);
+            setTimeout(() => setDone(false), 1500);
+          });
+        }}
+        className="grid size-7 place-items-center rounded-md text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+      >
+        {done ? <Check aria-hidden className="size-3.5 text-ok" /> : <Copy aria-hidden className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
 function Message({ m, repoName, steps, enter = isFresh(m) }: { m: ChatMessage; repoName: (id?: string) => string; steps?: AgentStep[] | undefined; enter?: boolean }) {
   if (m.role === 'system') {
     return (
@@ -27,10 +49,11 @@ function Message({ m, repoName, steps, enter = isFresh(m) }: { m: ChatMessage; r
   }
   const mine = m.role === 'user';
   return (
-    <div className={cx('flex', enter && 'animate-rise', mine ? 'justify-end' : 'justify-start')}>
+    <div className={cx('group/msg flex', enter && 'animate-rise', mine ? 'justify-end' : 'justify-start')}>
       <div className={cx('max-w-[min(680px,92%)]', mine ? 'rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5' : 'px-1')}>
-        {!mine && steps && <StepsSummary steps={steps} />}
+        {!mine && steps && <ActivitySummary steps={steps} />}
         {mine ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p> : <Markdown source={m.content} />}
+        {!mine && <CopyAnswer text={m.content} />}
         {m.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {m.refs.map((r) => (
@@ -67,10 +90,10 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const [text, setText] = useState('');
   const [stream, setStream] = useState('');
   const [pending, setPending] = useState<string | null>(null);
-  const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   // Live: the answer as it streams, and Copilot's steps as it takes them.
   const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
+  const [since, setSince] = useState(() => Date.now());
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEvents((e) => {
     if (e.type === 'agent.delta' && e.threadId === threadId) setStream((s) => s + e.text);
@@ -90,6 +113,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
       setPending(t);
       setStream('');
       setLiveSteps([]);
+      setSince(Date.now());
     },
     onSettled: async () => {
       await qc.invalidateQueries({ queryKey: ['thread', threadId] });
@@ -141,10 +165,41 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
       void qc.invalidateQueries({ queryKey: ['task'] });
     },
   });
+  // Stick to the bottom like a chat app: follow new content only while the reader is at the bottom,
+  // glide down when they send, and offer a "jump to latest" button when they have scrolled up.
+  const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
   useEffect(() => {
-    // Block body on purpose: newer browsers return a Promise from scrollIntoView, which React would treat as a cleanup.
-    void end.current?.scrollIntoView?.({ block: 'end' });
-  }, [view.data?.messages.length, stream, pending]);
+    const measure = () => {
+      const d = document.documentElement;
+      const near = d.scrollHeight - (window.scrollY + window.innerHeight) < 140;
+      atBottomRef.current = near;
+      setAtBottom(near);
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+  const toBottom = (behavior: ScrollBehavior) => requestAnimationFrame(() => window.scrollTo?.({ top: document.documentElement.scrollHeight, behavior }));
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!view.data || opened.current) return;
+    opened.current = true;
+    toBottom('auto');
+  }, [view.data]);
+  useEffect(() => {
+    if (pending) {
+      atBottomRef.current = true;
+      toBottom('smooth');
+    }
+  }, [pending]);
+  useEffect(() => {
+    if (atBottomRef.current) toBottom('auto');
+  }, [view.data?.messages.length, stream, liveSteps.length]);
   const sentInitial = useRef(false);
   useEffect(() => {
     if (!initialMessage || sentInitial.current || !view.data || view.data.messages.length > 0) return;
@@ -179,10 +234,10 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
           ))}
           {pending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
           {send.isPending && (
-            <div className="flex animate-in flex-col">
-              <LiveAnswer steps={liveSteps} stream={stream} />
+            <div className="flex flex-col">
+              <LiveActivity steps={liveSteps} since={since} answering={Boolean(stream)} />
               {stream && (
-                <div className="px-1">
+                <div className="animate-in px-1">
                   <Markdown source={stream} className="stream-caret" />
                 </div>
               )}
@@ -225,15 +280,26 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               {thread.pendingSpecChange.summary}. Earlier approvals will not count for the new version.
             </Callout>
           )}
-          <div ref={end} />
         </div>
         <form
-          className="sticky bottom-4 mt-auto pt-2"
+          className="sticky bottom-0 z-10 -mx-2 mt-auto bg-[linear-gradient(to_top,var(--bg)_78%,transparent)] px-2 pt-8 pb-4"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
         >
+          <button
+            type="button"
+            aria-label="Jump to latest"
+            tabIndex={atBottom ? -1 : 0}
+            onClick={() => toBottom('smooth')}
+            className={cx(
+              'absolute -top-3 left-1/2 grid size-9 -translate-x-1/2 place-items-center rounded-full bg-surface text-muted shadow-[0_0_0_1px_var(--border-strong),var(--shadow-md)] transition-[opacity,transform,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:text-fg',
+              atBottom ? 'pointer-events-none translate-y-2 scale-90 opacity-0' : 'translate-y-0 scale-100 opacity-100',
+            )}
+          >
+            <ArrowDown aria-hidden className="size-4" strokeWidth={2.2} />
+          </button>
           <div style={{ viewTransitionName: 'composer' }} className={cx('rounded-2xl border border-line-strong bg-surface p-2 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]', done && 'opacity-60')}>
             <label htmlFor={`composer-${threadId}`} className="sr-only">
               Message
