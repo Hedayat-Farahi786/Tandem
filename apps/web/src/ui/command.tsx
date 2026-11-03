@@ -11,7 +11,6 @@ import {
   ArrowRight,
   CornerDownLeft,
   FolderGit2,
-  History,
   ListTodo,
   MessageSquarePlus,
   Moon,
@@ -105,14 +104,6 @@ export function CommandPalette({
         run: go("/projects"),
       },
       {
-        id: "activity",
-        group: "Go to",
-        label: "Activity",
-        icon: icon(History),
-        keywords: "audit log trace history",
-        run: go("/activity"),
-      },
-      {
         id: "settings",
         group: "Go to",
         label: "Settings",
@@ -188,12 +179,11 @@ export function CommandPalette({
   if (!open) return null;
   let lastGroup = "";
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
+    <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]">
+      {/* Clicking anywhere outside the panel closes it. */}
       <div
         aria-hidden
+        onMouseDown={onClose}
         className="absolute inset-0 animate-in bg-[rgb(10_10_12/0.35)] backdrop-blur-[3px]"
       />
       <div

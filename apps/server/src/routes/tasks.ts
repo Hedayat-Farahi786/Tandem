@@ -184,6 +184,26 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
 
   app.get('/api/tasks/:id/thread', async (req) => ctx.chat.taskThread(id(req)));
 
+  /** What Copilot did on this task, run by run and step by step, with each run's model and cost. */
+  app.get('/api/tasks/:id/activity', async (req) => {
+    const task = await getTask(id(req));
+    const [runs, steps, usage] = await Promise.all([store.runs.listFor({ taskId: task.id }), store.agentSteps.list({ taskId: task.id }), store.usage.list({ taskId: task.id })]);
+    return runs
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      .map((r) => {
+        // Usage before 1.1 has no run id: match it by kind and time.
+        const mine = usage.filter((u) => (u.runId ? u.runId === r.id : u.runKind === r.kind && u.at >= r.startedAt && (!r.endedAt || u.at <= r.endedAt)));
+        return {
+          ...r,
+          ...(mine.length ? { model: mine.at(-1)!.model } : {}),
+          prompts: mine.reduce((n, u) => n + u.prompts, 0),
+          modelCalls: mine.reduce((n, u) => n + u.modelCalls, 0),
+          aiCredits: Math.round((mine.reduce((n, u) => n + u.nanoAiu, 0) / 1e9) * 100) / 100,
+          steps: steps.filter((s) => s.runId === r.id).sort((a, b) => a.seq - b.seq),
+        };
+      });
+  });
+
   app.post('/api/prs/:id/merged', async (req) => service.markMerged(id(req)));
   app.put('/api/prs/:id/url', async (req) => service.setManualPrUrl(id(req), z.object({ url: z.string() }).parse(req.body).url));
 
@@ -193,5 +213,14 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
     const rule = await service.addRule(b.repoId, b.text, b.source);
     await auditOwner(store, { action: 'rule.added', summary: `Added an agent rule: ${b.text}`, repoId: b.repoId, detail: { text: b.text, source: b.source } });
     return rule;
+  });
+  /** A rule can be taken back until a task has written it into the repository. */
+  app.delete('/api/rules/:id', async (req) => {
+    const rule = await store.rules.get(id(req));
+    if (!rule) throw new HttpError(404, 'Rule not found.');
+    if (rule.status === 'committed') throw new HttpError(409, 'This rule is already saved in the repository. Change it there (docs/agent-rules.md).');
+    await store.rules.delete(rule.id);
+    await auditOwner(store, { action: 'rule.removed', summary: `Removed an agent rule: ${rule.text}`, repoId: rule.repoId, detail: { text: rule.text } });
+    return { deleted: true };
   });
 }

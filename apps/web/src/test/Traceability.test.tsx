@@ -1,45 +1,78 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { boot, detail, project, task } from './fixtures';
+import { boot, detail, project, settings, task } from './fixtures';
 import { mockApi, renderApp } from './helpers';
-import type { ActivityItem, Trace } from '../lib/types';
+import type { Trace } from '../lib/types';
 
 const now = new Date().toISOString();
 const HEAD = 'a'.repeat(64);
 
-const items: ActivityItem[] = [
-  { id: 'a3', at: now, kind: 'approval', action: 'spec.approved', actor: 'pm', actorName: 'Pat Lee', summary: 'TND-1: PM approval of spec version 2 by Pat Lee, recorded in Tandem.', taskId: 't1', taskKey: 'TND-1', detail: { specVersion: 2, evidence: 'Approved in #shop' }, seq: 3, hash: HEAD },
-  { id: 'a2', at: now, kind: 'git', action: 'git.pushed', actor: 'system', summary: 'TND-1: pushed agent/TND-1-health to shop at 1a2b3c4.', taskId: 't1', taskKey: 'TND-1', detail: { commit: '1a2b3c4d'.repeat(5) }, seq: 2, hash: 'b'.repeat(64) },
-  { id: 'a1', at: now, kind: 'config', action: 'settings.updated', actor: 'owner', actorName: 'Sam', summary: 'Changed limits.creditsPerDay.', detail: { changes: [{ field: 'limits.creditsPerDay', from: 75, to: 50 }] }, seq: 1, hash: 'c'.repeat(64) },
-];
 
-describe('Activity', () => {
-  it('shows the verified audit log, filters by kind and links tasks', async () => {
-    const { calls } = mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/activity': (_b, url) => ({ items: url.searchParams.get('kinds') === 'config' ? items.slice(2) : items, more: false }), 'GET /api/audit/verify': { ok: true, count: 3, head: HEAD } });
+describe('Audit log in Settings', () => {
+  it('shows that the log verifies, the head hash and the exports', async () => {
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/settings': settings, 'GET /api/secrets': { keychain: { ok: true }, jiraToken: false, githubToken: false }, 'GET /api/usage': { credits: { today: 0, perDay: 75 }, prompts: { today: 0, perDay: 40 }, last30Days: { prompts: 0, modelCalls: 0, aiCredits: 0 } }, 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } }, 'GET /api/audit/verify': { ok: true, count: 3, head: HEAD } });
+    renderApp('/settings');
+    const section = await screen.findByRole('region', { name: 'Audit log' });
+    expect(await within(section).findByText('Verified')).toBeTruthy();
+    expect(within(section).getByText('3 entries, all intact.')).toBeTruthy();
+    expect(within(section).getByRole('link', { name: 'CSV' }).getAttribute('href')).toBe('/api/activity?format=csv');
+    expect(within(section).getByText('aaaaaaaaaaaa…')).toBeTruthy();
+    expect(within(section).getByRole('button', { name: 'Copy' })).toBeTruthy();
+  });
+});
+
+describe('Task activity', () => {
+  const run = (over: Record<string, unknown>) => ({ id: 'r', taskId: 't1', kind: 'build', mode: 'build', status: 'succeeded', attempt: 0, startedAt: now, endedAt: now, prompts: 1, modelCalls: 3, aiCredits: 0.42, model: 'claude-sonnet-5.5', steps: [], ...over });
+  const step = (n: number, over: Record<string, unknown>) => ({ id: `s${n}`, runId: 'r2', taskId: 't1', seq: n, at: now, ...over });
+
+  it('tells what Copilot did, run by run, with the details folded away', async () => {
+    const runs = [
+      run({ id: 'r1', kind: 'spec', steps: [step(0, { runId: 'r1', kind: 'prompt', text: 'Write the implementation spec…' })] }),
+      run({
+        id: 'r2',
+        steps: [
+          step(0, { kind: 'prompt', text: 'Implement the approved spec in shop.' }),
+          step(1, { kind: 'intent', text: 'Implementing the change in shop' }),
+          step(2, { kind: 'reasoning', text: 'I will add the route first.\nThen the component.' }),
+          step(3, { kind: 'tool', tool: 'bash', title: 'Run tests', input: 'npm test', ok: false, output: '1 failed', durationMs: 2100 }),
+          step(4, { kind: 'tool', tool: 'edit', input: 'src/app.ts', ok: true, files: [{ kind: 'edit', path: 'src/app.ts' }] }),
+          step(5, { kind: 'blocked', tool: 'bash', text: 'curl https://example.com', output: 'Network tools are not allowed.' }),
+          step(6, { kind: 'message', text: 'Implemented shop: src/app.ts.' }),
+        ],
+      }),
+    ];
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'PR_OPEN' }), 'GET /api/tasks/t1/activity': runs, 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
     const user = userEvent.setup();
-    renderApp('/activity');
-    expect(await screen.findByText('Audit log verified')).toBeTruthy();
-    expect(screen.getByText(/3 entries, each sealed with the hash of the one before/)).toBeTruthy();
-    expect(screen.getByText('Today')).toBeTruthy();
-    expect(screen.getByText(/PM approval of spec version 2 by Pat Lee/)).toBeTruthy();
-    expect(screen.getAllByRole('link', { name: 'TND-1' })[0]!.getAttribute('href')).toBe('/tasks/t1');
-    // Details open on demand, with the audit hash.
-    await user.click(screen.getAllByRole('button', { name: 'Show details' })[0]!);
-    expect(screen.getByText('Approved in #shop')).toBeTruthy();
-    expect(screen.getByText(HEAD)).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(await screen.findByText('Changed limits.creditsPerDay.')).toBeTruthy();
-    expect(screen.queryByText(/PM approval of spec version 2/)).toBeNull();
-    expect(calls.some((c) => c.path.startsWith('/api/activity') && c.path.includes('kinds=config'))).toBe(true);
-    expect(screen.getByRole('link', { name: /Export CSV/ }).getAttribute('href')).toMatch(/^\/api\/activity\?.*kinds=config.*&format=csv$/);
+    renderApp('/tasks/t1');
+    await user.click(await screen.findByRole('tab', { name: 'Activity' }));
+    const list = await screen.findByRole('list', { name: 'Copilot activity' });
+    expect(within(list).getByText('Wrote the spec')).toBeTruthy();
+    // The latest run is open, older ones are closed.
+    const build = within(list).getByRole('button', { name: /Built the change/ });
+    expect(build.getAttribute('aria-expanded')).toBe('true');
+    expect(within(list).getByRole('button', { name: /Wrote the spec/ }).getAttribute('aria-expanded')).toBe('false');
+    expect(within(build).getByText('2 actions · 1 file changed')).toBeTruthy();
+    expect(within(list).getByText('Implementing the change in shop')).toBeTruthy();
+    expect(within(list).getByText('Implemented shop: src/app.ts.')).toBeTruthy();
+    expect(within(list).getByText(/Tandem blocked: curl/)).toBeTruthy();
+    // Instructions, thinking and tool output open on demand.
+    expect(within(list).queryByText('Implement the approved spec in shop.')).toBeNull();
+    await user.click(within(list).getByRole('button', { name: /Tandem's instructions/ }));
+    expect(within(list).getByText('Implement the approved spec in shop.')).toBeTruthy();
+    await user.click(within(list).getByRole('button', { name: /Thinking: I will add the route first\./ }));
+    expect(within(list).getByText(/Then the component\./)).toBeTruthy();
+    await user.click(within(list).getByRole('button', { name: /Run tests/ }));
+    expect(within(list).getByText('1 failed')).toBeTruthy();
+    expect(within(list).getByRole('button', { name: /Edited src\/app\.ts/ })).toBeTruthy();
   });
 
-  it('says plainly when the audit log fails verification', async () => {
-    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/activity': { items, more: false }, 'GET /api/audit/verify': { ok: false, count: 3, brokenAt: 2, reason: 'Entry 2 was changed after it was written.', head: HEAD } });
-    renderApp('/activity');
-    expect(await screen.findByText('Audit log failed verification')).toBeTruthy();
-    expect(screen.getByText('Entry 2 was changed after it was written.')).toBeTruthy();
+  it('explains when Copilot has not started yet', async () => {
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'DRAFT' }), 'GET /api/tasks/t1/activity': [], 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
+    const user = userEvent.setup();
+    renderApp('/tasks/t1');
+    await user.click(await screen.findByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByText("Copilot hasn't started yet")).toBeTruthy();
   });
 });
 
@@ -87,6 +120,11 @@ describe('Search and project switcher', () => {
     const user = userEvent.setup();
     renderApp('/tasks');
     await screen.findByRole('heading', { name: 'Tasks' });
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    // Clicking outside closes it; the shortcut opens it again.
+    const dialog = await screen.findByRole('dialog', { name: 'Search Tandem' });
+    fireEvent.mouseDown(dialog.previousElementSibling!);
+    expect(screen.queryByRole('dialog', { name: 'Search Tandem' })).toBeNull();
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     const box = await screen.findByRole('combobox', { name: 'Search pages, tasks and projects' });
     await user.type(box, 'tnd-9');

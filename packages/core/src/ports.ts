@@ -28,6 +28,7 @@ import type {
   VerifyRun,
   AuditEntry,
   AuditInput,
+  AgentStep,
 } from '@tandem/shared';
 
 /* ================================================================== storage */
@@ -105,6 +106,8 @@ export interface Store {
    * Append-only audit log with a hash chain (see audit.ts). `append` assigns the sequence number and
    * hashes; there is no update or delete. `list` returns entries in sequence order, newest last.
    */
+  /** What each agent run did, step by step (see AgentStep). */
+  agentSteps: { add(s: AgentStep): Promise<void>; list(scope: { taskId?: string; runId?: string }): Promise<AgentStep[]> };
   audit: {
     append(e: AuditInput): Promise<AuditEntry>;
     list(scope?: { taskId?: string; since?: string; until?: string; afterSeq?: number; limit?: number }): Promise<AuditEntry[]>;
@@ -234,7 +237,15 @@ export type AgentEvent =
   | { type: 'delta'; text: string }
   | { type: 'tool'; tool: string; summary: string; allowed: boolean; reason?: string }
   | { type: 'usage'; model: string; nanoAiu: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  /** What the agent says it is doing now ("Reading the routes"). */
+  | { type: 'intent'; text: string }
+  /** The agent's reasoning, one finished block. */
+  | { type: 'reasoning'; text: string }
+  /** One finished message from the agent. */
+  | { type: 'message'; text: string }
+  | { type: 'tool-start'; id: string; tool: string; title?: string; input?: string }
+  | { type: 'tool-end'; id: string; ok: boolean; output?: string; files?: Array<{ kind: string; path: string }> };
 
 export interface AgentSessionOptions {
   /** Every file the agent may touch lives under this folder. */

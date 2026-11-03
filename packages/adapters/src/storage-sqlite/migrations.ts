@@ -50,4 +50,12 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; sql: string }> = [
       CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'The audit log is append-only.'); END;
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE agent_steps (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, task_id TEXT, seq INTEGER NOT NULL, at TEXT NOT NULL, doc TEXT NOT NULL);
+      CREATE INDEX agent_steps_run ON agent_steps (run_id, seq);
+      CREATE INDEX agent_steps_task ON agent_steps (task_id, at);
+    `,
+  },
 ];

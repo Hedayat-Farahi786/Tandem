@@ -113,6 +113,13 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     expect(trace.audit.some((e) => e.action === 'pr.prepared' || e.action === 'pr.opened')).toBe(true);
     expect(trace.integrity.ok).toBe(true);
     expect(await h.api('GET', '/api/audit/verify')).toMatchObject({ ok: true });
+    // Activity: every Copilot run, step by step; the build shows its reasoning and the files it edited.
+    const activity = await h.api<Array<{ kind: string; status: string; steps: Array<{ kind: string; tool?: string; files?: Array<{ path: string }> }> }>>('GET', `/api/tasks/${task.id}/activity`);
+    expect(activity.map((r) => r.kind)).toEqual(expect.arrayContaining(['spec', 'build', 'review']));
+    const buildRun = activity.find((r) => r.kind === 'build')!;
+    expect(buildRun.status).toBe('succeeded');
+    expect(buildRun.steps.map((x) => x.kind)).toEqual(expect.arrayContaining(['prompt', 'intent', 'reasoning', 'tool', 'message']));
+    expect(buildRun.steps.flatMap((x) => x.files?.map((f) => f.path) ?? [])).toEqual(expect.arrayContaining(['tandem-sandbox-fullstack/src/server/app.ts']));
     h.record('(a) one full-stack repo', d);
   });
 

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentRun, AgentRunKind, Project, Repo, Settings, Task } from '@tandem/shared';
+import type { AgentRun, AgentRunKind, AgentStep, Project, Repo, Settings, Task } from '@tandem/shared';
 import { Budget, BudgetError } from '../budget.js';
 import type {
   AgentEvent,
@@ -121,6 +121,10 @@ export interface SessionRequest {
   onEvent?: (e: AgentEvent) => void;
 }
 
+const MAX_TEXT = 20_000;
+const MAX_OUTPUT = 4_000;
+const cap = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}\n… (shortened)` : text);
+
 const LIGHT_KINDS: readonly AgentRunKind[] = ['ask', 'request', 'task-chat', 'extract', 'size', 'spec', 'review'];
 
 /** The model picked for this task or chat ('' = none, use the defaults in Settings). */
@@ -152,8 +156,36 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
     attempt: 0,
     startedAt: deps.clock.iso(),
   };
+  // The run's story, step by step: saved in order (queued, so the agent never waits on the store).
+  const scope = { ...(req.taskId ? { taskId: req.taskId } : {}), ...(req.threadId ? { threadId: req.threadId } : {}) };
+  let seq = 0;
+  let saving: Promise<void> = Promise.resolve();
+  let lastIntent = '';
+  const openTools = new Map<string, { tool: string; title?: string; input?: string; started: number }>();
+  const step = (s: Omit<AgentStep, 'id' | 'runId' | 'seq' | 'at' | 'taskId' | 'threadId'>) => {
+    const full: AgentStep = { id: deps.ids(), runId: run.id, ...scope, seq: seq++, at: deps.clock.iso(), ...s };
+    saving = saving
+      .then(() => deps.store.agentSteps.add(full))
+      .then(() => deps.events?.emit({ type: 'agent.step', ...scope, runId: run.id }))
+      .catch((err: unknown) => deps.logger?.warn('could not save an agent step', { runId: run.id, error: String(err) }));
+  };
+  const log = (e: AgentEvent) => {
+    if (e.type === 'tool' && !e.allowed) step({ kind: 'blocked', tool: e.tool, text: e.summary, ...(e.reason ? { output: e.reason } : {}) });
+    else if (e.type === 'intent' && e.text.trim() && e.text !== lastIntent) {
+      lastIntent = e.text;
+      step({ kind: 'intent', text: cap(e.text, 300) });
+    } else if (e.type === 'reasoning' && e.text.trim()) step({ kind: 'reasoning', text: cap(e.text, MAX_TEXT) });
+    else if (e.type === 'message' && e.text.trim()) step({ kind: 'message', text: cap(e.text, MAX_TEXT) });
+    else if (e.type === 'tool-start') openTools.set(e.id, { tool: e.tool, ...(e.title ? { title: e.title } : {}), ...(e.input ? { input: cap(e.input, 600) } : {}), started: Date.now() });
+    else if (e.type === 'tool-end') {
+      const t = openTools.get(e.id);
+      openTools.delete(e.id);
+      step({ kind: 'tool', tool: t?.tool ?? 'tool', ...(t?.title ? { title: t.title } : {}), ...(t?.input ? { input: t.input } : {}), ok: e.ok, ...(e.output ? { output: cap(e.output, MAX_OUTPUT) } : {}), ...(e.files?.length ? { files: e.files.slice(0, 50) } : {}), ...(t ? { durationMs: Math.max(0, Date.now() - t.started) } : {}) });
+    } else if (e.type === 'error') step({ kind: 'error', text: cap(e.message, 2_000) });
+  };
   const emit = (e: AgentEvent) => {
     const safe = e.type === 'delta' ? { ...e, text: redactor.redact(e.text) } : e.type === 'tool' ? { ...e, summary: redactor.redact(e.summary) } : e;
+    log(safe);
     req.onEvent?.(safe);
     if (safe.type === 'delta') deps.events?.emit({ type: 'agent.delta', ...(req.taskId ? { taskId: req.taskId } : {}), ...(req.threadId ? { threadId: req.threadId } : {}), runId: run.id, text: safe.text });
     if (safe.type === 'tool') deps.events?.emit({ type: 'agent.tool', ...(req.taskId ? { taskId: req.taskId } : {}), ...(req.threadId ? { threadId: req.threadId } : {}), runId: run.id, tool: safe.tool, summary: safe.summary, allowed: safe.allowed });
@@ -189,6 +221,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
       ...(req.taskId ? { taskId: req.taskId } : {}),
       ...(req.threadId ? { threadId: req.threadId } : {}),
       runKind: req.kind,
+      runId: run.id,
       model: usage.model,
       prompts: 1,
       modelCalls: usage.modelCalls,
@@ -218,6 +251,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
     runId: run.id,
     send: async (prompt) => {
       await guard();
+      step({ kind: 'prompt', text: cap(prompt, MAX_TEXT) });
       try {
         const turn = await session.send(prompt);
         await record(turn.usage);
@@ -228,6 +262,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
     },
     structured: async (prompt, schema) => {
       await guard();
+      step({ kind: 'prompt', text: cap(prompt, MAX_TEXT) });
       try {
         const r = await session.sendStructured(prompt, schema);
         await record(r.usage);
@@ -239,6 +274,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
     stop: async () => {
       req.signal?.removeEventListener('abort', onAbort);
       await session.stop();
+      await saving;
       // A failed run stays failed; closing its session is not a success.
       if (req.signal?.aborted) await finish('aborted', failure);
       else if (!failure) await finish('succeeded');

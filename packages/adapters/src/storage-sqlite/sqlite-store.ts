@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DatabaseSync as DatabaseSyncT, SQLInputValue } from 'node:sqlite';
-import { DEFAULT_SETTINGS, Settings, type AuditEntry, type Task, type TaskTransition } from '@tandem/shared';
+import { DEFAULT_SETTINGS, Settings, type AgentStep, type AuditEntry, type Task, type TaskTransition } from '@tandem/shared';
 import { auditMatches, chainEntry, lockedStore, redactor, type Collection, type Job, type RawRepos, type Store, type TaskScoped, type TrackerComment } from '@tandem/core';
 import { MIGRATIONS } from './migrations.js';
 import { openDatabase } from './open.js';
@@ -185,6 +185,16 @@ class SqliteRepos implements RawRepos {
   trackerComments: Store['trackerComments'] = {
     add: (c) => this.op(() => void this.db.prepare('INSERT INTO tracker_comments (id, key, created_at, doc) VALUES (?, ?, ?, ?)').run(c.id, c.key, c.createdAt, this.encode(c))),
     list: (key) => this.op(() => this.all<TrackerComment>('SELECT doc FROM tracker_comments WHERE key = ? ORDER BY created_at, rowid', key)),
+  };
+
+  agentSteps: Store['agentSteps'] = {
+    add: (step) => this.op(() => void this.db.prepare('INSERT INTO agent_steps (id, run_id, task_id, seq, at, doc) VALUES (?, ?, ?, ?, ?, ?)').run(step.id, step.runId, step.taskId ?? null, step.seq, step.at, this.encode(step))),
+    list: (scope) =>
+      this.op(() => {
+        if (scope.runId) return this.all<AgentStep>('SELECT doc FROM agent_steps WHERE run_id = ? ORDER BY seq', scope.runId);
+        if (scope.taskId) return this.all<AgentStep>('SELECT doc FROM agent_steps WHERE task_id = ? ORDER BY at, seq', scope.taskId);
+        return this.all<AgentStep>('SELECT doc FROM agent_steps ORDER BY at, seq');
+      }),
   };
 
   audit: Store['audit'] = {

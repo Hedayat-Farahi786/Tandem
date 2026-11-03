@@ -619,7 +619,15 @@ linked, and "mark merged". Written by the server: settings changes (field,
 old and new value), token saved or removed (name only), repositories,
 projects, rules, model changes, "Fix conflicts" and "Request changes".
 
-`GET /api/activity` merges the audit log with Copilot usage records, check
+Agent activity: `openSession` saves each run's steps in `agent_steps`
+(migration 3) as they happen: the prompt, intents, reasoning, tool calls
+(paired start and end, with input, output, edited files and duration),
+blocked actions, errors and messages. Text is capped (20,000 characters;
+tool output 4,000) and redacted by the store. Each save emits `agent.step`
+over SSE, and `GET /api/tasks/:id/activity` returns the runs with their
+steps, model, prompts and credits (usage records carry the run id).
+
+`GET /api/activity` (used by the exports in Settings) merges the audit log with Copilot usage records, check
 runs and (for tasks from before the audit log) transitions; it filters by
 time, project, task and kind, and exports CSV (formula-like cells are
 quoted) or JSON. `GET /api/audit/verify` recomputes the chain.
@@ -706,8 +714,9 @@ React 19 + Vite + Tailwind 4, React Router, TanStack Query for REST data,
 one SSE hook for live events. Screens: Setup wizard, Chat (Ask / Request),
 Tasks, Task detail (timeline, task chat, readiness, spec viewer/editor with
 versions and approvals, Copy as Markdown, Export as PDF, per-repo diff
-viewer, verify and review results, criterion → test table, PR links, trace),
-Projects, Activity, Settings, Doctor, and a Ctrl/⌘K command palette.
+viewer, verify and review results, criterion → test table, PR links, Copilot's
+activity step by step, trace),
+Projects, Settings (with the audit log), Doctor, and a Ctrl/⌘K command palette.
 
 Design tokens as CSS variables mapped into Tailwind's theme: neutral grays,
 one monochrome accent, 8 px spacing grid, Inter with optical sizing (display

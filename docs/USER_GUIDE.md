@@ -200,35 +200,38 @@ A run that reaches a limit stops at once and the task waits with a
 message. Raise the limit, then **Resume**. A typical task uses about 1–2
 credits on a light model; the model menu shows an estimate per model.
 
+## What Copilot did: the Activity tab
+
+Every task has an **Activity** tab that tells, step by step, what Copilot
+did: reading the request, writing the spec, building, fixing failing checks,
+reviewing its own work, resolving conflicts. Each step shows the model, how
+long it took and what it cost, and opens to show:
+
+- **Tandem's instructions**: the exact prompt Copilot got
+- **Thinking**: the model's reasoning, when the model shares it
+- every **action**: files it read and edited, searches, the commands it ran,
+  with their output and whether they worked
+- anything **Tandem blocked**, and why
+- what Copilot **said**
+
+The step Copilot is working on updates live. Secrets are removed before
+anything is stored, and long output is shortened.
+
 ## Traceability and audit
 
-Tandem records who did what, and when, so a change can be followed from the
-request to the merged code.
-
-- **Activity** (sidebar) lists everything newest first: tasks created,
-  state changes, spec edits, approvals (with the spec version and the
-  evidence), commits pushed, pull requests opened or linked, every Copilot
-  run (model, prompts, AI credits), every check run, and every change to
-  Settings, tokens, repositories, projects and rules. Filter by kind,
-  project and time range; open a row for its details. **Export CSV** or
-  **JSON** downloads what the filters show.
-- **The audit log** behind it is append-only, and each entry carries a
-  SHA-256 hash that also covers the entry before it. Changing or deleting
-  an entry later breaks the chain, and Activity says so instead of "Audit
-  log verified". Copy the head hash now and then (for example into a
-  ticket): if an earlier entry is ever changed, that hash no longer
-  matches. Token values are never recorded, only that a token was saved
-  or removed.
 - **Task › Trace** shows one task's chain: the request, each acceptance
   criterion with the tests that prove it, each spec version with who
   approved it, Copilot use per step, checks and review findings, the
   commits pushed and the pull requests, and the task's audit entries.
   **Download report** saves it as Markdown, ready to attach to a change
   record; **JSON** for tools.
-
-Entries are kept in Tandem's database in `~/.tandem`. Tasks from before
-this version show their history, but their audit entries start at the
-upgrade.
+- **Settings › Audit log**: Tandem records every change to settings,
+  tokens (never their values), repositories, projects, rules, approvals,
+  commits and pull requests, with who made it. Each entry carries a SHA-256
+  hash that also covers the entry before it, so changing or deleting an
+  entry later breaks the chain and Settings says so. Copy the head hash now
+  and then (for example into a ticket). **CSV** and **JSON** export
+  everything, Copilot runs and checks included.
 
 ## Project icons
 
@@ -240,9 +243,8 @@ so an SVG from a repository can never run script in Tandem.
 
 ## Search
 
-Press **Ctrl K** (**⌘K** on a Mac), or click **Search** in the sidebar, to
-jump to any page, task (by title or key) or project, or to switch the
-theme.
+Press **Ctrl K** (**⌘K** on a Mac) to jump to any page, task (by title or
+key) or project, or to switch the theme.
 
 ## Light and dark
 

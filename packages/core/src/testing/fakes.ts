@@ -266,6 +266,9 @@ export interface ScriptReply {
   error?: Error;
   /** What this turn costs (nano-AIU); the scripted agent is free otherwise. */
   nanoAiu?: number;
+  /** What the agent says it is doing, and its reasoning (shown in the task's activity). */
+  intent?: string;
+  reasoning?: string;
 }
 
 /** Models the scripted agent offers (prices in AI credits per million tokens). Test data only. */
@@ -313,20 +316,30 @@ export class ScriptedAgent implements AgentRuntime {
         opts.onEvent?.({ type: 'usage', model: opts.model ?? 'scripted', nanoAiu: cost });
         throw Object.assign(new BudgetError('The run reached its credit limit.'), { usage: usage() });
       }
+      if (reply.intent) opts.onEvent?.({ type: 'intent', text: reply.intent });
+      if (reply.reasoning) opts.onEvent?.({ type: 'reasoning', text: reply.reasoning });
       if (reply.error) throw reply.error;
+      let n = 0;
       for (const e of reply.edits ?? []) {
         if (opts.mode !== 'build') throw new Error('scripted agent tried to edit in a read-only session');
         const p = isAbsolute(e.path) ? e.path : join(opts.workspace, e.path);
+        const id = `edit-${turn}-${n++}`;
+        opts.onEvent?.({ type: 'tool-start', id, tool: 'edit', title: `Edit ${e.path}`, input: e.path });
         await mkdir(dirname(p), { recursive: true });
         await writeFile(p, e.content);
+        opts.onEvent?.({ type: 'tool-end', id, ok: true, files: [{ kind: 'edit', path: e.path }] });
       }
       for (const t of reply.tools ?? []) {
         const tool = opts.tools?.find((x) => x.name === t.name);
         if (!tool) throw new Error(`scripted agent called unknown tool ${t.name}`);
-        await tool.handler(tool.schema.parse(t.args) as never);
+        const id = `tool-${turn}-${n++}`;
+        opts.onEvent?.({ type: 'tool-start', id, tool: t.name, input: JSON.stringify(t.args).slice(0, 300) });
+        const out = await tool.handler(tool.schema.parse(t.args) as never);
         opts.onEvent?.({ type: 'tool', tool: t.name, summary: t.name, allowed: true });
+        opts.onEvent?.({ type: 'tool-end', id, ok: true, ...(typeof out === 'string' ? { output: out } : {}) });
       }
       if (reply.text) opts.onEvent?.({ type: 'delta', text: reply.text });
+      if (reply.text && !structured) opts.onEvent?.({ type: 'message', text: reply.text });
       return reply;
     };
     return {

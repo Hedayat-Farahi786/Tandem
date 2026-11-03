@@ -220,7 +220,7 @@ describe('SqliteStore', () => {
     const a = await SqliteStore.open(path);
     await a.tasks.upsert(task('t1', 'TND-1', 'BUILDING'));
     await a.jobs.upsert({ taskId: 't1', state: 'BUILDING', step: 'implement', status: 'running', attempt: 0, notBefore: 0, leaseBootId: 'old' });
-    expect(a.schemaVersion()).toBe(2);
+    expect(a.schemaVersion()).toBe(3);
     a.close();
     const b = await SqliteStore.open(path);
     expect((await b.tasks.get('t1'))?.state).toBe('BUILDING');

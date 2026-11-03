@@ -13,12 +13,21 @@ All notable changes to Tandem. The format follows
   pushed, pull requests, and every change to settings, tokens (name only),
   repositories, projects and rules, with who made it. Changing or removing
   an entry is detected.
-- **Activity** page: everything people, Copilot and Tandem did, by day, with
-  filters, details, audit verification, and CSV or JSON export.
+- **Task › Activity**: what Copilot did on the task, step by step and live:
+  the instructions it got, its thinking, the files it read and edited, the
+  commands it ran with their output, what Tandem blocked, and its answers,
+  with the model, time and credits of each step.
+- **Settings › Audit log**: verification of the audit log, its head hash, and
+  CSV or JSON export of everything recorded.
 - **Task › Trace**: request → criteria and their tests → spec versions and
   approvals → Copilot runs → checks and review → commits and pull requests
   → audit entries, with a Markdown report to download.
 - **Search** (Ctrl K / ⌘K) for pages, tasks and projects.
+- **Rules for Copilot** in plain words, with examples to start from, a
+  choice of repository (or all of them), and removal before a task saves a
+  rule to the repository.
+- **Tasks** as one list, most recent first, with All / Needs you / In
+  progress / Done filters.
 - A project switcher at the top of the sidebar and a count of tasks that
   need you next to Tasks.
 - **Project icons**: each project shows its website's real favicon, read

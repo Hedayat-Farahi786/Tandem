@@ -12,11 +12,9 @@ import {
   Check,
   ChevronsUpDown,
   FolderGit2,
-  History,
   ListTodo,
   Moon,
   Plus,
-  Search,
   Settings2,
   Stethoscope,
   Sun,
@@ -28,7 +26,6 @@ import { NEEDS_YOU } from "./lib/tasks";
 import { useTheme } from "./lib/theme";
 import { CommandPalette } from "./ui/command";
 import { ProjectAvatar } from "./ui/visual";
-import { ActivityScreen } from "./screens/Activity";
 import { relativeTime } from "./lib/format";
 import { useChatProject } from "./lib/project";
 import {
@@ -82,7 +79,6 @@ export function App({
 const NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: "/tasks", label: "Tasks", icon: ListTodo },
   { to: "/projects", label: "Projects", icon: FolderGit2 },
-  { to: "/activity", label: "Activity", icon: History },
 ];
 const FOOTER_NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: "/settings", label: "Settings", icon: Settings2 },
@@ -349,9 +345,6 @@ function Shell() {
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
   }, []);
-  const isMac =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform);
 
   let screen: ReactNode;
   let m: Record<string, string> | null;
@@ -361,7 +354,6 @@ function Shell() {
   else if (path.startsWith("/tasks")) screen = <TasksScreen />;
   else if (path.startsWith("/chat")) screen = <ChatScreen />;
   else if (path.startsWith("/projects")) screen = <ProjectsScreen />;
-  else if (path.startsWith("/activity")) screen = <ActivityScreen />;
   else if (path.startsWith("/settings")) screen = <SettingsScreen />;
   else if (path.startsWith("/doctor")) screen = <DoctorScreen />;
   else screen = <Loading />;
@@ -425,21 +417,6 @@ function Shell() {
               </span>
               New chat
             </Link>
-            <button
-              type="button"
-              onClick={() => setPalette(true)}
-              className={cx(navItem(false), "w-full text-left")}
-            >
-              <Search
-                aria-hidden
-                className="size-4 text-faint group-hover:text-fg"
-                strokeWidth={1.9}
-              />
-              <span className="flex-1">Search</span>
-              <kbd className="rounded-[5px] border border-line bg-surface px-1.5 font-sans text-[10.5px] leading-[18px] text-faint">
-                {isMac ? "⌘K" : "Ctrl K"}
-              </kbd>
-            </button>
             {NAV.map((n) => {
               const active = path.startsWith(n.to);
               const Icon = n.icon;

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Gauge, Save, UserRound, Workflow, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Gauge, Save, ShieldAlert, ShieldCheck, UserRound, Workflow, type LucideIcon } from 'lucide-react';
 import { BrandLogo, BrandTile, type Brand } from '../ui/brands';
 import { IconTile, Ring } from '../ui/visual';
 import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
-import { Button, Callout, ErrorState, Input, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
+import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
+import type { AuditVerification } from '../lib/types';
 
 interface Secrets {
   keychain: { ok: boolean; message: string };
@@ -99,6 +100,43 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
   );
 }
 
+/** The tamper-evident record of changes, for audits: its check, and exports. */
+function AuditSection() {
+  const v = useQuery({ queryKey: ['audit-verify'], queryFn: () => api<AuditVerification>('/api/audit/verify') });
+  return (
+    <SettingsSection id="audit" icon={<IconTile icon={ShieldCheck} />} title="Audit log" description="Tandem records every change to settings, approvals, commits and pull requests, with who made it. Each entry is sealed, so a change made later shows.">
+      <Row label="Integrity" description={v.data && !v.data.ok ? v.data.reason : v.data?.count ? `${v.data.count} entries, all intact.` : 'Nothing recorded yet.'}>
+        {v.data && (
+          <span className={cx('inline-flex items-center gap-1.5 text-[13px] font-medium', v.data.ok ? 'text-ok' : 'text-danger')}>
+            {v.data.ok ? <ShieldCheck aria-hidden className="size-4" /> : <ShieldAlert aria-hidden className="size-4" />}
+            {v.data.ok ? 'Verified' : 'Failed verification'}
+          </span>
+        )}
+      </Row>
+      {v.data?.ok && v.data.count > 0 && (
+        <Row label="Head hash" description="Write it down (for example in a ticket). If an earlier entry ever changes, this no longer matches.">
+          <span className="flex items-center justify-end gap-2">
+            <code className="font-mono text-[12px] text-muted" title={v.data.head}>
+              {v.data.head.slice(0, 12)}…
+            </code>
+            <CopyButton text={v.data.head} label="Copy" />
+          </span>
+        </Row>
+      )}
+      <Row label="Export" description="Everything Tandem and Copilot did: tasks, approvals, commits, pull requests, Copilot runs, checks and settings changes.">
+        <span className="flex gap-2">
+          <LinkButton to="/api/activity?format=csv" size="sm" download>
+            CSV
+          </LinkButton>
+          <LinkButton to="/api/activity?format=json" size="sm" download>
+            JSON
+          </LinkButton>
+        </span>
+      </Row>
+    </SettingsSection>
+  );
+}
+
 const NAV = [
   ['general', 'General', UserRound],
   ['copilot', 'Copilot', 'copilot'],
@@ -107,6 +145,7 @@ const NAV = [
   ['aws', 'AWS', 'aws'],
   ['jira', 'Jira', 'jira'],
   ['github', 'GitHub', 'github'],
+  ['audit', 'Audit log', ShieldCheck],
 ] as const satisfies ReadonlyArray<readonly [string, string, LucideIcon | Brand]>;
 
 /** The section menu beside Settings, following the section in view. */
@@ -347,6 +386,8 @@ export function SettingsScreen() {
           <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
         </Row>
       </SettingsSection>
+
+      <AuditSection />
 
       </div>
       </div>

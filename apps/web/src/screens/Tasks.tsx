@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, GitPullRequest, Hand, ListTodo, Loader, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
-import { IconTile, StatusIcon } from '../ui/visual';
+import { CheckCircle2, Circle, GitPullRequest, ListTodo, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
+import { StatusIcon } from '../ui/visual';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
 import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format';
@@ -9,7 +9,7 @@ import { Link, useRouter } from '../lib/router';
 import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
 import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, Pill, Select, Textarea, controlBase, cx } from '../ui/kit';
 import { InlineText } from '../ui/text';
-import { NEEDS_YOU, RUNNING, groupOf } from '../lib/tasks';
+import { RUNNING, groupOf } from '../lib/tasks';
 import { BrandLogo } from '../ui/brands';
 
 
@@ -199,22 +199,22 @@ export function TasksScreen() {
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState('');
-  const list = (tasks.data ?? []).filter(
-    (t) =>
-      (!projectId || t.projectId === projectId) &&
-      (!query.trim() || `${t.title} ${t.key}`.toLowerCase().includes(query.trim().toLowerCase())) &&
-      (filter === 'all' || (filter === 'needs-you' && NEEDS_YOU.has(t.state)) || (filter === 'active' && !['DONE', 'CANCELLED'].includes(t.state) && !NEEDS_YOU.has(t.state)) || (filter === 'finished' && ['DONE', 'CANCELLED'].includes(t.state))),
-  );
-  const counts = {
-    all: tasks.data?.length ?? 0,
-    'needs-you': tasks.data?.filter((t) => NEEDS_YOU.has(t.state)).length ?? 0,
-    active: tasks.data?.filter((t) => !['DONE', 'CANCELLED'].includes(t.state) && !NEEDS_YOU.has(t.state)).length ?? 0,
-    finished: tasks.data?.filter((t) => ['DONE', 'CANCELLED'].includes(t.state)).length ?? 0,
+  const all = tasks.data ?? [];
+  const counts: Record<Filter, number> = {
+    all: all.length,
+    'needs-you': all.filter((t) => groupOf(t.state) === 'needs-you').length,
+    active: all.filter((t) => groupOf(t.state) === 'active').length,
+    finished: all.filter((t) => groupOf(t.state) === 'finished').length,
   };
+  // One list, most recent activity first (like a chat history); status shows on each row.
+  const list = all
+    .filter((t) => (!projectId || t.projectId === projectId) && (!query.trim() || `${t.title} ${t.key}`.toLowerCase().includes(query.trim().toLowerCase())) && (filter === 'all' || groupOf(t.state) === filter))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const projectName = (id: string) => boot.data?.projects.find((p) => p.id === id)?.name ?? '';
+  const multiProject = (boot.data?.projects.length ?? 0) > 1;
   return (
     <div className="mx-auto w-full max-w-[760px]">
-      <div className="mb-7 flex items-end justify-between gap-4">
+      <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Tasks</h1>
           <p className="mt-1 text-[13.5px] text-muted">Every request, from spec to pull request.</p>
@@ -231,43 +231,40 @@ export function TasksScreen() {
           </Button>
         </div>
       </div>
-      <div role="group" aria-label="Filter tasks" className="mb-6 grid grid-cols-3 gap-3">
-        {(
-          [
-            ['needs-you', 'Needs you', Hand, 'warn'],
-            ['active', 'In progress', Loader, 'neutral'],
-            ['finished', 'Finished', CheckCircle2, 'ok'],
-          ] as const
-        ).map(([id, label, icon, tone]) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={filter === id}
-            onClick={() => setFilter(filter === id ? 'all' : id)}
-            className={cx(
-              'group relative flex flex-col items-start gap-4 overflow-hidden rounded-2xl bg-surface p-4 text-left transition-[box-shadow,transform] duration-200 hover:-translate-y-px',
-              filter === id ? 'shadow-[0_0_0_1.5px_var(--accent),0_8px_24px_-8px_rgb(0_0_0/0.18)]' : 'shadow-panel hover:shadow-[var(--shadow-panel),0_8px_24px_-10px_rgb(0_0_0/0.14)]',
-            )}
-          >
-            <IconTile icon={icon} tone={counts[id] > 0 ? tone : 'neutral'} />
-            <span className="flex w-full items-end justify-between gap-2">
-              <span className="text-[13px] font-medium text-muted">{label}</span>
-              <span className="font-display text-[30px] leading-none tabular-nums">{counts[id]}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="mb-3 flex items-center gap-3">
-        <label className="relative block flex-1">
-          <span className="sr-only">Search tasks</span>
-          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-faint" />
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tasks…" className={cx(controlBase, 'h-10 rounded-xl pl-10 text-[14px]')} />
-        </label>
-        {(boot.data?.projects.length ?? 0) > 1 && (
-          <div className="w-48">
-            <Select label="Project" hideLabel value={projectId} onChange={setProjectId} options={[{ value: '', label: 'All projects' }, ...(boot.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))]} />
-          </div>
-        )}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label="Filter tasks" className="flex gap-1 rounded-xl bg-surface-2 p-1">
+          {(
+            [
+              ['all', 'All'],
+              ['needs-you', 'Needs you'],
+              ['active', 'In progress'],
+              ['finished', 'Done'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={filter === id}
+              onClick={() => setFilter(id)}
+              className={cx('flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] whitespace-nowrap transition-[background-color,color,box-shadow] duration-150', filter === id ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.06)]' : 'text-muted hover:text-fg')}
+            >
+              {label}
+              <span className={cx('tabular-nums', id === 'needs-you' && counts[id] > 0 ? 'font-semibold text-warn' : 'text-faint')}>{counts[id]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <label className="relative block w-full max-w-64">
+            <span className="sr-only">Search tasks</span>
+            <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" className={cx(controlBase, 'h-9 pl-8')} />
+          </label>
+          {multiProject && (
+            <div className="w-44 shrink-0">
+              <Select label="Project" hideLabel value={projectId} onChange={setProjectId} options={[{ value: '', label: 'All projects' }, ...(boot.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))]} />
+            </div>
+          )}
+        </div>
       </div>
       {tasks.isLoading ? (
         <Loading rows={4} />
@@ -276,61 +273,42 @@ export function TasksScreen() {
       ) : list.length === 0 ? (
         <EmptyState
           icon={ListTodo}
-          title={tasks.data?.length ? 'Nothing here' : 'No tasks yet'}
-          body={tasks.data?.length ? (query ? 'No task matches your search.' : 'No task matches this filter.') : 'Describe what you want in chat, and Tandem turns it into a task with a spec and pull requests.'}
-          action={!tasks.data?.length && <LinkButton to="/chat" variant="primary" icon={MessageSquare}>Start in chat</LinkButton>}
+          title={all.length ? 'Nothing here' : 'No tasks yet'}
+          body={all.length ? (query ? 'No task matches your search.' : 'No task matches this filter.') : 'Describe what you want in chat, and Tandem turns it into a task with a spec and pull requests.'}
+          action={!all.length && <LinkButton to="/chat" variant="primary" icon={MessageSquare}>Start in chat</LinkButton>}
         />
       ) : (
-        <div className="flex flex-col gap-5">
-          {(
-            [
-              ['needs-you', 'Needs you'],
-              ['active', 'In progress'],
-              ['finished', 'Finished'],
-            ] as const
-          )
-            .map(([id, label]) => [id, label, list.filter((t) => groupOf(t.state) === id)] as const)
-            .filter(([, , items]) => items.length > 0)
-            .map(([id, label, items]) => (
-              <section key={id} aria-label={label} className="overflow-hidden rounded-2xl bg-surface shadow-panel">
-                <h2 className="flex h-10 items-center gap-2 border-b border-line bg-surface-2/50 px-4 text-[12.5px] font-semibold text-muted">
-                  <span aria-hidden className={cx('size-1.5 rounded-full', id === 'needs-you' ? 'bg-warn' : id === 'active' ? 'bg-info' : 'bg-ok')} />
-                  {label}
-                  <span className="rounded-full bg-surface-3/70 px-1.5 text-[11px] leading-[18px] font-medium text-muted tabular-nums">{items.length}</span>
-                </h2>
-                <ul className="flex flex-col divide-y divide-line">
-                  {items.map((t) => {
-                    const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
-                    return (
-                      <li key={t.id}>
-                        <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 px-4 py-3 transition-colors duration-150 hover:bg-surface-2/70">
-                          <StatusIcon state={t.state} />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[14px] font-medium">{t.title}</p>
-                            <p className="mt-0.5 truncate text-[12.5px] text-muted">
-                              <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state]}</span>
-                              {note && <span> · {note}</span>}
-                            </p>
-                          </div>
-                          <div className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
-                            {(boot.data?.projects.length ?? 0) > 1 && projectName(t.projectId) && <span className="max-w-32 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-muted">{projectName(t.projectId)}</span>}
-                            {t.prCount > 0 && (
-                              <span className="flex items-center gap-1">
-                                <GitPullRequest aria-hidden className="size-3.5" />
-                                {t.prCount}
-                              </span>
-                            )}
-                            <span className="w-14 font-mono text-[11.5px]">{t.key}</span>
-                          </div>
-                          <span className="w-16 shrink-0 text-right text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            ))}
-        </div>
+        <ul aria-label="Tasks" className="divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-panel">
+          {list.map((t) => {
+            const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
+            const status = RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state];
+            return (
+              <li key={t.id}>
+                <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 px-4 py-3 transition-colors duration-150 hover:bg-surface-2/70">
+                  <StatusIcon state={t.state} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-medium">{t.title}</p>
+                    <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                      <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{status}</span>
+                      {note && <span> · {note}</span>}
+                    </p>
+                  </div>
+                  <div className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
+                    {multiProject && projectName(t.projectId) && <span className="max-w-32 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-muted">{projectName(t.projectId)}</span>}
+                    {t.prCount > 0 && (
+                      <span className="flex items-center gap-1" title={`${t.prCount} pull request${t.prCount > 1 ? 's' : ''}`}>
+                        <GitPullRequest aria-hidden className="size-3.5" />
+                        {t.prCount}
+                      </span>
+                    )}
+                    <span className="w-14 font-mono text-[11.5px]">{t.key}</span>
+                  </div>
+                  <span className="w-16 shrink-0 text-right text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       )}
       {creating && boot.data && <NewTaskDialog boot={boot.data} onClose={() => setCreating(false)} />}
       {importing && boot.data && <ImportDialog boot={boot.data} onClose={() => setImporting(false)} />}

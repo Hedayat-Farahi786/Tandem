@@ -20,18 +20,19 @@ describe('Tasks list', () => {
 
   it('filters by what needs you, and links each task', async () => {
     const list = [
-      { ...task({ id: 'a', key: 'TND-1', title: 'Review me', state: 'SPEC_REVIEW' }), prCount: 0 },
-      { ...task({ id: 'b', key: 'TND-2', title: 'Building it', state: 'BUILDING', step: 'implement' }), prCount: 0 },
-      { ...task({ id: 'c', key: 'TND-3', title: 'Shipped', state: 'DONE' }), prCount: 1 },
+      { ...task({ id: 'a', key: 'TND-1', title: 'Review me', state: 'SPEC_REVIEW', updatedAt: '2026-11-03T09:00:00Z' }), prCount: 0 },
+      { ...task({ id: 'b', key: 'TND-2', title: 'Building it', state: 'BUILDING', step: 'implement', updatedAt: '2026-11-03T11:00:00Z' }), prCount: 0 },
+      { ...task({ id: 'c', key: 'TND-3', title: 'Shipped', state: 'DONE', updatedAt: '2026-11-03T10:00:00Z' }), prCount: 1 },
     ];
     mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': list });
     const user = userEvent.setup();
     renderApp('/tasks');
     expect(await screen.findByRole('link', { name: /Review me/ })).toBeTruthy();
-    expect(screen.getAllByRole('link', { name: /TND-/ })).toHaveLength(3);
+    // One list, most recent activity first, whatever the status.
+    expect(screen.getAllByRole('link', { name: /TND-/ }).map((l) => l.textContent)).toEqual([expect.stringContaining('Building it'), expect.stringContaining('Shipped'), expect.stringContaining('Review me')]);
     await user.click(screen.getByRole('button', { name: /Needs you/ }));
     expect(screen.getAllByRole('link', { name: /TND-/ }).map((l) => l.textContent)).toEqual([expect.stringContaining('Review me')]);
-    await user.click(screen.getByRole('button', { name: /Finished/ }));
+    await user.click(screen.getByRole('button', { name: /^Done/ }));
     expect(screen.getByRole('link', { name: /Shipped/ }).getAttribute('href')).toBe('/tasks/c');
   });
 

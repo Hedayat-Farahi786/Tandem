@@ -33,6 +33,8 @@ export function useEvents(fn: Listener) {
   useEffect(() => onEvent((e) => ref.current(e)), []);
 }
 
+const pending = new Map<string, ReturnType<typeof setTimeout>>();
+
 /** Keeps cached queries fresh when the server reports changes. */
 export function useLiveInvalidation() {
   const qc = useQueryClient();
@@ -42,5 +44,17 @@ export function useLiveInvalidation() {
       void qc.invalidateQueries({ queryKey: ['task', e.taskId] });
     }
     if (e.type === 'chat.done') void qc.invalidateQueries({ queryKey: ['thread', e.threadId] });
+    // A busy run saves many steps: reload a task's activity at most every half second.
+    if (e.type === 'agent.step' && e.taskId) {
+      const key = e.taskId;
+      if (!pending.has(key))
+        pending.set(
+          key,
+          setTimeout(() => {
+            pending.delete(key);
+            void qc.invalidateQueries({ queryKey: ['task-activity', key] });
+          }, 500),
+        );
+    }
   });
 }

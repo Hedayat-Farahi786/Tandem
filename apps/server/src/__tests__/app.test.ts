@@ -220,6 +220,20 @@ describe('repositories, projects and tasks', () => {
     expect(d.usage.budget.credits).toEqual({ today: 0, perDay: 75, task: 0, perTask: 25 });
   });
 
+  it('adds a rule and removes it again before any task wrote it', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/rules', headers: W, payload: JSON.stringify({ repoId, text: 'Write a test for every bug fix.' }) });
+    expect(r.json()).toMatchObject({ status: 'pending', text: 'Write a test for every bug fix.' });
+    expect((await app.inject({ method: 'DELETE', url: `/api/rules/${r.json().id}`, headers: D })).json()).toEqual({ deleted: true });
+    expect((await app.inject({ method: 'GET', url: '/api/rules', headers: H })).json()).toEqual([]);
+    expect((await app.inject({ method: 'DELETE', url: '/api/rules/nope', headers: D })).statusCode).toBe(404);
+    const committed = { ...r.json(), id: 'c1', status: 'committed' };
+    await tandem.store.rules.upsert(committed);
+    const refused = await app.inject({ method: 'DELETE', url: '/api/rules/c1', headers: D });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain('docs/agent-rules.md');
+    await tandem.store.rules.delete('c1');
+  });
+
   it('maps domain errors to plain messages', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/tasks/nope', headers: H })).statusCode).toBe(404);
     const approve = await app.inject({ method: 'POST', url: `/api/tasks/${taskId}/approve`, headers: W, payload: '{}' });

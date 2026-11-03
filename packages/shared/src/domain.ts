@@ -341,6 +341,8 @@ export const UsageRecord = z.object({
   taskId: Id.optional(),
   threadId: Id.optional(),
   runKind: AgentRunKind,
+  /** The agent run this usage belongs to (missing on records from before 1.1). */
+  runId: Id.optional(),
   model: z.string(),
   /** One per prompt sent; model calls counts every agent-loop call. */
   prompts: z.number().int().nonnegative(),
@@ -378,3 +380,35 @@ export const AuditEntry = z.object({
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 export type AuditInput = Omit<AuditEntry, 'seq' | 'prevHash' | 'hash' | 'detail'> & { detail?: Record<string, unknown> };
+
+/* ------------------------------------------------------------------ agent activity */
+
+export const AgentStepKind = z.enum(['prompt', 'intent', 'reasoning', 'message', 'tool', 'blocked', 'error']);
+export type AgentStepKind = z.infer<typeof AgentStepKind>;
+
+/**
+ * One thing an agent run did, in order: the instructions it got, what it said it was doing, its
+ * reasoning, each tool it used (with the result), actions Tandem blocked, and its messages. Text is
+ * redacted and capped before it is stored.
+ */
+export const AgentStep = z.object({
+  id: Id,
+  runId: Id,
+  taskId: Id.optional(),
+  threadId: Id.optional(),
+  seq: z.number().int().nonnegative(),
+  at: Iso,
+  kind: AgentStepKind,
+  text: z.string().optional(),
+  tool: z.string().optional(),
+  /** A human title for the tool call, e.g. "Run tests" or "View src/app.ts". */
+  title: z.string().optional(),
+  /** The tool's input, shortened: a command, a path, a search. */
+  input: z.string().optional(),
+  /** The tool's output, shortened. */
+  output: z.string().optional(),
+  ok: z.boolean().optional(),
+  files: z.array(z.object({ kind: z.string(), path: z.string() })).optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+});
+export type AgentStep = z.infer<typeof AgentStep>;

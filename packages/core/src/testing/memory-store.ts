@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type AuditEntry, type Settings, type Task, type TaskTransition, type UsageRecord } from '@tandem/shared';
+import { DEFAULT_SETTINGS, type AgentStep, type AuditEntry, type Settings, type Task, type TaskTransition, type UsageRecord } from '@tandem/shared';
 import { auditMatches, chainEntry } from '../audit.js';
 import { redactor } from '../policies/redact.js';
 import type { Collection, Job, Store, TaskScoped, TrackerComment } from '../ports.js';
@@ -17,6 +17,7 @@ interface Data {
   settings: Settings | undefined;
   trackerComments: TrackerComment[];
   audit: AuditEntry[];
+  agentSteps: AgentStep[];
   nextTransitionId: number;
 }
 
@@ -35,6 +36,7 @@ class MemoryRepos implements RawRepos {
     settings: undefined,
     trackerComments: [],
     audit: [],
+    agentSteps: [],
     nextTransitionId: 1,
   };
   snapshot(): Data {
@@ -150,6 +152,11 @@ class MemoryRepos implements RawRepos {
   trackerComments: Store['trackerComments'] = {
     add: async (c) => void this.data.trackerComments.push(clone(c)),
     list: async (key) => this.data.trackerComments.filter((c) => c.key === key).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone),
+  };
+
+  agentSteps: Store['agentSteps'] = {
+    add: async (step) => void this.data.agentSteps.push(clone(redactor.redactDeep(step))),
+    list: async (scope) => this.data.agentSteps.filter((x) => (!scope.taskId || x.taskId === scope.taskId) && (!scope.runId || x.runId === scope.runId)).map(clone),
   };
 
   audit: Store['audit'] = {

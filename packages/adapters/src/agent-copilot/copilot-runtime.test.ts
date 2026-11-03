@@ -142,6 +142,33 @@ describe('CopilotRuntime', () => {
     expect(sessions[0]!.disconnected).toBe(true);
   });
 
+  it("reports what the agent is doing for the task's activity", async () => {
+    const { rt } = runtime(async (s) => {
+      s.emit({ type: 'assistant.intent', data: { intent: 'Reading the routes' } });
+      s.emit({ type: 'assistant.reasoning', data: { content: 'The handler lives in app.ts.', reasoningId: 'r1' } });
+      s.emit({ type: 'tool.execution_start', data: { toolCallId: 'c1', toolName: 'bash', toolTitle: 'Run tests', arguments: { command: 'npm test' } } });
+      s.emit({ type: 'tool.execution_complete', data: { toolCallId: 'c1', success: false, error: { message: '1 test failed' } } });
+      s.emit({ type: 'tool.execution_start', data: { toolCallId: 'c2', toolName: 'edit', arguments: { path: join(ws, 'src', 'app.ts') } } });
+      s.emit({ type: 'tool.execution_complete', data: { toolCallId: 'c2', success: true, result: { content: 'ok' }, fileEdits: [{ kind: 'edit', path: join(ws, 'src', 'app.ts') }] } });
+      s.emit({ type: 'assistant.message', data: { content: '{"findings":[]}' } });
+      s.emit({ type: 'assistant.message', data: { content: 'Fixed the route.' } });
+      return { data: { content: 'Fixed the route.' } };
+    });
+    const events: AgentEvent[] = [];
+    const session = await rt.startSession(baseOpts({ onEvent: (e) => events.push(e) }));
+    await session.send('fix it');
+    expect(events.filter((e) => e.type !== 'usage' && e.type !== 'delta')).toEqual([
+      { type: 'intent', text: 'Reading the routes' },
+      { type: 'reasoning', text: 'The handler lives in app.ts.' },
+      { type: 'tool-start', id: 'c1', tool: 'bash', title: 'Run tests', input: 'npm test' },
+      { type: 'tool-end', id: 'c1', ok: false, output: '1 test failed' },
+      { type: 'tool-start', id: 'c2', tool: 'edit', input: join(ws, 'src', 'app.ts') },
+      { type: 'tool-end', id: 'c2', ok: true, output: 'ok', files: [{ kind: 'edit', path: 'src/app.ts' }] },
+      // A structured (JSON) answer is not repeated as a message.
+      { type: 'message', text: 'Fixed the route.' },
+    ]);
+  });
+
   it('uses the cheapest model for light work and an explicit model when given', async () => {
     const { rt, sessions } = runtime(async () => ({ data: { content: '' } }));
     await rt.startSession(baseOpts({ tier: 'light', mode: 'read-only' }));

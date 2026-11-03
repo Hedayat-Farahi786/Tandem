@@ -199,7 +199,13 @@ function implement(call: ScriptCall): ScriptReply {
   } else {
     edits.push({ path: `${repo}/HEALTH.md`, content: 'GET /health returns {"status":"ok"}.\n' });
   }
-  return { text: `Implemented ${repo}: ${edits.map((e) => e.path).join(', ')}.`, edits, tools: tests.map((t) => ({ name: 'tandem_record_test', args: { ...t, repo } })) };
+  return {
+    intent: `Implementing the change in ${repo}`,
+    reasoning: `The spec asks for a health endpoint and a status on the main page. I'll add the route, a small component that calls it, and one test per acceptance criterion so each criterion is proven.`,
+    text: `Implemented ${repo}: ${edits.map((e) => e.path).join(', ')}.`,
+    edits,
+    tools: tests.map((t) => ({ name: 'tandem_record_test', args: { ...t, repo } })),
+  };
 }
 
 function resolveConflicts(call: ScriptCall): ScriptReply {
@@ -209,7 +215,7 @@ function resolveConflicts(call: ScriptCall): ScriptReply {
     .map((f) => ({ f, src: read(join(call.opts.workspace, repo, f)) }))
     .filter((x): x is { f: string; src: string } => Boolean(x.src))
     .map(({ f, src }) => ({ path: `${repo}/${f}`, content: src.replace(/^<<<<<<< [^\n]*\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> [^\n]*\n/gm, '$1$2') }));
-  return { text: `Kept both sides in ${files.join(', ')}.`, edits };
+  return { intent: 'Resolving the merge conflict', reasoning: `Both branches changed ${files.join(', ')}. The changes don't contradict each other, so I'll keep both.`, text: `Kept both sides in ${files.join(', ')}.`, edits };
 }
 
 function chatReply(call: ScriptCall): ScriptReply {
@@ -258,7 +264,7 @@ function chatReply(call: ScriptCall): ScriptReply {
 
 export const defaultScript: Script = (call) => {
   const p = call.prompt;
-  if (p.startsWith('Estimate the size')) return { value: scriptedSize(goalOf(p)) };
+  if (p.startsWith('Estimate the size')) return { intent: 'Estimating the size of the change', value: scriptedSize(goalOf(p)) };
   if (p.startsWith('Turn this ticket')) {
     return {
       value: {
@@ -278,8 +284,8 @@ export const defaultScript: Script = (call) => {
       },
     };
   }
-  if (p.startsWith('Write the implementation spec')) return { text: specFrom(p) };
-  if (p.startsWith('Review this change')) return { value: { findings: [] } };
+  if (p.startsWith('Write the implementation spec')) return { intent: 'Writing the spec', reasoning: 'The request is clear and small: one endpoint and one status line. I will describe the API contract first, then the UI states, then how each criterion is tested.', text: specFrom(p) };
+  if (p.startsWith('Review this change')) return { intent: 'Reviewing the change against the spec', reasoning: 'I compared the diff with the spec, each acceptance criterion and the security checklist. Every criterion has a passing test and nothing outside the scope changed.', value: { findings: [] } };
   if (p.startsWith('Implement the approved spec')) return implement(call);
   if (p.startsWith('Verification failed')) return { text: 'Looked at the failures; no change.' };
   if (p.startsWith('These acceptance criteria have no recorded test')) return { text: 'Covered by existing tests.' };

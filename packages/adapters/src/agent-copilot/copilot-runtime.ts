@@ -249,6 +249,19 @@ export class CopilotRuntime implements AgentRuntime {
         }
       }
       if (e.type === 'session.error') emit({ type: 'error', message: String(e.data.message ?? JSON.stringify(e.data)).slice(0, 500) });
+      // The run's story for the task's Activity tab.
+      const d = e.data as Record<string, unknown>;
+      if (e.type === 'assistant.intent' && typeof d.intent === 'string') emit({ type: 'intent', text: d.intent });
+      if (e.type === 'assistant.reasoning' && typeof d.content === 'string') emit({ type: 'reasoning', text: d.content });
+      // Structured answers arrive as JSON messages; they are shown elsewhere (spec, review), not here.
+      if (e.type === 'assistant.message' && typeof d.content === 'string' && !/^\s*[{[]/.test(d.content)) emit({ type: 'message', text: d.content });
+      if (e.type === 'tool.execution_start' && typeof d.toolCallId === 'string') emit({ type: 'tool-start', id: d.toolCallId, tool: String(d.toolName ?? 'tool'), ...(typeof d.toolTitle === 'string' ? { title: d.toolTitle } : {}), input: toolInput(d.arguments) });
+      if (e.type === 'tool.execution_complete' && typeof d.toolCallId === 'string') {
+        const result = d.result as { content?: string } | undefined;
+        const error = d.error as { message?: string } | undefined;
+        const files = Array.isArray(d.fileEdits) ? (d.fileEdits as Array<{ kind?: string; path?: string }>).filter((f) => f.path).map((f) => ({ kind: String(f.kind ?? 'edit'), path: relativeTo(opts.workspace, String(f.path)) })) : [];
+        emit({ type: 'tool-end', id: d.toolCallId, ok: d.success === true, ...(error?.message ? { output: error.message } : result?.content ? { output: result.content } : {}), ...(files.length ? { files } : {}) });
+      }
     });
 
     const turn = async <T>(run: () => Promise<T>): Promise<{ value: T; usage: AgentUsage }> => {
@@ -345,4 +358,19 @@ function classify(err: unknown): Error {
   if (RETRYABLE.test(withoutIds(msg)) && !/\b4(0[0-9]|1[0-9]|2[0-8])\b/.test(withoutIds(msg))) return new RetryableError(`Copilot: ${msg.slice(0, 300)}`);
   if (/403|not authorized|unauthorized|policy/i.test(msg)) return new Error(`Copilot refused the request (${msg.slice(0, 200)}). Check the Copilot host in Settings and that your organization allows Copilot CLI.`);
   return err instanceof Error ? err : new Error(msg);
+}
+
+/** A tool call's input in one line: the command, the path or the query, else short JSON. */
+export function toolInput(args: unknown): string {
+  if (args === undefined || args === null) return '';
+  if (typeof args === 'string') return args.slice(0, 600);
+  if (typeof args !== 'object') return String(args);
+  const a = args as Record<string, unknown>;
+  for (const k of ['command', 'cmd', 'path', 'file', 'filePath', 'pattern', 'query', 'url']) if (typeof a[k] === 'string') return (a[k] as string).slice(0, 600);
+  return JSON.stringify(args).slice(0, 600);
+}
+
+/** Paths inside the task folder are shown relative to it. */
+function relativeTo(root: string, p: string): string {
+  return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
 }

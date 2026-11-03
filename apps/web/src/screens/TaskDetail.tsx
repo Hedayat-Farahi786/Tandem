@@ -9,14 +9,8 @@ import {
   Download,
   ExternalLink,
   FileCheck2,
-  FilePlus2,
-  FileText,
   GitMerge,
-  Hammer,
-  ListChecks,
   MessageSquareText,
-  ScanSearch,
-  SearchCheck,
   GitPullRequest,
   Pencil,
   RotateCcw,
@@ -70,9 +64,11 @@ import {
 import { ThreadPanel } from "./Chat";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
+import { TaskActivity } from "./TaskActivity";
+import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
-type Tab = "overview" | "spec" | "changes" | "checks" | "prs" | "trace" | "chat";
+type Tab = "overview" | "activity" | "spec" | "changes" | "checks" | "prs" | "trace" | "chat";
 const RUNNING = new Set([
   "READINESS",
   "SPEC_DRAFTING",
@@ -210,21 +206,6 @@ function ProgressRail({ task }: { task: Task }) {
 
 /* ------------------------------------------------------------------ overview */
 
-const TIMELINE_ICON: Partial<Record<string, typeof CheckCircle2>> = {
-  DRAFT: FilePlus2,
-  READINESS: SearchCheck,
-  SPEC_DRAFTING: FileText,
-  SPEC_REVIEW: FileCheck2,
-  BUILDING: Hammer,
-  VERIFYING: ListChecks,
-  SELF_REVIEW: ScanSearch,
-  PR_OPEN: GitPullRequest,
-  DONE: GitMerge,
-  BLOCKED: AlertTriangle,
-  FAILED: XCircle,
-  CANCELLED: Ban,
-};
-
 function Timeline({ d }: { d: TaskDetail }) {
   const items = useMemo(
     () =>
@@ -254,21 +235,14 @@ function Timeline({ d }: { d: TaskDetail }) {
   return (
     <ol className="relative flex flex-col gap-1 before:absolute before:top-3 before:bottom-3 before:left-[13.5px] before:w-px before:bg-line">
       {items.map((it, i) => {
-        const Icon = it.kind === "comment" ? MessageSquareText : (TIMELINE_ICON[it.state] ?? Circle);
         const tone =
           it.kind === "comment"
             ? "bg-accent text-accent-fg"
-            : it.state === "FAILED"
-              ? "bg-danger-soft text-danger"
-              : it.state === "BLOCKED"
-                ? "bg-warn-soft text-warn"
-                : it.state === "PR_OPEN" || it.state === "DONE"
-                  ? "bg-ok-soft text-ok"
-                  : "bg-surface text-muted shadow-[0_0_0_1px_var(--border)]";
+            : "bg-surface shadow-[0_0_0_1px_var(--border)]";
         return (
           <li key={i} className="relative grid grid-cols-[28px_1fr] gap-x-3 py-1.5">
             <span aria-hidden className={cx("relative z-[1] mt-px grid size-7 place-items-center rounded-lg ring-4 ring-surface", tone)}>
-              <Icon className="size-3.5" strokeWidth={2} />
+              {it.kind === "comment" ? <MessageSquareText className="size-3.5" strokeWidth={2} /> : <StatusIcon state={it.state as Task["state"]} className="size-3.5" />}
             </span>
             <div className="min-w-0">
               <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
@@ -1667,11 +1641,8 @@ export function TaskDetailScreen({ id }: { id: string }) {
         title={t.title}
         actions={
           <>
-            <Pill
-              tone={STATE_TONE[t.state]}
-              dot
-              pulse={RUNNING.has(t.state) || d.running}
-            >
+            <Pill tone={STATE_TONE[t.state]}>
+              <StatusIcon state={t.state} className="size-3.5" />
               {STATE_LABEL[t.state]}
               {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
             </Pill>
@@ -1712,6 +1683,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
         onChange={setTab}
         tabs={[
           { id: "overview", label: "Overview" },
+          { id: "activity", label: "Activity", ...(d.running ? { badge: <span aria-label="Copilot is working" className="size-1.5 animate-pulse rounded-full bg-ok" /> } : {}) },
           {
             id: "spec",
             label: "Spec",
@@ -1772,6 +1744,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
       />
       <TabPanel id={tab}>
         {tab === "overview" && <Overview d={d} />}
+        {tab === "activity" && <TaskActivity taskId={d.task.id} />}
         {tab === "spec" && <SpecTab d={d} />}
         {tab === "changes" && <ChangesTab d={d} />}
         {tab === "checks" && <ChecksTab d={d} />}
