@@ -102,8 +102,8 @@ const initialsOf = (name: string) =>
     .join('') || '?';
 
 /**
- * A project's avatar: its website's own icon (from the repository), in grayscale so it matches the
- * monochrome UI, on a neutral tile; or its initials in ink when the site has none. Decorative: the name is always next to it.
+ * A project's avatar: its website's own icon (from the repository), in its own colours, on a
+ * neutral tile; or its initials in ink when the site has none. Decorative: the name is always next to it.
  */
 export function ProjectAvatar({ name, projectId, size = 40 }: { name: string; projectId?: string; size?: number }) {
   const icons = useQuery({ queryKey: ['project-icons'], queryFn: () => api<Record<string, { v: string } | null>>('/api/project-icons'), enabled: Boolean(projectId), staleTime: 60_000 });
@@ -124,7 +124,7 @@ export function ProjectAvatar({ name, projectId, size = 40 }: { name: string; pr
       }}
     >
       {showIcon ? (
-        <img src={`/api/projects/${projectId}/icon?v=${icon!.v}`} alt="" width={Math.round(size * 0.6)} height={Math.round(size * 0.6)} draggable={false} onError={() => setBroken(true)} className="object-contain [filter:grayscale(1)_contrast(1.08)]" />
+        <img src={`/api/projects/${projectId}/icon?v=${icon!.v}`} alt="" width={Math.round(size * 0.6)} height={Math.round(size * 0.6)} draggable={false} onError={() => setBroken(true)} className="object-contain" />
       ) : (
         <span className="font-display leading-none" style={{ fontSize: Math.round(size * (initials.length > 1 ? 0.36 : 0.44)), letterSpacing: '-0.02em' }}>
           {initials}
