@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
 import type { LucideIcon } from 'lucide-react';
 import type { TaskState } from '@tandem/shared';
 import { cx } from './kit';
@@ -91,70 +93,43 @@ export function IconTile({ icon: Icon, tone = 'neutral', size = 'md' }: { icon: 
   );
 }
 
-/**
- * Page layouts drawn inside a browser frame (24×24 grid, content area x 5–19, y 10–18). "s" is a
- * solid block, "f" a faint one, "l" a text line; they read as a site's silhouette, not a picture.
- */
-type Part = ['s' | 'f' | 'l', number, number, number, number];
-const LAYOUTS: ReadonlyArray<{ name: string; parts: Part[]; small: Part[] }> = [
-  // hero with a call to action
-  { name: 'hero', parts: [['s', 5, 10.2, 9, 2.1], ['l', 5, 13.6, 7, 1], ['f', 5, 16.1, 4.2, 1.9], ['f', 15.2, 10.2, 3.8, 7.8]], small: [['s', 5, 10.5, 9, 2.6], ['f', 5, 15, 5, 2.6]] },
-  // three cards
-  { name: 'cards', parts: [['l', 5, 10.2, 8, 1], ['f', 5, 12.6, 4.2, 5.4], ['f', 9.9, 12.6, 4.2, 5.4], ['s', 14.8, 12.6, 4.2, 5.4]], small: [['f', 5, 10.5, 4, 7.5], ['f', 10, 10.5, 4, 7.5], ['s', 15, 10.5, 4, 7.5]] },
-  // sidebar and content
-  { name: 'sidebar', parts: [['f', 5, 10.2, 3.6, 7.8], ['s', 10.2, 10.2, 6.5, 1.8], ['l', 10.2, 13.3, 8.8, 1], ['l', 10.2, 15.3, 7.2, 1], ['l', 10.2, 17, 5, 1]], small: [['f', 5, 10.5, 3.8, 7.5], ['s', 10.5, 10.5, 8.5, 2.6], ['f', 10.5, 15, 6, 2.6]] },
-  // text beside an image
-  { name: 'split', parts: [['s', 5, 10.6, 6, 1.8], ['l', 5, 13.6, 6.5, 1], ['l', 5, 15.5, 5, 1], ['f', 12.6, 10.2, 6.4, 7.8]], small: [['s', 5, 10.5, 6, 2.6], ['f', 12.5, 10.5, 6.5, 7.5]] },
-  // gallery
-  { name: 'grid', parts: [['s', 5, 10.2, 6.6, 3.6], ['f', 12.4, 10.2, 6.6, 3.6], ['f', 5, 14.4, 6.6, 3.6], ['f', 12.4, 14.4, 6.6, 3.6]], small: [['s', 5, 10.5, 6.5, 3.4], ['f', 12.5, 10.5, 6.5, 3.4], ['f', 5, 14.6, 6.5, 3.4], ['f', 12.5, 14.6, 6.5, 3.4]] },
-  // article
-  { name: 'article', parts: [['s', 7, 10.2, 10, 1.9], ['l', 6, 13.2, 12, 1], ['l', 6, 15, 12, 1], ['l', 6, 16.8, 8, 1]], small: [['s', 6.5, 10.5, 11, 2.6], ['f', 6.5, 15, 11, 2.6]] },
-  // dashboard
-  { name: 'dashboard', parts: [['f', 5, 10.2, 4.3, 2.6], ['f', 9.9, 10.2, 4.3, 2.6], ['s', 14.7, 10.2, 4.3, 2.6], ['f', 5, 13.6, 14, 4.4]], small: [['s', 5, 10.5, 6.5, 2.8], ['f', 12.5, 10.5, 6.5, 2.8], ['f', 5, 14.6, 14, 3.4]] },
-  // store
-  { name: 'store', parts: [['f', 5, 10.2, 4.2, 4.2], ['f', 9.9, 10.2, 4.2, 4.2], ['f', 14.8, 10.2, 4.2, 4.2], ['l', 5, 15.6, 3, 1], ['l', 9.9, 15.6, 3, 1], ['s', 14.8, 15.4, 4.2, 1.6]], small: [['f', 5, 10.5, 4, 4.4], ['f', 10, 10.5, 4, 4.4], ['s', 15, 10.5, 4, 4.4], ['f', 5, 16, 14, 2]] },
-];
-
-/** FNV-1a: a stable number from a name, so a project keeps its look everywhere. */
-function hashName(name: string): number {
-  let h = 0x811c9dc5;
-  for (const ch of name.trim().toLowerCase()) h = Math.imul(h ^ ch.codePointAt(0)!, 0x01000193) >>> 0;
-  return h;
-}
+const initialsOf = (name: string) =>
+  name
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => [...w][0]!.toUpperCase())
+    .join('') || '?';
 
 /**
- * A project's avatar: a small website silhouette (a browser frame around a page layout picked from
- * the name), in ink on a neutral tile, so it follows the theme and never competes with content.
- * Decorative: the name is always next to it.
+ * A project's avatar: its website's own icon (from the repository) on a neutral tile, or its
+ * initials in ink when the site has none. Decorative: the name is always next to it.
  */
-export function ProjectAvatar({ name, size = 40 }: { name: string; size?: number }) {
-  const layout = LAYOUTS[hashName(name) % LAYOUTS.length]!;
-  const small = size < 26;
-  const parts = small ? layout.small : layout.parts;
-  // The tile is the browser window: chrome across the top, the page layout below it.
+export function ProjectAvatar({ name, projectId, size = 40 }: { name: string; projectId?: string; size?: number }) {
+  const icons = useQuery({ queryKey: ['project-icons'], queryFn: () => api<Record<string, { v: string } | null>>('/api/project-icons'), enabled: Boolean(projectId), staleTime: 60_000 });
+  const icon = projectId ? icons.data?.[projectId] : undefined;
+  const [broken, setBroken] = useState(false);
+  const showIcon = Boolean(icon) && !broken;
+  const initials = initialsOf(name);
   return (
     <span
       aria-hidden
-      data-layout={layout.name}
-      className="relative block shrink-0 overflow-hidden bg-surface text-fg"
-      style={{ width: size, height: size, borderRadius: Math.max(5, Math.round(size * 0.24)), boxShadow: '0 0 0 1px var(--border-strong), 0 1px 2px rgb(0 0 0 / 0.06), inset 0 1px 0 var(--hairline-highlight)' }}
+      className="relative grid shrink-0 place-items-center overflow-hidden text-fg"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.max(5, Math.round(size * 0.26)),
+        background: 'linear-gradient(180deg, var(--surface), var(--surface-2))',
+        boxShadow: '0 0 0 1px var(--border-strong), 0 1px 2px rgb(0 0 0 / 0.06), inset 0 1px 0 var(--hairline-highlight)',
+      }}
     >
-      <svg viewBox="0 0 24 24" width={size} height={size} className="block">
-        <rect x="0" y="0" width="24" height={small ? 6.2 : 6.6} fill="currentColor" fillOpacity="0.06" />
-        <path d={small ? 'M0 6.2h24' : 'M0 6.6h24'} stroke="currentColor" strokeOpacity="0.16" strokeWidth={small ? 1 : 0.6} />
-        {!small && (
-          <g fill="currentColor" fillOpacity="0.45">
-            <circle cx="3.6" cy="3.3" r="0.85" />
-            <circle cx="6.1" cy="3.3" r="0.85" />
-            <circle cx="8.6" cy="3.3" r="0.85" />
-          </g>
-        )}
-        <g transform={small ? 'translate(4 8.6) scale(1.143 1.43) translate(-5 -10)' : 'translate(4 9.4) scale(1.143 1.3) translate(-5 -10)'}>
-          {parts.map(([k, x, y, w, h], i) => (
-            <rect key={i} x={x} y={y} width={w} height={h} rx={k === 'l' ? h / 2 : Math.min(0.8, h / 2)} fill="currentColor" fillOpacity={k === 's' ? 0.82 : k === 'f' ? 0.16 : 0.32} />
-          ))}
-        </g>
-      </svg>
+      {showIcon ? (
+        <img src={`/api/projects/${projectId}/icon?v=${icon!.v}`} alt="" width={Math.round(size * 0.6)} height={Math.round(size * 0.6)} draggable={false} onError={() => setBroken(true)} className="object-contain" />
+      ) : (
+        <span className="font-display leading-none" style={{ fontSize: Math.round(size * (initials.length > 1 ? 0.36 : 0.44)), letterSpacing: '-0.02em' }}>
+          {initials}
+        </span>
+      )}
     </span>
   );
 }

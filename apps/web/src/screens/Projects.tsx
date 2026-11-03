@@ -249,7 +249,7 @@ export function ProjectsScreen() {
         return (
           <section key={p.id} aria-label={p.name} className="rounded-2xl bg-surface p-5 shadow-panel">
             <div className="flex items-start gap-4">
-              <ProjectAvatar name={p.name} size={44} />
+              <ProjectAvatar name={p.name} projectId={p.id} size={44} />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-[17px] font-semibold tracking-tight">{p.name}</h2>
                 <p className="mt-0.5 text-[13px] text-muted">

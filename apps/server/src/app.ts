@@ -13,6 +13,7 @@ import { registerEventRoutes } from './routes/events.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerAuditRoutes } from './routes/audit.js';
+import { registerIconRoutes } from './routes/icons.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -87,6 +88,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   registerSetupRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
   registerAuditRoutes(app, ctx);
+  registerIconRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   app.all('/api/*', async () => {

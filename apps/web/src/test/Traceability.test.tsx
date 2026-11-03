@@ -112,3 +112,16 @@ describe('Search and project switcher', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Switch project$/ }).textContent).toContain('Billing'));
   });
 });
+
+describe('Project avatars', () => {
+  it("show the site's own icon when the repository has one, else the initials", async () => {
+    const other = { ...project, id: 'p2', name: 'Partner portal' };
+    mockApi({ 'GET /api/bootstrap': boot({ projects: [project, other] }), 'GET /api/tasks': [], 'GET /api/rules': [], 'GET /api/projects/p1/threads': [], 'GET /api/project-icons': { p1: { v: 'abc123def456' }, p2: null } });
+    renderApp('/projects');
+    const shop = await screen.findByRole('region', { name: 'Shop' });
+    await waitFor(() => expect(shop.querySelector('img')?.getAttribute('src')).toBe('/api/projects/p1/icon?v=abc123def456'));
+    const partner = screen.getByRole('region', { name: 'Partner portal' });
+    expect(partner.querySelector('img')).toBeNull();
+    expect(within(partner).getByText('PP')).toBeTruthy();
+  });
+});

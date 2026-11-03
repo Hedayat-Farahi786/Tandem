@@ -230,6 +230,14 @@ Entries are kept in Tandem's database in `~/.tandem`. Tasks from before
 this version show their history, but their audit entries start at the
 upgrade.
 
+## Project icons
+
+Each project shows its website's own icon: the one its `index.html` links
+to, or a favicon in the usual places (`public/`, `static/`, the root, or
+Next.js `app/`), read from the default branch of its repositories. Projects
+without one show their initials. The icon is served with a sandbox policy,
+so an SVG from a repository can never run script in Tandem.
+
 ## Search
 
 Press **Ctrl K** (**⌘K** on a Mac), or click **Search** in the sidebar, to

@@ -133,7 +133,7 @@ export function CommandPalette({
       id: `p-${p.id}`,
       group: "Chat in project",
       label: p.name,
-      icon: <ProjectAvatar name={p.name} size={18} />,
+      icon: <ProjectAvatar name={p.name} projectId={p.id} size={18} />,
       run: go(`/chat?project=${p.id}`),
     }));
     const recent: Item[] = [...(tasks.data ?? [])]

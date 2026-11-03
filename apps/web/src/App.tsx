@@ -231,7 +231,7 @@ function ProjectSwitcher({
         )}
       >
         <span className="sr-only">Project: </span>
-        <ProjectAvatar name={project.name} size={30} />
+        <ProjectAvatar name={project.name} projectId={project.id} size={30} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] leading-tight font-semibold">
             {project.name}
@@ -280,7 +280,7 @@ function ProjectSwitcher({
                 active === i && "bg-surface-2",
               )}
             >
-              <ProjectAvatar name={p.name} size={20} />
+              <ProjectAvatar name={p.name} projectId={p.id} size={20} />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
               {p.id === project.id && (
                 <Check aria-hidden className="size-3.5 text-fg" />

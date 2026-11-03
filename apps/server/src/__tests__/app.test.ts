@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -145,6 +146,37 @@ describe('repositories, projects and tasks', () => {
     expect(del.statusCode).toBe(409);
     expect(del.json().error).toContain('Shop');
     expect((await app.inject({ method: 'GET', url: '/api/bootstrap', headers: H })).json().setupComplete).toBe(true);
+  });
+
+  it("shows each project's site icon from its repository, sandboxed", async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/project-icons', headers: H })).json()).toEqual({ [projectId]: null });
+    // Put a site with an icon in the repository's mirror, as a fetch would.
+    const repo = (await tandem.store.repos.get(repoId))!;
+    const mirror = tandem.hostFor(repo).mirrorPath(repo);
+    const work = join(dir, 'icon-site');
+    mkdirSync(join(work, 'public'), { recursive: true });
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="8" height="8"/></svg>';
+    writeFileSync(join(work, 'public', 'favicon.svg'), svg);
+    const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, stdio: 'pipe' });
+    git(work, 'init', '-q');
+    git(work, 'add', '-A');
+    git(work, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'site');
+    mkdirSync(mirror, { recursive: true });
+    execFileSync('git', ['init', '-q', '--bare', mirror]);
+    git(work, 'push', '-q', mirror, 'HEAD:refs/remotes/origin/main');
+    // A second app instance has an empty cache (the first cached "no icon" for a minute).
+    const fresh = (await buildApp({ tandem, bus, chat: new ChatService(tandem.deps, tandem.service), doctor: {} }, { port: PORT, token: TOKEN })).app;
+    const list = (await fresh.inject({ method: 'GET', url: '/api/project-icons', headers: H })).json();
+    expect(list[projectId]).toEqual({ v: expect.stringMatching(/^[0-9a-f]{12}$/) });
+    const icon = await fresh.inject({ method: 'GET', url: `/api/projects/${projectId}/icon?v=${list[projectId].v}`, headers: H });
+    expect(icon.statusCode).toBe(200);
+    expect(icon.headers['content-type']).toBe('image/svg+xml');
+    expect(icon.headers['content-security-policy']).toContain('sandbox');
+    expect(icon.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(icon.headers['x-content-type-options']).toBe('nosniff');
+    expect(icon.body).toBe(svg);
+    expect((await fresh.inject({ method: 'GET', url: '/api/projects/nope/icon', headers: H })).statusCode).toBe(404);
+    await fresh.close();
   });
 
   it('creates a draft task, shows its detail and edits it', async () => {

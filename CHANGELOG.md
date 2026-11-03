@@ -21,6 +21,8 @@ All notable changes to Tandem. The format follows
 - **Search** (Ctrl K / ⌘K) for pages, tasks and projects.
 - A project switcher at the top of the sidebar and a count of tasks that
   need you next to Tasks.
+- **Project icons**: each project shows its website's real favicon, read
+  from its repository (sandboxed), or its initials when there is none.
 
 ### Changed
 
