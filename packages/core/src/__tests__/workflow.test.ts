@@ -267,6 +267,7 @@ describe('workflow: verification and review', () => {
     expect(t.attentionNotes).toEqual(['app: test failed (`npm test`, exit 1)']);
     const fixes = h.agent.calls.filter((c) => c.prompt.startsWith('Verification failed'));
     expect(fixes).toHaveLength(2);
+    expect((await h.store.runs.listFor({ taskId: t.id })).map((r) => r.kind)).toEqual(['size', 'spec', 'build', 'fix', 'fix', 'review']);
     expect(fixes[0]!.prompt).toContain('expected 200, got 404');
     expect(fixes[1]!.prompt).toContain('fix attempt 2 of 2');
     expect(fixes[0]!.opts.resumeId).toBe(t.progress.buildSessionId); // the build session is resumed, not restarted
@@ -339,6 +340,7 @@ describe('workflow: sync and push', () => {
     const t = await h.approveAll((await h.start()).id);
     expect(t.state).toBe('PR_OPEN');
     expect(h.agent.calls.find((c) => c.prompt.startsWith('Rebasing'))?.prompt).toContain('README.md');
+    expect((await h.store.runs.listFor({ taskId: t.id })).filter((r) => r.kind === 'conflict').map((r) => r.status)).toEqual(['succeeded']);
   });
 
   it('blocks when the conflict can not be resolved, and aborts the rebase', async () => {

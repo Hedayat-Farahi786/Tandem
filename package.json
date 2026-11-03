@@ -26,8 +26,10 @@
     "test:unit": "vitest run --project unit",
     "test:real": "TANDEM_REAL=1 vitest run --project integration packages/adapters/src/real-codecommit.it.test.ts",
     "tandem": "node apps/server/dist/cli.js",
-    "test:e2e": "playwright test",
-    "test:web": "vitest run --project web"
+    "test:e2e": "pnpm test:ui && pnpm test:flows",
+    "test:web": "vitest run --project web",
+    "test:ui": "playwright test",
+    "test:flows": "vitest run -c vitest.e2e.config.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

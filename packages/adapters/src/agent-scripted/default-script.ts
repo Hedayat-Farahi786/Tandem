@@ -88,6 +88,28 @@ None.
 
 const read = (p: string) => (existsSync(p) ? readFileSync(p, 'utf8') : undefined);
 
+/**
+ * The scripted size estimate grows with the number of features a request lists: two parts ("an
+ * endpoint and a status line") is one change; three or more is too big and comes with a split,
+ * one part per feature.
+ */
+export function scriptedSize(goal: string) {
+  const features = goal
+    .replace(/[.!]\s*$/, '')
+    .split(/,\s*(?:and\s+)?|;\s*|\s+and\s+(?:also\s+)?/i)
+    .map((f) => f.trim())
+    .filter((f) => f.length > 3);
+  if (features.length < 3) return { estimatedLines: 90, perRepo: [], features: ['health status'], proposedSplit: [], rationale: 'One endpoint and one status line.' };
+  return {
+    estimatedLines: features.length * 220,
+    perRepo: [],
+    features,
+    proposedSplit: features.map((f, i) => ({ title: f.charAt(0).toUpperCase() + f.slice(1), criteria: i === 0 ? [1, 2] : [] })),
+    rationale: `${features.length} separate features in one request.`,
+  };
+}
+const goalOf = (text: string) => /\*\*Goal:\*\* (.+)/.exec(text)?.[1] ?? '';
+
 const BACKEND_TEST = (rel: string) => `import { describe, expect, it } from 'vitest';
 import { buildApp } from '${rel}';
 
@@ -222,7 +244,7 @@ function chatReply(call: ScriptCall): ScriptReply {
             outOfScope: 'Authentication, metrics',
             openQuestions: [],
             affectedRepos: repos,
-            size: { estimatedLines: 90, perRepo: [], features: ['health status'], proposedSplit: [], rationale: 'One endpoint and one status line.' },
+            size: scriptedSize(goalOf(draft)),
           },
         },
       ],
@@ -236,7 +258,7 @@ function chatReply(call: ScriptCall): ScriptReply {
 
 export const defaultScript: Script = (call) => {
   const p = call.prompt;
-  if (p.startsWith('Estimate the size')) return { value: { estimatedLines: 90, perRepo: [], features: ['health status'], proposedSplit: [], rationale: 'One endpoint and one status line.' } };
+  if (p.startsWith('Estimate the size')) return { value: scriptedSize(goalOf(p)) };
   if (p.startsWith('Turn this ticket')) {
     return {
       value: {

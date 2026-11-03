@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Repo } from '@tandem/shared';
 import { git } from './git.js';
-import { RepoGit, addWorktree, assertAgentBranch, ensureMirror, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch } from './repo-git.js';
+import { RepoGit, addWorktree, assertAgentBranch, ensureMirror, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, withMirror } from './repo-git.js';
 
 const ID = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com'];
 
@@ -120,6 +120,68 @@ describe('git layer (real git, local bare remote)', () => {
     expect(await ops.status(ref)).toEqual([]);
     await ops.removeWorktree(repoOf(mirror), ref);
     expect(await git(['worktree', 'list'], { gitDir: mirror })).not.toContain(ref);
+  });
+
+  it('recovers from a `git worktree add` killed half-way (placeholder HEAD): fetch works, the task gets a fresh worktree', async () => {
+    const r = await remote();
+    const access = plainAccess(r.url);
+    const mirror = join(r.root, 'm.git');
+    await ensureMirror(mirror, access);
+    const wt = join(r.root, 'tasks', 't1', 'n');
+    await addWorktree(mirror, { path: wt, branch: 'agent/T-1-x', base: 'origin/main' });
+    // What git leaves when killed between writing its placeholder HEAD and the real one.
+    const [admin] = readdirSync(join(mirror, 'worktrees'));
+    writeFileSync(join(mirror, 'worktrees', admin!, 'HEAD'), `${'0'.repeat(40)}\n`);
+    await expect(git(['fetch', '--prune', '--no-tags', 'origin'], { gitDir: mirror })).rejects.toThrow(/bad object/);
+
+    await r.upstream('NEW.md', 'new\n');
+    await ensureMirror(mirror, access); // repairs, then fetches
+    expect(existsSync(wt)).toBe(false);
+    expect(await git(['rev-parse', 'origin/main:NEW.md'], { gitDir: mirror })).toMatch(/^[0-9a-f]{40}$/);
+    await addWorktree(mirror, { path: wt, branch: 'agent/T-1-x', base: 'origin/main' });
+    expect(readFileSync(join(wt, 'README.md'), 'utf8')).toContain('# app');
+    expect(await new RepoGit(() => mirror).status(wt)).toEqual([]);
+  });
+
+  it('completes a half-done checkout on resume, keeps a worktree with commits, and removes broken ones', async () => {
+    const r = await remote();
+    const access = plainAccess(r.url);
+    const mirror = join(r.root, 'm.git');
+    await ensureMirror(mirror, access);
+    const ops = new RepoGit(() => mirror);
+    const wt = join(r.root, 'tasks', 't2', 'n');
+    const opts = { path: wt, branch: 'agent/T-2-x', base: 'origin/main' };
+    await addWorktree(mirror, opts);
+    rmSync(join(wt, 'README.md')); // a checkout killed before writing every file
+    await addWorktree(mirror, opts); // resumed prepare
+    expect(readFileSync(join(wt, 'README.md'), 'utf8')).toContain('# app');
+
+    writeFileSync(join(wt, 'work.txt'), 'agent work\n');
+    await ops.commitAll(wt, 'work');
+    writeFileSync(join(wt, 'uncommitted.txt'), 'more\n');
+    await addWorktree(mirror, opts); // a sound worktree with its own commits is left alone
+    expect(readFileSync(join(wt, 'uncommitted.txt'), 'utf8')).toBe('more\n');
+
+    const [admin] = readdirSync(join(mirror, 'worktrees'));
+    writeFileSync(join(mirror, 'worktrees', admin!, 'HEAD'), `${'0'.repeat(40)}\n`);
+    await ops.removeWorktree(repoOf(mirror), wt);
+    expect(existsSync(wt)).toBe(false);
+    expect(existsSync(join(mirror, 'worktrees'))).toBe(false);
+  });
+
+  it('runs one operation at a time per mirror', async () => {
+    const order: string[] = [];
+    const slow = (name: string, ms: number) => async () => {
+      order.push(`${name}+`);
+      await new Promise((res) => setTimeout(res, ms));
+      order.push(`${name}-`);
+      if (name === 'b') throw new Error('b failed');
+      return name;
+    };
+    const results = await Promise.allSettled([withMirror('/m1', slow('a', 30)), withMirror('/m1', slow('b', 5)), withMirror('/m1', slow('c', 5)), withMirror('/m2', slow('x', 1))]);
+    expect(results.map((x) => x.status)).toEqual(['fulfilled', 'rejected', 'fulfilled', 'fulfilled']);
+    expect(order.filter((o) => !o.startsWith('x'))).toEqual(['a+', 'a-', 'b+', 'b-', 'c+', 'c-']);
+    expect(order.indexOf('x+')).toBeLessThan(order.indexOf('a-'));
   });
 
   it('refuses dangerous branch names', () => {

@@ -94,15 +94,15 @@ async function approvedSpec(deps: WorkflowDeps, task: Task, project: Project): P
   return { markdown: finalizeSpec(latest.markdown, task, latest.version, approvalState(project, latest.version, approvals).complete ? 'Approved' : 'In review', approvals), version: latest.version };
 }
 
-/** The build session, resumed across steps (implement, fix, review fixes, conflicts). */
-async function buildSession(deps: WorkflowDeps, ctx: StepContext, project: Project, repos: readonly Repo[], extraTools: readonly AgentTool<never>[] = []): Promise<GatedSession> {
+/** The build session, resumed across steps (implement, fix, review fixes, conflicts); `kind` labels the run in the history. */
+async function buildSession(deps: WorkflowDeps, ctx: StepContext, project: Project, repos: readonly Repo[], kind: 'build' | 'fix' | 'conflict', extraTools: readonly AgentTool<never>[] = []): Promise<GatedSession> {
   const task = ctx.task;
   const spec = await approvedSpec(deps, task, project);
   const context = (await Promise.all(repos.map(async (r) => `## ${r.name}\n\n${(await repoContext(worktreeOf(deps, task, r))) || '_No instructions._'}`))).join('\n\n');
   const resumeId = typeof task.progress.buildSessionId === 'string' ? task.progress.buildSessionId : undefined;
   const s = await openSession(deps, {
     taskId: task.id,
-    kind: 'build',
+    kind,
     mode: 'build',
     workspace: deps.paths.taskDir(task.id),
     instructions: P.buildInstructions(context, spec.markdown),
@@ -292,8 +292,8 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       for (const repo of repos) {
         const host = deps.hosts(repo);
         await host.mirror(repo);
-        const path = worktreeOf(deps, task, repo);
-        if (!existsSync(path)) await host.createWorktree(repo, { path, branch: task.branch, base: `origin/${repo.defaultBranch}` });
+        // Always through the host: it reuses a sound worktree and remakes one a crash left broken.
+        await host.createWorktree(repo, { path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` });
       }
       if (!task.progress.rulesApplied) {
         for (const repo of repos) {
@@ -314,7 +314,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const task = ctx.task;
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
-      const s = await buildSession(deps, ctx, project, repos);
+      const s = await buildSession(deps, ctx, project, repos, 'build');
       try {
         for (const [index, repo] of repos.entries()) {
           if (asStringArray(ctx.task.progress.implemented).includes(repo.id)) continue;
@@ -364,7 +364,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           return { kind: 'goto', state: 'SELF_REVIEW', reason: `Checks still fail after ${attempt} fix attempts; continuing and marking the PR "needs attention".`, patch: attention(ctx.task, failureNotes(run, names)) };
         }
         await ctx.saveProgress({ fixAttempts: attempt + 1 });
-        const s = await buildSession(deps, ctx, project, repos);
+        const s = await buildSession(deps, ctx, project, repos, 'fix');
         try {
           await s.send(P.fixPrompt(failuresOf(run), attempt + 1, settings.limits.maxFixAttempts, names));
         } finally {
@@ -400,7 +400,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       }
       const open = (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open');
       if (open.length && !ctx.task.progress.reviewFixDone) {
-        const s = await buildSession(deps, ctx, project, repos, [resolveFindingTool(deps, task) as AgentTool<never>]);
+        const s = await buildSession(deps, ctx, project, repos, 'fix', [resolveFindingTool(deps, task) as AgentTool<never>]);
         try {
           await s.send(P.reviewFixPrompt(open));
         } finally {
@@ -425,7 +425,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         const wt = { repoId: repo.id, path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` };
         const r = await host.rebase(repo, wt);
         if (r.kind === 'ok') continue;
-        const s = await buildSession(deps, ctx, project, repos);
+        const s = await buildSession(deps, ctx, project, repos, 'conflict');
         try {
           await s.send(P.conflictPrompt(repo, r.files));
         } finally {
