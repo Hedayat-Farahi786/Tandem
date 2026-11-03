@@ -5,7 +5,7 @@
  *   node e2e/support/serve.mjs            (Playwright's webServer runs this)
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,6 +15,8 @@ const work = process.env.TANDEM_E2E_DIR ?? mkdtempSync(join(tmpdir(), 'tandem-e2
 const remotes = join(work, 'remotes');
 const home = join(work, 'home');
 rmSync(home, { recursive: true, force: true });
+// The browser tests' own fixed folder: start from empty (Playwright's results/ aside).
+if (process.env.TANDEM_E2E_OWN_DIR === '1' && existsSync(work)) for (const name of readdirSync(work)) if (name !== 'results') rmSync(join(work, name), { recursive: true, force: true });
 mkdirSync(remotes, { recursive: true });
 const git = (args, cwd) => execFileSync('git', args, { cwd, stdio: 'pipe', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).toString();
 

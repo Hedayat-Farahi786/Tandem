@@ -1,4 +1,3 @@
-import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
@@ -14,7 +13,13 @@ import { defineConfig, devices } from '@playwright/test';
  * `npx playwright install chromium`.
  */
 const port = Number(process.env.TANDEM_E2E_PORT ?? 4399);
-const work = process.env.TANDEM_E2E_DIR ?? mkdtempSync(join(tmpdir(), 'tandem-e2e-'));
+// One fixed work folder (Playwright loads this config in more than one process, so a new temp
+// folder per load would pile up). It's emptied before a run and removed after; failure traces
+// are kept. TANDEM_E2E_DIR picks another folder, which is then left alone.
+const own = !process.env.TANDEM_E2E_DIR;
+const work = process.env.TANDEM_E2E_DIR ?? join(tmpdir(), 'tandem-e2e-ui');
+process.env.TANDEM_E2E_WORK = work; // for setup.ts and teardown.ts
+if (own) process.env.TANDEM_E2E_OWN_DIR = '1';
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 
 export default defineConfig({
@@ -24,6 +29,7 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: [['list']],
+  globalTeardown: './e2e/support/teardown.ts',
   outputDir: join(work, 'results'),
   use: {
     baseURL: `http://127.0.0.1:${port}`,
@@ -38,7 +44,7 @@ export default defineConfig({
     url: `http://127.0.0.1:${port}/api/health`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { TANDEM_E2E_DIR: work, TANDEM_PORT: String(port) },
+    env: { TANDEM_E2E_DIR: work, TANDEM_PORT: String(port), TANDEM_E2E_OWN_DIR: own ? '1' : '' },
     stdout: 'ignore',
     stderr: 'pipe',
   },
