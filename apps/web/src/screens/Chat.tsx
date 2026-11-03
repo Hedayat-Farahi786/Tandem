@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
 import type { ChatMessage, ChatThread } from '@tandem/shared';
@@ -12,7 +13,10 @@ import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Pill, Selec
 import { ModelPicker, useModels } from '../ui/model-picker';
 import { ReadinessChecklist } from './Tasks';
 
-function Message({ m, repoName }: { m: ChatMessage; repoName: (id?: string) => string }) {
+/** Your message animates once, as you send it; replies animate as they arrive (not on reload). */
+const isFresh = (m: ChatMessage) => m.role === 'assistant' && Date.now() - Date.parse(m.createdAt) < 5_000;
+
+function Message({ m, repoName, enter = isFresh(m) }: { m: ChatMessage; repoName: (id?: string) => string; enter?: boolean }) {
   if (m.role === 'system') {
     return (
       <div className="flex justify-center">
@@ -22,7 +26,7 @@ function Message({ m, repoName }: { m: ChatMessage; repoName: (id?: string) => s
   }
   const mine = m.role === 'user';
   return (
-    <div className={cx('flex animate-in', mine ? 'justify-end' : 'justify-start')}>
+    <div className={cx('flex', enter && 'animate-rise', mine ? 'justify-end' : 'justify-start')}>
       <div className={cx('max-w-[min(680px,92%)]', mine ? 'rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5' : 'px-1')}>
         {mine ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p> : <Markdown source={m.content} />}
         {m.refs.length > 0 && (
@@ -119,7 +123,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   if (view.isError || !view.data) return <ErrorState error={view.error} retry={() => void view.refetch()} />;
   const messages = view.data.messages;
   return (
-    <div className={cx('grid gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[1fr_280px]')}>
+    <div className={cx('grid flex-1 gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[1fr_280px]')}>
       <div className="flex min-h-[420px] flex-col">
         <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={send.isPending}>
           {messages.length === 0 && !pending && (
@@ -130,12 +134,17 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
           {messages.map((m) => (
             <Message key={m.id} m={m} repoName={repoName} />
           ))}
-          {pending && <Message m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
+          {pending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
           {send.isPending && (
             <div className="px-1">
               {stream ? <Markdown source={stream} /> : null}
-              <p className="mt-1 flex items-center gap-2 text-[12.5px] text-muted">
-                <Spinner /> {stream ? 'Writing…' : 'Reading the code…'}
+              <p className="mt-1 flex animate-in items-center gap-2.5 text-[12.5px] text-muted" role="status">
+                <span aria-hidden className="thinking-dots">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                {stream ? 'Writing…' : 'Reading the code…'}
               </p>
             </div>
           )}
@@ -161,13 +170,13 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
           <div ref={end} />
         </div>
         <form
-          className="sticky bottom-4 mt-2"
+          className="sticky bottom-4 mt-auto pt-2"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
         >
-          <div className={cx('rounded-2xl border border-line-strong bg-surface p-2 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]', done && 'opacity-60')}>
+          <div style={{ viewTransitionName: 'composer' }} className={cx('rounded-2xl border border-line-strong bg-surface p-2 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]', done && 'opacity-60')}>
             <label htmlFor={`composer-${threadId}`} className="sr-only">
               Message
             </label>
@@ -193,7 +202,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             />
             <div className="flex items-center justify-end gap-1.5">
               <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} align="end" />
-              <Button type="submit" variant="primary" aria-label="Send" className="size-8 rounded-[10px] px-0" disabled={!text.trim() || send.isPending || done}>
+              <Button type="submit" variant="primary" aria-label="Send" className="disabled:bg-surface-3 disabled:text-faint disabled:opacity-100 size-8 rounded-[10px] !px-0 transition-[background-color,opacity,transform] duration-150 active:scale-[0.92]" disabled={!text.trim() || send.isPending || done}>
                 {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>
             </div>
@@ -225,6 +234,19 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
 
 type Mode = 'request' | 'ask';
 
+/** Runs a UI change as a view transition when the browser supports it and motion is welcome. */
+function withTransition(change: () => void) {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (!doc.startViewTransition || reduced) return change();
+  doc.startViewTransition(() => flushSync(change));
+}
+
+const EXAMPLES: Record<Mode, string[]> = {
+  request: ['Let customers download their invoices as a PDF', 'Show a friendly message when a page fails to load', 'Remember the language a visitor picked'],
+  ask: ['Give me a short tour of this project', 'How do people sign in?', 'What happens when a payment fails?'],
+};
+
 const MODEL_KEY = 'tandem.model';
 const rememberedModel = () => {
   try {
@@ -252,16 +274,16 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
   };
   return (
     <div className="mx-auto flex min-h-[calc(100vh-11rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-5rem)]">
-      <h1 className="font-serif text-[34px] leading-tight font-medium tracking-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
-      <p className="mt-2 text-[14px] text-muted">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
+      <h1 className="animate-rise font-serif text-[36px] leading-tight font-medium tracking-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
+      <p className="mt-2 animate-rise text-[14.5px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form
-        className="mt-8 w-full text-left"
+        className="mt-8 w-full animate-rise text-left [animation-delay:80ms]"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <div className="rounded-[20px] border border-line-strong bg-surface p-3 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]">
+        <div style={{ viewTransitionName: 'composer' }} className="rounded-[20px] border border-line-strong bg-surface p-3 shadow-[var(--shadow-md),0_24px_60px_-28px_rgb(0_0_0/0.18)] transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]">
           <label htmlFor="start-composer" className="sr-only">
             {mode === 'request' ? 'Describe your request' : 'Your question'}
           </label>
@@ -277,7 +299,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
                 submit();
               }
             }}
-            placeholder={mode === 'request' ? 'Add a GET /health endpoint returning {status: "ok"} and show the status on the main page.' : 'Where is the greeting route defined, and how is it tested?'}
+            placeholder={mode === 'request' ? 'For example: let customers download their invoices as a PDF from their account page.' : 'For example: how do people sign in, and what happens if they forget their password?'}
             className="w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-relaxed focus:outline-none focus-visible:outline-none"
           />
           <div className="mt-2 flex items-center justify-between gap-3">
@@ -296,19 +318,26 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
             </div>
             <div className="flex items-center gap-1.5">
               <ModelPicker value={usable} onChange={pick} placement="bottom" align="end" />
-              <Button type="submit" variant="primary" aria-label="Start" className="size-9 rounded-xl px-0" disabled={!text.trim() || busy}>
+              <Button type="submit" variant="primary" aria-label="Start" className="disabled:bg-surface-3 disabled:text-faint disabled:opacity-100 size-9 rounded-xl !px-0 transition-[background-color,opacity,transform] duration-150 active:scale-[0.92]" disabled={!text.trim() || busy}>
                 {busy ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>
             </div>
           </div>
         </div>
       </form>
+      <div className="mt-4 flex animate-rise flex-wrap justify-center gap-2 [animation-delay:120ms]" aria-label="Examples" role="group">
+        {EXAMPLES[mode].map((ex) => (
+          <button key={ex} type="button" onClick={() => setText(ex)} className="rounded-full border border-line bg-surface/70 px-3.5 py-1.5 text-[12.5px] text-muted transition-[color,background-color,border-color,transform] duration-150 hover:border-line-strong hover:bg-surface hover:text-fg active:scale-[0.97]">
+            {ex}
+          </button>
+        ))}
+      </div>
       {Boolean(error) && (
         <div className="mt-4 w-full text-left">
           <ErrorState error={error} />
         </div>
       )}
-      <p className="mt-4 text-[12px] text-faint">Chat never changes code. Code is written only after you approve a spec.</p>
+      <p className="mt-6 animate-rise text-[12px] text-faint [animation-delay:160ms]">Chat never changes code. Code is written only after you approve a spec.</p>
     </div>
   );
 }
@@ -324,9 +353,12 @@ export function ChatScreen() {
   const start = useMutation({
     mutationFn: ({ mode, model }: { mode: Mode; text: string; model: string }) => post<ChatThread>('/api/threads', { projectId, mode, ...(model ? { model } : {}) }),
     onSuccess: (t, v) => {
-      setFirstMessage({ threadId: t.id, text: v.text });
       void qc.invalidateQueries({ queryKey: ['threads', projectId] });
-      navigate(`/chat?project=${projectId}&thread=${t.id}`);
+      // The composer glides from the centre to the bottom (View Transitions; an instant switch elsewhere).
+      withTransition(() => {
+        setFirstMessage({ threadId: t.id, text: v.text });
+        navigate(`/chat?project=${projectId}&thread=${t.id}`);
+      });
     },
   });
   if (boot.isLoading) return <Loading />;
@@ -336,14 +368,14 @@ export function ChatScreen() {
   const current = threads.data?.find((t) => t.id === threadId);
 
   return (
-    <div className="mx-auto w-full max-w-[780px]">
+    <div className={cx('mx-auto w-full', current?.mode === 'request' ? 'max-w-[1080px]' : 'max-w-[780px]')}>
       {/* The sidebar lists conversations on wide screens; small screens get them here. */}
       {boot.data.projects.length > 1 && (
         <div className="mb-6 md:hidden">
           <Select label="Project" value={projectId} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.data.projects.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
       )}
-      <section aria-label="Conversation" className="min-w-0">
+      <section aria-label="Conversation" className={cx('min-w-0', current && 'flex min-h-[calc(100vh-9rem)] flex-col md:min-h-[calc(100vh-5rem)]')}>
         {current ? (
           <>
             <div className="mb-6 flex items-center justify-between gap-4 border-b border-line pb-4">

@@ -93,11 +93,21 @@
   --shadow-lg: var(--shadow-lg);
   --animate-in: fade-in 140ms ease-out;
   --animate-pop: pop-in 170ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-rise: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes dot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+.thinking-dots { display: inline-flex; gap: 3px; }
+.thinking-dots i { width: 5px; height: 5px; border-radius: 9999px; background: currentColor; animation: dot 1.1s ease-in-out infinite; }
+.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+/* The first message: the composer glides from the centre to the bottom, the rest cross-fades. */
+::view-transition-group(composer) { animation-duration: 460ms; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 260ms; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .animate-pop, .animate-in, [class*='animate-[fade-in'] { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .animate-pop, .animate-in, .animate-rise, .thinking-dots i, [class*='animate-[fade-in'] { animation: none !important; } }
 
 @layer base {
 html, body, #root { height: 100%; }
