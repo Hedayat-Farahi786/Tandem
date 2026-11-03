@@ -24,6 +24,9 @@ All notable changes to Tandem. The format follows
 - **Project icons**: each project shows its website's real favicon, read
   from its repository (sandboxed), in its own colours, or its initials
   when there is none.
+- **Logos** for the services and model makers Tandem works with: GitHub,
+  GitHub Copilot, AWS, Jira, and Anthropic, OpenAI, Google, xAI, Mistral and
+  Meta in the model menu. Bundled with the app; see THIRD_PARTY_NOTICES.md.
 
 ### Changed
 

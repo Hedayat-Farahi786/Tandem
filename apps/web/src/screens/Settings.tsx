@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, CalendarDays, Cloud, Gauge, GitBranch, Save, Ticket, UserRound, Workflow } from 'lucide-react';
+import { CalendarDays, Gauge, Save, UserRound, Workflow, type LucideIcon } from 'lucide-react';
+import { BrandLogo, BrandTile, type Brand } from '../ui/brands';
 import { IconTile, Ring } from '../ui/visual';
 import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
@@ -100,13 +101,13 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
 
 const NAV = [
   ['general', 'General', UserRound],
-  ['copilot', 'Copilot', Bot],
+  ['copilot', 'Copilot', 'copilot'],
   ['budget', 'Budget', Gauge],
   ['workflow', 'Workflow', Workflow],
-  ['aws', 'AWS', Cloud],
-  ['jira', 'Jira', Ticket],
-  ['github', 'GitHub', GitBranch],
-] as const;
+  ['aws', 'AWS', 'aws'],
+  ['jira', 'Jira', 'jira'],
+  ['github', 'GitHub', 'github'],
+] as const satisfies ReadonlyArray<readonly [string, string, LucideIcon | Brand]>;
 
 /** The section menu beside Settings, following the section in view. */
 function SectionNav() {
@@ -138,7 +139,7 @@ function SectionNav() {
               aria-current={active === id ? 'true' : undefined}
               className={cx('flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors', active === id ? 'bg-surface-3/80 font-medium text-fg' : 'text-muted hover:bg-surface-3/50 hover:text-fg')}
             >
-              <Icon aria-hidden className={cx('size-4', active === id ? 'text-fg' : 'text-faint')} strokeWidth={1.9} />
+              {typeof Icon === 'string' ? <BrandLogo brand={Icon} size={16} className={cx('transition-opacity', active !== id && 'opacity-80')} /> : <Icon aria-hidden className={cx('size-4', active === id ? 'text-fg' : 'text-faint')} strokeWidth={1.9} />}
               {label}
             </a>
           </li>
@@ -200,7 +201,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="copilot" icon={<IconTile icon={Bot} />} title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
         <Row label="Copilot host" htmlFor="set-host" description="Only for GitHub Enterprise with data residency, for example company.ghe.com.">
           <Input id="set-host" value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" />
         </Row>
@@ -296,7 +297,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="aws" icon={<IconTile icon={Cloud} />} title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
+      <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
         <Row label="AWS profile" htmlFor="set-profile" description="Repositories whose codecommit:: URL names a profile use that one.">
           <Input id="set-profile" value={s.aws.profile} onChange={(e) => set('aws', { ...s.aws, profile: e.target.value })} placeholder="default" />
         </Row>
@@ -307,7 +308,7 @@ export function SettingsScreen() {
 
       <SettingsSection
         id="jira"
-        icon={<IconTile icon={Ticket} />}
+        icon={<BrandTile brand="jira" />}
         title="Jira"
         description="Optional. Import tasks, post specs and report pull requests."
         actions={
@@ -341,7 +342,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="github" icon={<IconTile icon={GitBranch} />} title="GitHub" description="Only for GitHub repositories. Without a token Tandem uses the GitHub CLI's sign-in, or gives you a compare link.">
+      <SettingsSection id="github" icon={<BrandTile brand="github" />} title="GitHub" description="Only for GitHub repositories. Without a token Tandem uses the GitHub CLI's sign-in, or gives you a compare link.">
         <Row label="GitHub token" htmlFor="set-gtoken" description="Needs permission to open pull requests on your repositories." wide>
           <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
         </Row>

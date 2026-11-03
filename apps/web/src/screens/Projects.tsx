@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, ChevronRight, Cloud, FolderGit2, GitBranch, Pencil, Plus, Sparkles } from 'lucide-react';
+import { BookOpen, ChevronRight, FolderGit2, Pencil, Plus, Sparkles } from 'lucide-react';
+import { BrandLogo, hostBrand } from '../ui/brands';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
@@ -274,7 +275,7 @@ export function ProjectsScreen() {
                 <li key={r.id}>
                   <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3 text-left">
                     <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-muted shadow-[0_0_0_1px_var(--border)]">
-                      {r.host.kind === 'github' ? <GitBranch aria-hidden className="size-4" /> : <Cloud aria-hidden className="size-4" />}
+                      <BrandLogo brand={hostBrand(r.host.kind)} size={17} title={r.host.kind === 'github' ? 'GitHub' : 'AWS CodeCommit'} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>

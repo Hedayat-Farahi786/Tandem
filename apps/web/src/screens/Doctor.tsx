@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, CheckCircle2, Cloud, FolderGit2, HardDrive, MinusCircle, RefreshCw, Stethoscope, Ticket, Wrench, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FolderGit2, HardDrive, MinusCircle, RefreshCw, Stethoscope, Wrench, XCircle, type LucideIcon } from 'lucide-react';
+import { BrandTile, type Brand } from '../ui/brands';
 import { IconTile, Ring } from '../ui/visual';
 import { api, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
@@ -11,7 +12,21 @@ const COLOR = { pass: 'text-ok', warn: 'text-warn', fail: 'text-danger', skipped
 const WORD = { pass: 'Pass', warn: 'Warning', fail: 'Fail', skipped: 'Skipped' } as const;
 
 const GROUP_TITLE = (g: string) => g.charAt(0).toUpperCase() + g.slice(1);
-const GROUP_ICON: Record<string, LucideIcon> = { tools: Wrench, machine: HardDrive, copilot: Bot, repositories: FolderGit2, aws: Cloud, jira: Ticket };
+const GROUP_ICON: Record<string, LucideIcon> = { tools: Wrench, machine: HardDrive, repositories: FolderGit2 };
+const GROUP_BRAND: Record<string, Brand> = { copilot: 'copilot', aws: 'aws', jira: 'jira' };
+const DOT = { ok: 'bg-ok', warn: 'bg-warn', danger: 'bg-danger', neutral: 'bg-faint' } as const;
+
+/** A group's icon: the service's logo (with a dot for its worst result) or a plain icon tile. */
+function GroupIcon({ group, tone, size = 'md' }: { group: string; tone?: keyof typeof DOT; size?: 'sm' | 'md' }) {
+  const brand = GROUP_BRAND[group.toLowerCase()];
+  if (!brand) return <IconTile icon={GROUP_ICON[group.toLowerCase()] ?? Stethoscope} size={size} {...(tone ? { tone } : {})} />;
+  return (
+    <span className="relative inline-flex">
+      <BrandTile brand={brand} size={size} />
+      {tone && tone !== 'neutral' && <span aria-hidden className={cx('absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-bg', DOT[tone])} />}
+    </span>
+  );
+}
 const worst = (r: DoctorReport, g: string) => {
   const st = r.checks.filter((c) => c.group === g).map((c) => c.status);
   return st.includes('fail') ? 'danger' : st.includes('warn') ? 'warn' : st.every((x) => x === 'skipped') ? 'neutral' : 'ok';
@@ -30,7 +45,7 @@ export function DoctorList({ report }: { report: DoctorReport }) {
       {groups.map((g) => (
         <SettingsSection
           key={g}
-          icon={<IconTile icon={GROUP_ICON[g.toLowerCase()] ?? Stethoscope} tone={worst(report, g)} />}
+          icon={<GroupIcon group={g} tone={worst(report, g)} />}
           title={GROUP_TITLE(g)}
           actions={<span className="text-[12.5px] text-muted tabular-nums">{groupLine(report, g)}</span>}
         >
@@ -118,7 +133,7 @@ function DoctorIntro({ running, onRun }: { running: boolean; onRun: () => void }
       <ul className="relative grid gap-px border-t border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
         {INTRO.map(([g, text]) => (
           <li key={g} className="flex items-start gap-3 bg-surface px-5 py-4">
-            <IconTile icon={GROUP_ICON[g]!} size="sm" />
+            <GroupIcon group={g} size="sm" />
             <span className="min-w-0">
               <span className="block text-[13px] font-medium">{GROUP_TITLE(g === 'aws' ? 'AWS' : g)}</span>
               <span className="block text-[12px] leading-snug text-muted">{text}</span>

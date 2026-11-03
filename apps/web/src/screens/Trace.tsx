@@ -1,20 +1,21 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BadgeCheck, CheckCircle2, Circle, CircleDashed, ExternalLink, FileDown, FileText, GitCommitHorizontal, GitPullRequest, ListChecks, MessageSquareText, SearchCheck, ShieldAlert, ShieldCheck, Sparkles, XCircle, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, CheckCircle2, Circle, CircleDashed, ExternalLink, FileDown, FileText, GitCommitHorizontal, GitPullRequest, ListChecks, MessageSquareText, SearchCheck, ShieldAlert, ShieldCheck, XCircle, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Trace } from '../lib/types';
 import { CopyButton, ErrorState, LinkButton, Loading, cx } from '../ui/kit';
+import { BrandLogo, type Brand } from '../ui/brands';
 
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 
 /** One link in the chain: an icon on the rail, a title, a one-line status and the facts. */
-function Stage({ icon: Icon, title, status, tone = 'neutral', children, last }: { icon: LucideIcon; title: string; status: ReactNode; tone?: 'neutral' | 'ok' | 'warn' | 'danger' | 'idle'; children?: ReactNode; last?: boolean }) {
+function Stage({ icon: Icon, title, status, tone = 'neutral', children, last }: { icon: LucideIcon | Brand; title: string; status: ReactNode; tone?: 'neutral' | 'ok' | 'warn' | 'danger' | 'idle'; children?: ReactNode; last?: boolean }) {
   const tones = { neutral: 'bg-surface text-fg shadow-[0_0_0_1px_var(--border-strong)]', ok: 'bg-ok-soft text-ok shadow-[0_0_0_1px_color-mix(in_srgb,var(--ok)_25%,transparent)]', warn: 'bg-warn-soft text-warn', danger: 'bg-danger-soft text-danger', idle: 'bg-surface-2 text-faint' };
   return (
     <li className="relative grid grid-cols-[36px_1fr] gap-x-4">
       {!last && <span aria-hidden className="absolute top-10 bottom-0 left-[17.5px] w-px bg-line" />}
       <span aria-hidden className={cx('relative z-[1] mt-0.5 grid size-9 place-items-center rounded-xl', tones[tone])}>
-        <Icon className="size-[17px]" strokeWidth={1.9} />
+        {typeof Icon === 'string' ? <BrandLogo brand={Icon} size={17} /> : <Icon className="size-[17px]" strokeWidth={1.9} />}
       </span>
       <div className="min-w-0 pb-8">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pt-1.5">
@@ -139,7 +140,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
           )}
         </Stage>
 
-        <Stage icon={Sparkles} title="Copilot" tone={t.agent.length ? 'neutral' : 'idle'} status={t.agent.length ? `${t.usage.prompts} prompts · ${t.usage.modelCalls} model calls · ${t.usage.aiCredits} AI credits` : 'No runs yet'}>
+        <Stage icon="copilot" title="Copilot" tone={t.agent.length ? 'neutral' : 'idle'} status={t.agent.length ? `${t.usage.prompts} prompts · ${t.usage.modelCalls} model calls · ${t.usage.aiCredits} AI credits` : 'No runs yet'}>
           {t.agent.length > 0 && (
             <Box>
               <table className="w-full text-left text-[12.5px]">

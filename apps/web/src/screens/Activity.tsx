@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { Link } from '../lib/router';
 import type { ActivityItem, ActivityKind, AuditVerification, Bootstrap } from '../lib/types';
 import { CopyButton, EmptyState, ErrorState, LinkButton, Loading, Select, cx } from '../ui/kit';
+import { BrandLogo } from '../ui/brands';
 
 /** Filters people understand, mapped to the kinds the server records. */
 const FILTERS: Array<{ id: string; label: string; kinds: ActivityKind[] }> = [
@@ -71,8 +72,8 @@ function Row({ item }: { item: ActivityItem }) {
   const detail = Object.entries(item.detail ?? {});
   return (
     <li className="group relative pl-12">
-      <span aria-hidden className={cx('absolute top-2.5 left-0 grid size-8 place-items-center rounded-[10px] ring-4 ring-bg', failed ? 'bg-danger-soft text-danger' : k.tone)}>
-        <Icon className="size-4" strokeWidth={1.9} />
+      <span aria-hidden className={cx('absolute top-2.5 left-0 grid size-8 place-items-center rounded-[10px] ring-4 ring-bg', failed ? 'bg-danger-soft text-danger' : item.kind === 'agent' ? 'bg-surface text-fg shadow-[0_0_0_1px_var(--border)]' : k.tone)}>
+        {item.kind === 'agent' ? <BrandLogo brand="copilot" size={16} /> : <Icon className="size-4" strokeWidth={1.9} />}
       </span>
       <div className="rounded-xl px-3 py-2.5 transition-colors group-hover:bg-surface-2/70">
         <div className="flex items-start gap-3">

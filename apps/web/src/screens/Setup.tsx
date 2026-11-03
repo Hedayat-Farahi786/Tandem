@@ -6,6 +6,7 @@ import { api, post, put } from '../lib/api';
 import { useRouter } from '../lib/router';
 import type { Bootstrap } from '../lib/types';
 import { ArrowRight, GitBranch, Plus } from 'lucide-react';
+import { BrandTile } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
@@ -248,7 +249,17 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
     },
   });
   return (
-    <Card title="Copilot and AWS">
+    <Card
+      title={
+        <h2 className="flex items-center gap-2.5 text-[14px] font-semibold tracking-tight">
+          <span className="flex items-center gap-1.5">
+            <BrandTile brand="copilot" size="sm" />
+            <BrandTile brand="aws" size="sm" />
+          </span>
+          Copilot and AWS
+        </h2>
+      }
+    >
       <div className="flex flex-col gap-4">
         <Input label="Your name" value={owner} onChange={(e) => setOwner(e.target.value)} help="Shown on your approvals." />
         <Input label="Copilot host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="github.com" help="Leave empty for github.com. If your Copilot comes from a GitHub Enterprise host (for example company.ghe.com), enter it here." />
@@ -276,7 +287,14 @@ function JiraStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => voi
     },
   });
   return (
-    <Card title="Jira (optional)" actions={<Pill>{boot.jiraConfigured ? 'Configured' : 'Not configured'}</Pill>}>
+    <Card
+      title={
+        <h2 className="flex items-center gap-2.5 text-[14px] font-semibold tracking-tight">
+          <BrandTile brand="jira" size="sm" />
+          Jira (optional)
+        </h2>
+      }
+      actions={<Pill>{boot.jiraConfigured ? 'Configured' : 'Not configured'}</Pill>}>
       <p className="mb-4 text-[13px] text-muted">Tandem works fully without Jira. Skip this now and turn it on later in Settings by adding a token.</p>
       <div className="flex flex-col gap-4">
         <Input label="Jira URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://your-company.atlassian.net" />

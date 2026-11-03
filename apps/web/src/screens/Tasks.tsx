@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Download, GitPullRequest, Hand, ListTodo, Loader, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, GitPullRequest, Hand, ListTodo, Loader, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
 import { IconTile, StatusIcon } from '../ui/visual';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
@@ -10,6 +10,7 @@ import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
 import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, Pill, Select, Textarea, controlBase, cx } from '../ui/kit';
 import { InlineText } from '../ui/text';
 import { NEEDS_YOU, RUNNING, groupOf } from '../lib/tasks';
+import { BrandLogo } from '../ui/brands';
 
 
 export function ReadinessChecklist({ readiness, compact }: { readiness: Readiness; compact?: boolean }) {
@@ -220,7 +221,8 @@ export function TasksScreen() {
         </div>
         <div className="flex items-center gap-2">
           {boot.data?.jiraConfigured && (
-            <Button variant="ghost" icon={Download} onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
+            <Button variant="ghost" onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
+              <BrandLogo brand="jira" size={15} />
               Import from Jira
             </Button>
           )}

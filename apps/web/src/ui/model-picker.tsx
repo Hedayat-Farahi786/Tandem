@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { useRouter } from '../lib/router';
 import type { ModelCatalog, ModelChoice } from '../lib/types';
 import { Spinner, controlBase, cx } from './kit';
+import { BrandLogo, providerOf, type Brand } from './brands';
 
 export function useModels(enabled = true) {
   return useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), staleTime: 5 * 60_000, retry: false, enabled });
@@ -50,7 +51,10 @@ function Details({ item, catalog }: { item: Item; catalog: ModelCatalog }) {
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="truncate text-[13px] font-medium">{m.name}</p>
+        <p className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
+          {providerOf(m) && <BrandLogo brand={providerOf(m)!} size={15} />}
+          <span className="truncate">{m.name}</span>
+        </p>
         <p className="shrink-0 text-[11.5px] text-faint">{m.vendor}</p>
       </div>
       {m.price ? (
@@ -154,7 +158,7 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
   }, [items]);
   const perTask = catalog.data?.credits.perTask ?? Infinity;
 
-  const option = (index: number, name: string, right: ReactNode, sub?: string) => {
+  const option = (index: number, name: string, right: ReactNode, sub?: string, brand?: Brand) => {
     const selected = index === selectedIndex;
     return (
       <div
@@ -167,12 +171,13 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
         onClick={() => choose(index)}
         className={cx('flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-100', index === active && 'bg-surface-2')}
       >
-        <Check aria-hidden className={cx('size-3.5 shrink-0 text-accent', !selected && 'invisible')} />
+        <span className="grid size-5 shrink-0 place-items-center">{brand ? <BrandLogo brand={brand} size={15} /> : <span className="size-1.5 rounded-full bg-line-strong" />}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate">{name}</span>
           {sub && <span className="block truncate text-[11.5px] text-faint">{sub}</span>}
         </span>
         {right}
+        <Check aria-hidden className={cx('size-3.5 shrink-0 text-accent', !selected && 'invisible')} />
       </div>
     );
   };
@@ -231,6 +236,10 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
             : cx(controlBase, 'h-9 justify-between px-3 text-left'),
         )}
       >
+        {(() => {
+          const brand = !value ? 'copilot' : providerOf(catalog.data?.models.find((x) => x.id === value) ?? value);
+          return brand ? <BrandLogo brand={brand} size={variant === 'composer' ? 13 : 15} className={cx('mr-1', variant === 'composer' && 'opacity-90')} /> : null;
+        })()}
         <span className="truncate">{label}</span>
         {busy ? <Spinner className="size-3.5" /> : <ChevronDown aria-hidden className={cx('size-3.5 shrink-0 text-faint transition-transform', open && 'rotate-180')} />}
       </button>
@@ -264,7 +273,7 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
             <>
               <div className="flex flex-col sm:flex-row">
               <div id={`${uid}-list`} role="listbox" aria-labelledby={`${uid}-title`} tabIndex={-1} style={{ maxHeight: fit.list }} className="overflow-y-auto overscroll-contain scroll-smooth px-1.5 pb-1.5 sm:w-[290px] sm:shrink-0">
-                {option(0, 'Auto', null, 'Tandem picks per step')}
+                {option(0, 'Auto', null, 'Tandem picks per step', 'copilot')}
                 {groups.map((g) => (
                     <div key={g.vendor} role="group" aria-labelledby={`${uid}-g-${g.vendor}`}>
                       <div id={`${uid}-g-${g.vendor}`} role="presentation" className="px-2.5 pt-2.5 pb-1 text-[10.5px] font-semibold tracking-wider text-faint uppercase">
@@ -275,6 +284,8 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
                           index,
                           m.name,
                           <span className={cx('shrink-0 text-[12px] tabular-nums', m.estimate !== undefined && m.estimate > perTask ? 'text-warn' : 'text-muted')}>{m.estimate !== undefined ? `≈ ${formatCredits(m.estimate)}` : m.multiplier !== undefined ? `${m.multiplier}×` : '–'}</span>,
+                          undefined,
+                          providerOf(m),
                         ),
                       )}
                     </div>

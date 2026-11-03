@@ -70,6 +70,7 @@ import {
 import { ThreadPanel } from "./Chat";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
+import { BrandLogo, hostBrand } from "../ui/brands";
 
 type Tab = "overview" | "spec" | "changes" | "checks" | "prs" | "trace" | "chat";
 const RUNNING = new Set([
@@ -1212,10 +1213,12 @@ function PrCard({
   pr,
   repoName,
   taskId,
+  host,
 }: {
   pr: PullRequest;
   repoName: string;
   taskId: string;
+  host?: "codecommit" | "github";
 }) {
   const act = useAct(taskId);
   const [url, setUrl] = useState("");
@@ -1231,7 +1234,11 @@ function PrCard({
     <Card
       title={
         <div className="flex items-center gap-2">
-          <GitPullRequest aria-hidden className="size-4 text-faint" />
+          {host ? (
+            <BrandLogo brand={hostBrand(host)} size={17} title={host === "github" ? "GitHub" : "AWS CodeCommit"} />
+          ) : (
+            <GitPullRequest aria-hidden className="size-4 text-faint" />
+          )}
           <span className="text-[14px] font-semibold">{repoName}</span>
         </div>
       }
@@ -1411,6 +1418,9 @@ function PrsTab({ d }: { d: TaskDetail }) {
           pr={pr}
           taskId={d.task.id}
           repoName={d.repos.find((r) => r.id === pr.repoId)?.name ?? "repo"}
+          {...(d.repos.find((r) => r.id === pr.repoId)
+            ? { host: d.repos.find((r) => r.id === pr.repoId)!.host.kind }
+            : {})}
         />
       ))}
       <p className="text-[12.5px] text-faint">
