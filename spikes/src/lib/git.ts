@@ -145,13 +145,15 @@ export async function abortRebase(worktree: string): Promise<void> {
   await git(['rebase', '--abort'], { cwd: worktree });
 }
 
-/** Parses SSH/HTTPS/GRC CodeCommit URLs. */
-export function parseCodeCommitUrl(url: string): { region: string; name: string } | undefined {
+export type CodeCommitTransport = 'ssh' | 'https' | 'grc';
+
+/** Parses SSH, HTTPS and git-remote-codecommit (codecommit::region://[profile@]repo) URLs. */
+export function parseCodeCommitUrl(url: string): { region: string; name: string; transport: CodeCommitTransport; profile?: string } | undefined {
   const ssh = /^ssh:\/\/(?:[^@/]+@)?git-codecommit\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?\/v1\/repos\/([^/\s]+?)\/?$/.exec(url);
-  if (ssh?.[1] && ssh[2]) return { region: ssh[1], name: ssh[2] };
+  if (ssh?.[1] && ssh[2]) return { region: ssh[1], name: ssh[2], transport: 'ssh' };
   const https = /^https:\/\/git-codecommit\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?\/v1\/repos\/([^/\s]+?)\/?$/.exec(url);
-  if (https?.[1] && https[2]) return { region: https[1], name: https[2] };
-  const grc = /^codecommit::([a-z0-9-]+):\/\/(?:[^@]+@)?([^/\s]+)$/.exec(url);
-  if (grc?.[1] && grc[2]) return { region: grc[1], name: grc[2] };
+  if (https?.[1] && https[2]) return { region: https[1], name: https[2], transport: 'https' };
+  const grc = /^codecommit::([a-z0-9-]+):\/\/(?:([^@/\s]+)@)?([^/\s@]+)$/.exec(url);
+  if (grc?.[1] && grc[3]) return { region: grc[1], name: grc[3], transport: 'grc', ...(grc[2] ? { profile: grc[2] } : {}) };
   return undefined;
 }

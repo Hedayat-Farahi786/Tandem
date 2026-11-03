@@ -11,6 +11,7 @@
  *   TANDEM_SPIKE_REPO_URL=<ssh-url>      worktree of the CodeCommit sandbox instead of a local copy
  *   COPILOT_CLI_PATH=$(which copilot)    use the installed CLI instead of the SDK's bundled runtime
  *   TANDEM_SPIKE_MODEL=<id>              model for --live (default: cheapest enabled model)
+ *   COPILOT_GH_HOST=<company>.ghe.com    Copilot from a GitHub Enterprise Cloud (data residency) host
  *
  * No tokens are passed: GH_TOKEN, GITHUB_TOKEN and COPILOT_GITHUB_TOKEN are removed from the
  * runtime's environment on purpose.
@@ -28,7 +29,7 @@ import { cheapestModel, enforcedConfig, makeClient, meter, newMeter, runtimeEnv,
 import { flag, shortId, spikeEnv, workDir } from './lib/env.js';
 import { packageManagerCommand, run, which } from './lib/exec.js';
 import { addWorktree, bareClone, git, lsRemoteHeads, remoteDefaultBranch } from './lib/git.js';
-import { redact } from './lib/redact.js';
+import { redact, registerReplacement } from './lib/redact.js';
 import { REPORTS_DIR, Report, check } from './lib/report.js';
 import { createLocalRemote } from './lib/sandbox.js';
 
@@ -59,6 +60,16 @@ function summarize(decisions: Decision[], from = 0): string {
       .map((d) => `${d.layer}:${d.allowed ? 'allow' : 'DENY'} ${d.summary}${d.allowed ? '' : ` (${d.reason})`}`)
       .join('\n') || '(no tool calls)'
   );
+}
+
+/** Accounts the GitHub CLI is signed in to (host + login), used to suggest COPILOT_GH_HOST. */
+async function ghAccounts(): Promise<Array<{ host: string; login: string }>> {
+  try {
+    const r = await run('gh', ['auth', 'status'], { timeoutMs: 15_000 });
+    return [...(r.stdout + r.stderr).matchAll(/Logged in to (\S+) account (\S+)/g)].map((m) => ({ host: m[1]!, login: m[2]! }));
+  } catch {
+    return [];
+  }
 }
 
 async function track(s: CopilotSession): Promise<CopilotSession> {
@@ -99,7 +110,11 @@ try {
   if (started && client) {
     authed =
       (await report.step('Signed in with the existing Copilot CLI login (no token passed)', async (ctx) => {
+        const mask = (login?: string) => {
+          if (process.env.COPILOT_GH_HOST && login) registerReplacement(login, '<work-account>');
+        };
         let a = await client!.getAuthStatus();
+        mask(a.login);
         ctx.detail(`${cliPathUsed ? 'installed CLI' : 'bundled runtime'}: authenticated=${a.isAuthenticated} type=${a.authType ?? '-'} ${a.statusMessage ?? ''}`);
         if (!a.isAuthenticated && !cliPathUsed) {
           const installed = await which('copilot');
@@ -110,12 +125,15 @@ try {
             client = makeClient(installed);
             await client.start();
             a = await client.getAuthStatus();
+            mask(a.login);
             ctx.detail(`installed CLI: authenticated=${a.isAuthenticated} type=${a.authType ?? '-'} ${a.statusMessage ?? ''}`);
           }
         }
         check(a.isAuthenticated, 'Not signed in. Run `copilot`, use /login, then run this spike again.');
         ctx.fact('auth.type', a.authType ?? 'unknown');
         ctx.fact('auth.login', a.login ?? 'unknown');
+        ctx.fact('auth.host', a.host ?? 'unknown');
+        ctx.detail(`signed in as ${a.login ?? '?'} on ${a.host ?? '?'}${process.env.COPILOT_GH_HOST ? ' (COPILOT_GH_HOST)' : ''}`);
         ctx.fact('auth.runtime', cliPathUsed ? 'installed CLI via COPILOT_CLI_PATH' : 'SDK bundled runtime (reads the same ~/.copilot login)');
         return true;
       })) === true;
@@ -129,7 +147,22 @@ try {
 
     if (!authed) report.skip('Models, policy access and cost', 'rehearsal without a login');
     else await report.step('Models, policy access and cost (listModels, no model call)', async (ctx) => {
-      const models = await c.listModels();
+      let models: Awaited<ReturnType<typeof c.listModels>>;
+      try {
+        models = await c.listModels();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/403|not authorized/i.test(msg)) {
+          const accounts = await ghAccounts();
+          throw new Error(
+            `This account is not allowed to use Copilot (403). ` +
+              (accounts.length > 1
+                ? `The GitHub CLI is signed in to: ${accounts.map((x) => `${x.login} on ${x.host}`).join(', ')}. If your Copilot comes from one of the others, set COPILOT_GH_HOST to that host in spikes/.env.`
+                : 'Ask your admin whether the "Copilot CLI" policy is enabled for you.'),
+          );
+        }
+        throw err;
+      }
       check(models.length > 0, 'No models returned. Your organization may not allow Copilot CLI; ask an admin to enable the "Copilot CLI" policy.');
       const enabled = models.filter((m) => m.policy?.state !== 'disabled');
       for (const m of enabled) {
@@ -414,5 +447,5 @@ try {
   if (client) await client.forceStop().catch(() => undefined);
   if (restarted) await restarted.forceStop().catch(() => undefined);
   await work.cleanup();
-  await report.finish({ sdk: sdkPkg.version, copilotRuntime: cliPathUsed ? 'installed CLI' : 'bundled', mode: live ? 'live (2 prompts max)' : 'free (no model calls)' });
+  await report.finish({ sdk: sdkPkg.version, copilotRuntime: cliPathUsed ? 'installed CLI' : 'bundled', copilotHost: process.env.COPILOT_GH_HOST ?? 'github.com (default)', mode: live ? 'live (2 prompts max)' : 'free (no model calls)' });
 }

@@ -1,5 +1,6 @@
 /**
- * Spike b: CodeCommit over SSH with the system git and the user's ~/.ssh/config.
+ * Spike b: CodeCommit with the system git: over SSH (the user's ~/.ssh/config) or through
+ * git-remote-codecommit (codecommit::<region>://[profile@]<repo>, the user's AWS credentials).
  *
  *   TANDEM_SPIKE_REPO_URL=ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name> pnpm spike:b
  *   pnpm spike:b -- --local      (rehearsal against a local bare repo; proves the git logic, not SSH)
@@ -58,19 +59,25 @@ try {
   if (url) {
     const remoteUrl = url;
     if (!local) {
-      await report.step('URL is a CodeCommit SSH URL', async (ctx) => {
+      await report.step('URL is a CodeCommit URL (SSH or git-remote-codecommit)', async (ctx) => {
         const parsed = parseCodeCommitUrl(remoteUrl);
         check(parsed, `Not a CodeCommit URL: ${remoteUrl}`);
-        check(remoteUrl.startsWith('ssh://'), 'Use the SSH clone URL (ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>).');
-        ctx.detail(`region ${parsed.region}, repo ${parsed.name}`);
-        const sshCfg = await tryGitless(['-G', `git-codecommit.${parsed.region}.amazonaws.com`]);
-        const user = /^user (\S+)/m.exec(sshCfg)?.[1];
-        ctx.detail(`ssh config resolves a user for the host: ${user ? 'yes' : 'no'}`);
-        ctx.fact('ssh.userConfigured', Boolean(user && user !== process.env.USER && user !== process.env.USERNAME));
+        ctx.detail(`region ${parsed.region}, repo ${parsed.name}, transport ${parsed.transport}${parsed.profile ? `, AWS profile ${parsed.profile}` : ''}`);
+        ctx.fact('transport', parsed.transport);
+        if (parsed.transport === 'ssh') {
+          const sshCfg = await tryGitless(['-G', `git-codecommit.${parsed.region}.amazonaws.com`]);
+          const user = /^user (\S+)/m.exec(sshCfg)?.[1];
+          ctx.detail(`ssh config resolves a user for the host: ${user ? 'yes' : 'no'}`);
+          ctx.fact('ssh.userConfigured', Boolean(user && user !== process.env.USER && user !== process.env.USERNAME));
+        } else if (parsed.transport === 'grc') {
+          const { which } = await import('./lib/exec.js');
+          check(await which('git-remote-codecommit'), 'git-remote-codecommit is not installed (pip install git-remote-codecommit).');
+          ctx.detail('git-remote-codecommit is installed; git uses your AWS credentials');
+        }
       });
     }
 
-    const defaultBranch = await report.step('SSH read access and default branch (ls-remote --symref)', async (ctx) => {
+    const defaultBranch = await report.step('Read access and default branch (ls-remote --symref)', async (ctx) => {
       const started = performance.now();
       const b = await remoteDefaultBranch(remoteUrl);
       ctx.fact('lsRemote.ms', Math.round(performance.now() - started));

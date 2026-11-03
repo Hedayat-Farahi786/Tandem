@@ -2,7 +2,7 @@
  * Spike c: CodeCommit pull requests through the AWS SDK with the user's AWS profile,
  * and the console-link fallback when the profile can't create PRs.
  *
- *   TANDEM_SPIKE_REPO_URL=ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name> \
+ *   TANDEM_SPIKE_REPO_URL=codecommit::<region>://<name>  (or ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>) \
  *   TANDEM_SPIKE_AWS_PROFILE=<profile> pnpm spike:c
  *
  * Without a profile (or without permission) only the fallback is exercised. The PR created here
@@ -83,12 +83,24 @@ try {
       });
     }
 
-    const credentials = env.awsProfile ? fromIni({ profile: env.awsProfile }) : fromNodeProviderChain();
-    report.fact('aws.profile', env.awsProfile ?? '(default credential chain)');
+    // The profile named in a codecommit:: URL wins, then TANDEM_SPIKE_AWS_PROFILE, then the default chain.
+    const profile = parsed.profile ?? env.awsProfile;
+    const credentials = profile ? fromIni({ profile }) : fromNodeProviderChain();
+    report.fact('aws.profile', profile ?? '(default credential chain)');
 
     const identityOk = await report.step('AWS credentials resolve (STS GetCallerIdentity)', async (ctx) => {
       const sts = new STSClient({ region, credentials });
-      const who = await sts.send(new GetCallerIdentityCommand({}));
+      let who;
+      try {
+        who = await sts.send(new GetCallerIdentityCommand({}));
+      } catch (err) {
+        const name = errName(err);
+        throw new Error(
+          /InvalidClientTokenId|ExpiredToken|CredentialsProviderError|ValidationException|TokenProviderError/.test(name) || /expired|invalid|locate credentials/i.test(String(err))
+            ? `AWS credentials for ${profile ?? 'the default profile'} are missing or expired (${name}). Sign in again (for example \`aws login${profile ? ` --profile ${profile}` : ''}\`) and re-run.`
+            : String(err),
+        );
+      }
       const account = who.Account ?? '';
       ctx.detail(`account ****${account.slice(-4)}, ${who.Arn?.replace(/:\d{12}:/, ':************:')}`);
       return true;

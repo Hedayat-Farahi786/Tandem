@@ -16,7 +16,7 @@ the order it is built in and how each phase is proven.
 | --- | --- |
 | Local only, no telemetry | One Node process. Server binds to `127.0.0.1` only (rejected otherwise). No analytics. Copilot runtime started with `COPILOT_GITHUB_TELEMETRY_DISABLED=true`. Outbound traffic only to Git remotes, AWS, Copilot, and Jira when it is turned on. |
 | Copilot is the only AI | `AgentRuntime` port with one real implementation (`agent-copilot`) built on `@github/copilot-sdk`. It uses the Copilot CLI's existing signed-in user (`useLoggedInUser`, the default). No other AI keys. |
-| CodeCommit over SSH, GitHub too | `SourceHost` port. Git operations use the system `git` binary and the user's own `~/.ssh/config`. PR APIs are per host (AWS SDK for CodeCommit, REST for GitHub), each with a manual-link fallback. |
+| CodeCommit (SSH or git-remote-codecommit), GitHub too | `SourceHost` port. Git operations use the system `git` binary with whatever the repo URL uses: the user's own `~/.ssh/config` for SSH URLs, or their AWS credentials for `codecommit::` URLs (git-remote-codecommit). PR APIs are per host (AWS SDK for CodeCommit, REST for GitHub), each with a manual-link fallback. |
 | Jira not available yet | `Tracker` port. `tracker-local` (SQLite) is the default and is complete on its own. `tracker-jira` turns on when a token is saved in Settings. |
 | macOS, Windows, Linux | No shell-specific code paths in core. Git and process execution go through one `ProcessRunner` that uses `execFile` (no shell) for Tandem's own commands. Paths built with `node:path`. Native dependencies limited to ones with prebuilt binaries for all three OSes. |
 | Survives restart at any point | Every state transition and step checkpoint is written to SQLite before the side effect is reported. The runner re-enqueues active tasks on boot. Every step is idempotent. |
@@ -354,7 +354,15 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
 
 Uses the system `git` through `execFile` with `GIT_TERMINAL_PROMPT=0` and
 `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` (still reads `~/.ssh/config`; it
-only stops ssh from hanging on a prompt).
+only stops ssh from hanging on a prompt). An existing `GIT_SSH_COMMAND` or
+`GIT_SSH` is respected. For `codecommit::` URLs git calls
+git-remote-codecommit, which uses the AWS profile named in the URL (or the
+default chain), so Tandem's own git commands keep the AWS environment; only
+the agent runtime's environment has it removed.
+
+Minimum git is 2.25 (Ubuntu 20.04, seen on the user's machine). Code avoids
+newer options such as `init --initial-branch` (2.28); the spike b steps all
+pass on 2.25.
 
 - **"Mirror"**: `git clone --bare <url> mirrors/<host>/<repo>.git`, then
   `remote.origin.fetch = +refs/heads/*:refs/remotes/origin/*`. A true
@@ -393,9 +401,14 @@ interface SourceHost {
 Both implementations share the git layer; they differ in URL parsing,
 preflight, and PR APIs.
 
-- **CodeCommit**: URLs `ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>`
-  (also `codecommit::<region>://<name>`). PR API via the AWS SDK with the
-  profile from Settings (`fromIni({ profile })`). Permission probe without
+- **CodeCommit**: URLs `codecommit::<region>://[profile@]<name>`
+  (git-remote-codecommit: what the user's existing clones use),
+  `ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>` and HTTPS
+  with the AWS credential helper. PR API via the AWS SDK with the profile
+  named in the URL, else the one from Settings, else the default chain.
+  Expired credentials (for example an `aws login` session) are reported as
+  "Sign in again with `aws login --profile <name>`", never as a generic
+  failure. Permission probe without
   creating anything: `CreatePullRequest` against the real repository with a
   source reference that does not exist; `ReferenceDoesNotExistException`
   means allowed, `AccessDeniedException` means use the console link. (This
@@ -449,8 +462,17 @@ interface AgentSession {
   `COPILOT_GITHUB_TELEMETRY_DISABLED=true`. The SDK's bundled,
   version-matched runtime is used by default and reads the same
   `~/.copilot` login as the installed CLI; `COPILOT_CLI_PATH` points it at
-  the installed `copilot` binary instead if needed (spike a confirms which
-  works on the user's machine).
+  the installed `copilot` binary instead if needed. On the user's machine
+  the bundled runtime works.
+- **Copilot host.** Copilot can come from a GitHub Enterprise Cloud
+  data-residency host (`<company>.ghe.com`). The runtime authenticates
+  against github.com unless `COPILOT_GH_HOST` is set; Tandem's
+  `copilot.host` setting is passed as `COPILOT_GH_HOST`. Observed on the
+  user's machine: the Copilot CLI had no login of its own and used the GitHub
+  CLI's tokens (`authType: gh-cli`). With two `gh` accounts, the default host
+  gave `403 not authorized to use this Copilot feature`, and the company host
+  worked. Doctor reads the `gh auth status` accounts and, on a 403, suggests
+  the host that has Copilot. The setup wizard asks once.
 - `client.getAuthStatus()` → `{ isAuthenticated, login, authType }` for
   doctor. Policy access is checked with `client.listModels()` plus one tiny
   prompt in doctor's full mode (spike a records the real error text when
@@ -654,12 +676,15 @@ the file is identical on every OS.
 Each check returns `pass | warn | fail | skipped` with one plain-language
 fix line:
 
-Node >= 22.13 · pnpm · git >= 2.30 · disk space under `~/.tandem` (warn
+Node >= 22.13 · pnpm · git >= 2.25 · disk space under `~/.tandem` (warn
 < 5 GB, fail < 1 GB) · keychain available · port free · Copilot runtime
-starts · Copilot signed in (`getAuthStatus`) · Copilot policy access
-(`listModels`, plus a one-prompt check in `--full`) · SSH read access to
-each configured repo (`git ls-remote`, 20 s timeout) · AWS profile
-(optional: identity, `GetRepository`, PR permission probe) · Jira ("Not
+starts · Copilot signed in (`getAuthStatus`, showing account and host) ·
+Copilot policy access (`listModels`, no model call; on a 403 it lists the
+other `gh` accounts and suggests `copilot.host`) · read access to each
+configured repo (`git ls-remote`, 20 s timeout, over SSH or
+git-remote-codecommit) · AWS credentials for each profile in use (expired
+sessions get "Sign in again with `aws login`") · AWS PR permission probe
+(optional) · Jira ("Not
 configured (optional)" until a token exists, then `GET /myself`). Runs
 automatically on first launch and from the Doctor screen.
 

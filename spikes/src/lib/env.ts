@@ -3,7 +3,7 @@ import { mkdtemp, rm, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerSecret } from './redact.js';
+import { registerReplacement, registerSecret } from './redact.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const SPIKES_DIR = join(here, '..', '..');
@@ -47,6 +47,12 @@ export function spikeEnv(): SpikeEnv {
   assign('jiraToken', opt('JIRA_API_TOKEN'));
   assign('jiraIssue', opt('JIRA_SPIKE_ISSUE'));
   registerSecret(env.jiraToken);
+  // Reports are committed: keep company identifiers out of them.
+  const host = opt('COPILOT_GH_HOST');
+  if (host) {
+    registerReplacement(host, '<company>.ghe.com');
+    registerReplacement(host.split('.')[0], '<company>');
+  }
   return env;
 }
 

@@ -29,7 +29,9 @@ export async function seedRemote(url: string, template: Template, branch = 'main
 /** A local bare repo standing in for CodeCommit, for rehearsals in environments without SSH access. */
 export async function createLocalRemote(root: string, template: Template): Promise<string> {
   const bare = join(root, `${template}-remote.git`);
-  await git(['init', '--bare', '--initial-branch=main', bare]);
+  // `init --initial-branch` needs git 2.28; setting HEAD works on older git (Ubuntu 20.04 ships 2.25).
+  await git(['init', '--bare', bare]);
+  await git(['symbolic-ref', 'HEAD', 'refs/heads/main'], { gitDir: bare });
   const url = pathToFileURL(bare).href;
   await seedRemote(url, template);
   return url;

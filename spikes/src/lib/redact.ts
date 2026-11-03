@@ -15,6 +15,12 @@ const PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const extraSecrets = new Set<string>();
+const replacements = new Map<string, string>();
+
+/** Replace a non-secret but company-identifying value (host, login) with a label in committed reports. */
+export function registerReplacement(value: string | undefined, label: string): void {
+  if (value && value.length >= 3) replacements.set(value, label);
+}
 
 /** Register an exact secret value (for example a token read from the environment) so it is always redacted. */
 export function registerSecret(value: string | undefined): void {
@@ -24,6 +30,7 @@ export function registerSecret(value: string | undefined): void {
 export function redact(input: string): string {
   let out = input;
   for (const secret of extraSecrets) out = out.split(secret).join('[REDACTED]');
+  for (const [value, label] of replacements) out = out.split(value).join(label);
   for (const [re, replacement] of PATTERNS) out = out.replace(re, replacement);
   const home = homedir();
   if (home.length > 1) out = out.split(home).join('~');

@@ -93,11 +93,9 @@ export class Report {
       fail: this.steps.filter((s) => s.status === 'fail').length,
       skip: this.steps.filter((s) => s.status === 'skip').length,
     };
-    const machine = {
-      os: `${platform()} ${release()} (${arch()})`,
-      node: process.version,
-      ...env,
-    };
+    const machine = Object.fromEntries(
+      Object.entries({ os: `${platform()} ${release()} (${arch()})`, node: process.version, ...env }).map(([k, v]) => [k, redact(String(v))]),
+    );
     const lines: string[] = [];
     lines.push(`# ${this.title}`, '');
     lines.push(`- Result: **${counts.fail === 0 ? 'PASS' : 'FAIL'}** (${counts.pass} passed, ${counts.fail} failed, ${counts.skip} skipped)`);
