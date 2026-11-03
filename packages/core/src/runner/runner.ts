@@ -44,7 +44,7 @@ const DEFAULT_RETRY = { attempts: 4, baseMs: 2_000, maxMs: 60_000 };
 export class Runner {
   private readonly running = new Map<string, { promise: Promise<void>; controller: AbortController; lane: Lane }>();
   private timer: ReturnType<typeof setInterval> | undefined;
-  private ticking = false;
+  private inFlight: Promise<number> | undefined;
   private readonly retry: { attempts: number; baseMs: number; maxMs: number };
 
   constructor(private readonly o: RunnerOptions) {
@@ -77,30 +77,38 @@ export class Runner {
     return { requeued, created };
   }
 
-  /** Starts every runnable job the lane limits allow. Returns how many started. */
+  /**
+   * Starts every runnable job the lane limits allow. Returns how many started. A tick that arrives
+   * while another is in flight waits for it (so callers never see "nothing running" too early).
+   */
   async tick(): Promise<number> {
-    if (this.ticking) return 0;
-    this.ticking = true;
-    try {
-      const capacity = await this.o.capacity();
-      const used: Record<Lane, number> = { build: 0, read: 0, io: 0 };
-      for (const r of this.running.values()) used[r.lane]++;
-      const now = this.o.clock.now();
-      const jobs = (await this.o.store.jobs.list()).filter((j) => j.status === 'queued' && j.notBefore <= now && !this.running.has(j.taskId)).sort((a, b) => a.notBefore - b.notBefore);
-      let started = 0;
-      for (const job of jobs) {
-        const lane = laneOf(job.state);
-        if (used[lane] >= capacity[lane]) continue;
-        used[lane]++;
-        started++;
-        const controller = new AbortController();
-        const promise = this.execute(job, controller).finally(() => this.running.delete(job.taskId));
-        this.running.set(job.taskId, { promise, controller, lane });
-      }
-      return started;
-    } finally {
-      this.ticking = false;
+    if (this.inFlight) {
+      await this.inFlight.catch(() => undefined);
+      return this.running.size > 0 ? 1 : 0;
     }
+    this.inFlight = this.startRunnable().finally(() => {
+      this.inFlight = undefined;
+    });
+    return this.inFlight;
+  }
+
+  private async startRunnable(): Promise<number> {
+    const capacity = await this.o.capacity();
+    const used: Record<Lane, number> = { build: 0, read: 0, io: 0 };
+    for (const r of this.running.values()) used[r.lane]++;
+    const now = this.o.clock.now();
+    const jobs = (await this.o.store.jobs.list()).filter((j) => j.status === 'queued' && j.notBefore <= now && !this.running.has(j.taskId)).sort((a, b) => a.notBefore - b.notBefore);
+    let started = 0;
+    for (const job of jobs) {
+      const lane = laneOf(job.state);
+      if (used[lane] >= capacity[lane]) continue;
+      used[lane]++;
+      started++;
+      const controller = new AbortController();
+      const promise = this.execute(job, controller).finally(() => this.running.delete(job.taskId));
+      this.running.set(job.taskId, { promise, controller, lane });
+    }
+    return started;
   }
 
   /** Waits for the jobs that are running now. */

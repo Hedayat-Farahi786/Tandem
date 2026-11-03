@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, type Settings, type Task, type TaskTransition, type UsageRecord } from '@tandem/shared';
 import type { Collection, Job, Store, TaskScoped, TrackerComment } from '../ports.js';
+import { lockedStore, type RawRepos } from '../store-lock.js';
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -18,8 +19,8 @@ interface Data {
 
 const MAPS = ['projects', 'repos', 'tasks', 'approvals', 'runs', 'verifyRuns', 'findings', 'prs', 'threads', 'rules'] as const;
 
-/** In-memory Store for unit tests. Same contract as the SQLite store (shared contract tests). */
-export class MemoryStore implements Store {
+/** Raw in-memory repositories; MemoryStore adds locking and transactions. */
+class MemoryRepos implements RawRepos {
   private data: Data = {
     maps: Object.fromEntries(MAPS.map((m) => [m, new Map()])),
     transitions: [],
@@ -32,21 +33,12 @@ export class MemoryStore implements Store {
     trackerComments: [],
     nextTransitionId: 1,
   };
-  private chain: Promise<unknown> = Promise.resolve();
+  snapshot(): Data {
+    return clone({ ...this.data, maps: Object.fromEntries(Object.entries(this.data.maps).map(([k, v]) => [k, new Map(v)])) }) as Data;
+  }
 
-  async transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T> {
-    const run = async () => {
-      const snapshot = clone({ ...this.data, maps: Object.fromEntries(Object.entries(this.data.maps).map(([k, v]) => [k, new Map(v)])) });
-      try {
-        return await fn(this);
-      } catch (err) {
-        this.data = snapshot as Data;
-        throw err;
-      }
-    };
-    const p = this.chain.then(run, run);
-    this.chain = p.catch(() => undefined);
-    return p;
+  restore(d: Data): void {
+    this.data = d;
   }
 
   private map<T>(name: (typeof MAPS)[number]): Map<string, T> {
@@ -153,10 +145,30 @@ export class MemoryStore implements Store {
   };
   trackerComments: Store['trackerComments'] = {
     add: async (c) => void this.data.trackerComments.push(clone(c)),
-    list: async (key) => this.data.trackerComments.filter((c) => c.key === key).map(clone),
+    list: async (key) => this.data.trackerComments.filter((c) => c.key === key).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone),
   };
 
   private filterUsage(scope: { taskId?: string; since?: string }): UsageRecord[] {
     return this.data.usage.filter((u) => (!scope.taskId || u.taskId === scope.taskId) && (!scope.since || u.at >= scope.since));
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type, @typescript-eslint/no-unsafe-declaration-merging
+export interface MemoryStore extends Store {}
+/** In-memory Store for unit tests. Same contract as the SQLite store (shared contract tests). */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export class MemoryStore {
+  constructor() {
+    const raw = new MemoryRepos();
+    let saved: Data | undefined;
+    const store = lockedStore(raw, {
+      begin: () => void (saved = raw.snapshot()),
+      commit: () => void (saved = undefined),
+      rollback: () => {
+        if (saved) raw.restore(saved);
+        saved = undefined;
+      },
+    });
+    Object.assign(this, store);
   }
 }

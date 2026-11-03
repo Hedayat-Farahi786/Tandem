@@ -22,7 +22,9 @@
     "spike:d": "pnpm --filter @tandem/spikes run d",
     "spike:d-jira": "pnpm --filter @tandem/spikes run d-jira",
     "spike:all": "pnpm --filter @tandem/spikes run all",
-    "spike:seed": "pnpm --filter @tandem/spikes run seed"
+    "spike:seed": "pnpm --filter @tandem/spikes run seed",
+    "test:unit": "vitest run --project unit",
+    "test:real": "TANDEM_REAL=1 vitest run --project integration packages/adapters/src/real-codecommit.it.test.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -18,3 +18,4 @@ export * from './workflow/prompts.js';
 export * from './workflow/verify.js';
 export * from './workflow/steps.js';
 export * from './workflow/service.js';
+export * from './store-lock.js';
