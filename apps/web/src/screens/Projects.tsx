@@ -26,7 +26,7 @@ export function RepoCommandsEditor({ value, onChange }: { value: RepoCommands; o
           key={c.key}
           label={c.label}
           optional
-          className="font-mono text-[12.5px]"
+          className="font-mono text-[13px]"
           value={value[c.key] ?? ''}
           placeholder={c.placeholder}
           onChange={(e) => {
@@ -187,10 +187,10 @@ function RuleDialog({ repos, initial, onClose }: { repos: Repo[]; initial: strin
     >
       <Textarea id="rule-text" label="Rule" value={text} onChange={(e) => setText(e.target.value)} placeholder="For example: show prices with the currency symbol, like €12.50." rows={3} className="min-h-0" autoFocus />
       <div>
-        <p className="mb-2 text-[12.5px] text-muted">Or start from an example</p>
+        <p className="mb-2 text-[13px] text-muted">Or start from an example</p>
         <div className="flex flex-wrap gap-1.5">
           {RULE_EXAMPLES.map((ex) => (
-            <button key={ex} type="button" onClick={() => setText(ex)} className={cx('rounded-full px-3 py-1 text-left text-[12.5px] shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg', text === ex ? 'bg-surface-2 text-fg' : 'text-muted')}>
+            <button key={ex} type="button" onClick={() => setText(ex)} className={cx('rounded-full px-3 py-1 text-left text-[13px] shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg', text === ex ? 'bg-surface-2 text-fg' : 'text-muted')}>
               {ex}
             </button>
           ))}
@@ -232,7 +232,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             <h2 id="rules-title" className="text-[15px] font-semibold tracking-[-0.01em]">
               Rules for Copilot
             </h2>
-            <p className="mt-0.5 text-[12.5px] text-muted">Short instructions Copilot follows every time it changes your code.</p>
+            <p className="mt-0.5 text-[13px] text-muted">Short instructions Copilot follows every time it changes your code.</p>
           </div>
           {repos.length > 0 && (
             <Button size="sm" icon={Plus} onClick={() => setAdding('')}>
@@ -250,7 +250,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             <p className="text-[13px] text-muted">No rules yet. Write them in plain words, or start from one of these:</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {RULE_EXAMPLES.map((ex) => (
-                <button key={ex} type="button" onClick={() => setAdding(ex)} disabled={!repos.length} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] text-muted shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg">
+                <button key={ex} type="button" onClick={() => setAdding(ex)} disabled={!repos.length} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] text-muted shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg">
                   <Plus aria-hidden className="size-3" />
                   {ex}
                 </button>
@@ -263,7 +263,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             return (
               <div key={r.id} className="group flex items-start gap-3 py-3.5">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] leading-snug break-words">{r.text}</p>
+                  <p className="text-[14px] leading-snug break-words">{r.text}</p>
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
                     <span className="inline-flex items-center gap-1.5">
                       {repo && <BrandLogo brand={hostBrand(repo.host.kind)} size={12} />}
@@ -308,7 +308,7 @@ export function ProjectsScreen() {
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Projects</h1>
-          <p className="mt-1 text-[13.5px] text-muted">Your products, and the repositories Copilot works in.</p>
+          <p className="mt-1 text-[14px] text-muted">Your products, and the repositories Copilot works in.</p>
         </div>
         <LinkButton to="/setup" icon={Plus}>
           Add repository
@@ -334,7 +334,7 @@ export function ProjectsScreen() {
                 <ProjectAvatar name={p.name} projectId={p.id} size={36} />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{p.name}</h2>
-                  <p className="mt-0.5 truncate text-[12.5px] text-muted">{meta}</p>
+                  <p className="mt-0.5 truncate text-[13px] text-muted">{meta}</p>
                 </div>
                 <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
                   Edit

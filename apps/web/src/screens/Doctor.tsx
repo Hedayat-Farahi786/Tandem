@@ -47,7 +47,7 @@ export function DoctorList({ report }: { report: DoctorReport }) {
           key={g}
           icon={<GroupIcon group={g} tone={worst(report, g)} />}
           title={GROUP_TITLE(g)}
-          actions={<span className="text-[12.5px] text-muted tabular-nums">{groupLine(report, g)}</span>}
+          actions={<span className="text-[13px] text-muted tabular-nums">{groupLine(report, g)}</span>}
         >
           {report.checks
             .filter((c) => c.group === g)
@@ -90,7 +90,7 @@ export function DoctorSummary({ report }: { report: DoctorReport }) {
       <Ring value={passed / Math.max(1, report.checks.length)} size={76} stroke={7} tone={fails ? 'danger' : warns ? 'warn' : 'ok'}>
         <span className="text-center leading-none">
           <span className="block font-display text-[22px] tabular-nums">{passed}</span>
-          <span className="text-[10.5px] text-muted">of {report.checks.length}</span>
+          <span className="text-[11px] text-muted">of {report.checks.length}</span>
         </span>
       </Ring>
       <div className="min-w-0">
@@ -124,8 +124,8 @@ function DoctorIntro({ running, onRun }: { running: boolean; onRun: () => void }
         <span className="mb-4 grid size-14 place-items-center rounded-2xl bg-surface text-ok shadow-[0_0_0_1px_var(--border),0_8px_20px_-8px_rgb(0_0_0/0.2),inset_0_1px_0_var(--hairline-highlight)]">
           <Stethoscope aria-hidden className="size-6" strokeWidth={1.8} />
         </span>
-        <p className="font-display text-[19px]">No checks yet</p>
-        <p className="mt-1.5 max-w-md text-[13.5px] text-muted">A full check takes a few seconds and sends no prompt to Copilot, so it costs nothing.</p>
+        <p className="font-display text-[17px]">No checks yet</p>
+        <p className="mt-1.5 max-w-md text-[14px] text-muted">A full check takes a few seconds and sends no prompt to Copilot, so it costs nothing.</p>
         <Button variant="primary" size="lg" icon={Stethoscope} busy={running} onClick={onRun} className="mt-5">
           {running ? 'Running checks…' : 'Run checks'}
         </Button>
@@ -155,7 +155,7 @@ export function DoctorScreen() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Doctor</h1>
-          <p className="mt-1 text-[13.5px] text-muted">Checks your tools, repositories, Copilot, AWS and Jira. It never sends a prompt, so it uses none of your budget.</p>
+          <p className="mt-1 text-[14px] text-muted">Checks your tools, repositories, Copilot, AWS and Jira. It never sends a prompt, so it uses none of your budget.</p>
         </div>
         {report && (
           <Button icon={RefreshCw} busy={run.isPending} onClick={() => run.mutate()}>

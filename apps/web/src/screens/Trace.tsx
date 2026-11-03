@@ -20,7 +20,7 @@ function Stage({ icon: Icon, title, status, tone = 'neutral', children, last }: 
       <div className="min-w-0 pb-8">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pt-1.5">
           <h3 className="text-[14px] font-semibold tracking-[-0.01em]">{title}</h3>
-          <p className="text-[12.5px] text-muted">{status}</p>
+          <p className="text-[13px] text-muted">{status}</p>
         </div>
         {children && <div className="mt-3">{children}</div>}
       </div>
@@ -55,7 +55,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
         </span>
         <div className="min-w-0 flex-1 basis-64">
           <p className="text-[14px] font-semibold">Traceability</p>
-          <p className="mt-0.5 text-[12.5px] text-muted">
+          <p className="mt-0.5 text-[13px] text-muted">
             From the request to the pull requests, with who approved what and which tests prove each criterion.{' '}
             {t.integrity.ok ? `Audit log verified (${t.integrity.entries} entries).` : `Audit log failed verification: ${t.integrity.reason ?? ''}`}
           </p>
@@ -72,8 +72,8 @@ export function TraceTab({ taskId }: { taskId: string }) {
 
       <ol aria-label="Trace">
         <Stage icon={MessageSquareText} title="Request" status={`${t.task.source === 'chat' ? 'From chat' : t.task.source === 'jira' ? `From Jira${t.task.externalKey ? ` ${t.task.externalKey}` : ''}` : t.task.source === 'split' ? 'Split from a bigger task' : 'Created in Tandem'} · ${when(t.task.createdAt)}`}>
-          <p className="text-[13.5px] leading-relaxed">{t.requirement.goal || <span className="text-faint">No goal yet.</span>}</p>
-          {t.requirement.outOfScope && <p className="mt-1.5 text-[12.5px] text-muted">Out of scope: {t.requirement.outOfScope}</p>}
+          <p className="text-[14px] leading-relaxed">{t.requirement.goal || <span className="text-faint">No goal yet.</span>}</p>
+          {t.requirement.outOfScope && <p className="mt-1.5 text-[13px] text-muted">Out of scope: {t.requirement.outOfScope}</p>}
         </Stage>
 
         <Stage icon={ListChecks} title="Acceptance criteria and tests" tone={!t.criteria.length ? 'idle' : passing === t.criteria.length ? 'ok' : t.criteria.some((c) => c.status === 'fail') ? 'danger' : 'neutral'} status={t.criteria.length ? `${passing} of ${t.criteria.length} proven by a passing test` : 'None yet'}>
@@ -90,7 +90,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
                           <span className="text-faint">Given</span> {c.given}, <span className="text-faint">when</span> {c.when}, <span className="text-faint">then</span> {c.then}
                         </p>
                         {c.tests.map((x, i) => (
-                          <p key={i} className="mt-1.5 truncate font-mono text-[11.5px] text-muted" title={`${x.repo}: ${x.file} › ${x.name}`}>
+                          <p key={i} className="mt-1.5 truncate font-mono text-[12px] text-muted" title={`${x.repo}: ${x.file} › ${x.name}`}>
                             {x.repo}: {x.file} › {x.name}
                           </p>
                         ))}
@@ -129,7 +129,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
                           </span>
                         ))
                       ) : (
-                        <span className="text-[12.5px] text-faint">No approvals</span>
+                        <span className="text-[12px] text-faint">No approvals</span>
                       )}
                     </div>
                     <span className={cx('shrink-0 text-[12px]', s.status === 'approved' ? 'text-ok' : s.status === 'in-review' ? 'text-warn' : 'text-faint')}>{s.status === 'approved' ? 'Approved' : s.status === 'in-review' ? 'In review' : 'Superseded'}</span>
@@ -143,8 +143,8 @@ export function TraceTab({ taskId }: { taskId: string }) {
         <Stage icon="copilot" title="Copilot" tone={t.agent.length ? 'neutral' : 'idle'} status={t.agent.length ? `${t.usage.prompts} prompts · ${t.usage.modelCalls} model calls · ${t.usage.aiCredits} AI credits` : 'No runs yet'}>
           {t.agent.length > 0 && (
             <Box>
-              <table className="w-full text-left text-[12.5px]">
-                <thead className="text-[11.5px] text-faint">
+              <table className="w-full text-left text-[13px]">
+                <thead className="text-[12px] text-faint">
                   <tr className="border-b border-line">
                     <th className="px-4 py-2 font-medium">Step</th>
                     <th className="px-2 py-2 font-medium">Model</th>
@@ -194,7 +194,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
             <Box>
               <ul className="divide-y divide-line">
                 {t.commits.map((c, i) => (
-                  <li key={`c${i}`} className="flex items-center gap-3 px-4 py-2.5 text-[12.5px]">
+                  <li key={`c${i}`} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
                     <GitCommitHorizontal aria-hidden className="size-4 shrink-0 text-faint" />
                     <span className="font-mono text-[12px]" title={c.commit}>
                       {c.commit.slice(0, 10)}
@@ -208,7 +208,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
                   </li>
                 ))}
                 {t.pullRequests.map((p, i) => (
-                  <li key={`p${i}`} className="flex items-center gap-3 px-4 py-2.5 text-[12.5px]">
+                  <li key={`p${i}`} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
                     <GitPullRequest aria-hidden className="size-4 shrink-0 text-faint" />
                     <span className="min-w-0 flex-1 truncate">
                       {p.repo}
@@ -229,11 +229,11 @@ export function TraceTab({ taskId }: { taskId: string }) {
             <Box>
               <ol className="max-h-[360px] divide-y divide-line overflow-y-auto">
                 {[...t.audit].reverse().map((e) => (
-                  <li key={e.seq} className="grid grid-cols-[44px_1fr_auto] items-baseline gap-3 px-4 py-2.5 text-[12.5px]">
-                    <span className="font-mono text-[11.5px] text-faint">#{e.seq}</span>
+                  <li key={e.seq} className="grid grid-cols-[44px_1fr_auto] items-baseline gap-3 px-4 py-2.5 text-[13px]">
+                    <span className="font-mono text-[12px] text-faint">#{e.seq}</span>
                     <span className="min-w-0">
                       <span className="break-words">{e.summary}</span>
-                      <span className="mt-0.5 block text-[11.5px] text-faint">
+                      <span className="mt-0.5 block text-[12px] text-faint">
                         {e.actorName ? `${e.actorName} (${e.actor})` : e.actor === 'system' ? 'Tandem' : e.actor} · {when(e.at)} ·{' '}
                         <span className="font-mono" title={e.hash}>
                           {e.hash.slice(0, 10)}

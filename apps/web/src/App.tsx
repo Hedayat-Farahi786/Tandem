@@ -91,7 +91,7 @@ const navItem = (active: boolean) =>
     "group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors duration-150",
     active
       ? "bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.04)]"
-      : "text-muted hover:bg-surface-3/60 hover:text-fg",
+      : "text-fg hover:bg-surface-3/60",
   );
 
 function Recents({ projectId }: { projectId: string }) {
@@ -107,15 +107,15 @@ function Recents({ projectId }: { projectId: string }) {
       aria-label="Conversations"
       className="mt-6 flex min-h-0 flex-1 flex-col"
     >
-      <p className="mb-1 flex h-6 items-center px-2.5 text-[11.5px] font-medium text-faint">
+      <p className="mb-1 flex h-6 items-center px-2.5 text-[12px] font-medium text-faint">
         Recents
       </p>
       <ul className="-mr-2 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pr-2 [scrollbar-width:thin]">
         {threads.isLoading && (
-          <li className="px-2.5 py-1.5 text-[12.5px] text-faint">Loading…</li>
+          <li className="px-2.5 py-1.5 text-[12px] text-faint">Loading…</li>
         )}
         {threads.data?.length === 0 && (
-          <li className="px-2.5 py-1.5 text-[12.5px] leading-snug text-faint">
+          <li className="px-2.5 py-1.5 text-[12px] leading-snug text-faint">
             Your requests and questions appear here.
           </li>
         )}
@@ -232,7 +232,7 @@ function ProjectSwitcher({
           <span className="block truncate text-[13.5px] leading-tight font-semibold">
             {project.name}
           </span>
-          <span className="block truncate text-[11.5px] leading-tight text-faint">
+          <span className="block truncate text-[12px] leading-tight text-faint">
             {repos} {repos === 1 ? "repository" : "repositories"}
           </span>
         </span>
@@ -258,7 +258,7 @@ function ProjectSwitcher({
           }}
           className="absolute inset-x-0 top-full z-40 mt-1 animate-pop rounded-xl bg-surface p-1 shadow-lg ring-1 ring-line"
         >
-          <p className="px-2.5 pt-1.5 pb-1 text-[11.5px] font-medium text-faint">
+          <p className="px-2.5 pt-1.5 pb-1 text-[12px] font-medium text-faint">
             Projects
           </p>
           {boot.projects.map((p, i) => (
@@ -431,7 +431,7 @@ function Shell() {
                     aria-hidden
                     className={cx(
                       "size-4",
-                      active ? "text-fg" : "text-faint group-hover:text-fg",
+                      active ? "text-fg" : "text-muted group-hover:text-fg",
                     )}
                     strokeWidth={1.9}
                   />
@@ -470,7 +470,7 @@ function Shell() {
                       aria-hidden
                       className={cx(
                         "size-4",
-                        active ? "text-fg" : "text-faint group-hover:text-fg",
+                        active ? "text-fg" : "text-muted group-hover:text-fg",
                       )}
                       strokeWidth={1.9}
                     />
@@ -487,7 +487,7 @@ function Shell() {
                 </p>
                 {testMode ? (
                   <p
-                    className="truncate text-[11.5px] text-warn"
+                    className="truncate text-[12px] text-warn"
                     title={
                       boot.data?.localRepoCopies
                         ? "Repositories come from local copies, so pull requests are links to fill in by hand."
@@ -500,7 +500,7 @@ function Shell() {
                       : "local repos"}
                   </p>
                 ) : (
-                  <p className="truncate text-[11.5px] text-faint">
+                  <p className="truncate text-[12px] text-faint">
                     Local · 127.0.0.1
                   </p>
                 )}

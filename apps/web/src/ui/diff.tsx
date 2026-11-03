@@ -62,7 +62,7 @@ function FileDiff({ file, defaultOpen }: { file: DiffFile; defaultOpen: boolean 
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 bg-surface-2/60 px-3 py-2 text-left text-[13px] hover:bg-surface-2">
         <ChevronRight aria-hidden className={cx('size-4 text-faint transition-transform', open && 'rotate-90')} />
         <FileCode2 aria-hidden className="size-4 text-faint" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{file.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{file.path}</span>
         <span className="text-[12px] text-faint">{STATUS_LABEL[file.status]}</span>
         <span className="font-mono text-[12px] text-ok">+{file.additions}</span>
         <span className="font-mono text-[12px] text-danger">−{file.deletions}</span>
@@ -114,7 +114,7 @@ export function DiffView({ diff }: { diff: string }) {
   const del = files.reduce((n, f) => n + f.deletions, 0);
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[12.5px] text-muted">
+      <p className="text-[13px] text-muted">
         {files.length} file{files.length > 1 ? 's' : ''} changed · <span className="text-ok">+{add}</span> · <span className="text-danger">−{del}</span>
       </p>
       {files.map((f, i) => (

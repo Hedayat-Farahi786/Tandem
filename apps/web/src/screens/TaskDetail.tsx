@@ -181,12 +181,12 @@ function ProgressRail({ task }: { task: Task }) {
                   <span className="relative inline-flex size-2 rounded-full bg-accent" />
                 </span>
               ) : (
-                <span className="text-[10.5px] font-medium text-faint tabular-nums">{i + 1}</span>
+                <span className="text-[11px] font-medium text-faint tabular-nums">{i + 1}</span>
               )}
             </span>
             <span
               className={cx(
-                "hidden px-1 text-[11.5px] leading-tight sm:block",
+                "hidden px-1 text-[12px] leading-tight sm:block",
                 current
                   ? "font-semibold text-fg"
                   : done
@@ -196,7 +196,7 @@ function ProgressRail({ task }: { task: Task }) {
             >
               {STATE_LABEL[s]}
             </span>
-            {current && <span className="text-[11.5px] font-semibold sm:hidden">{STATE_LABEL[s]}</span>}
+            {current && <span className="text-[12px] font-semibold sm:hidden">{STATE_LABEL[s]}</span>}
           </li>
         );
       })}
@@ -393,7 +393,7 @@ function CopilotCard({ d }: { d: TaskDetail }) {
             disabled={closed}
           />
           {!closed && (
-            <p className="mt-1.5 text-[11.5px] text-faint">
+            <p className="mt-1.5 text-[12px] text-faint">
               Applies from the next step.
             </p>
           )}
@@ -468,7 +468,7 @@ function Overview({ d }: { d: TaskDetail }) {
             )
           }
         >
-          <div className="flex flex-col gap-4 text-[13.5px]">
+          <div className="flex flex-col gap-4 text-[14px]">
             <dl className="flex flex-col gap-4">
               <div>
                 <dt className="text-[12px] font-medium text-muted">Goal</dt>
@@ -554,10 +554,10 @@ function Overview({ d }: { d: TaskDetail }) {
             <CopyButton label="Copy" variant="ghost" text={d.task.branch} />
           }
         >
-          <p className="truncate font-mono text-[12.5px]" title={d.task.branch}>
+          <p className="truncate font-mono text-[12px]" title={d.task.branch}>
             {d.task.branch}
           </p>
-          <p className="mt-2 text-[12.5px] text-muted">
+          <p className="mt-2 text-[13px] text-muted">
             {d.repos.map((r) => r.name).join(" · ")}
           </p>
         </Card>
@@ -682,7 +682,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
               label="Spec (Markdown)"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              className="min-h-[560px] font-mono text-[12.5px]"
+              className="min-h-[560px] font-mono text-[13px]"
               help="Saving creates a new version. Approvals for earlier versions stop counting."
             />
             <div className="flex justify-end gap-2">
@@ -746,7 +746,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
                     {k.role}{" "}
                     <span className="font-normal text-muted">· {k.what}</span>
                   </p>
-                  <p className="text-[12.5px] break-words text-muted">
+                  <p className="text-[13px] break-words text-muted">
                     {k.a
                       ? `${k.a.name}, ${k.a.date.slice(0, 10)}${k.a.evidence ? ` · ${k.a.evidence}` : ""}`
                       : k.need
@@ -784,7 +784,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
                 </Button>
               )}
               {d.project.pmGate === "jira" && !pmA && (
-                <p className="text-[12.5px] text-muted">
+                <p className="text-[13px] text-muted">
                   Waiting for a PM to reply “approve” on the Jira issue.
                 </p>
               )}
@@ -948,7 +948,7 @@ function CommandRow({ r }: { r: CommandResult }) {
         </span>
       </button>
       {open && r.outputTail.trim() && (
-        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-surface-2 p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap">
+        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
           {r.outputTail.trim()}
         </pre>
       )}
@@ -1315,7 +1315,7 @@ function PrSyncNote({ pr, taskId }: { pr: PullRequest; taskId: string }) {
   if (!s || pr.status === "merged" || pr.status === "closed") return null;
   if (s.state === "up-to-date" || s.state === "mergeable")
     return (
-      <p className="mt-4 flex items-center gap-2 border-t border-line pt-3 text-[12.5px] text-muted">
+      <p className="mt-4 flex items-center gap-2 border-t border-line pt-3 text-[13px] text-muted">
         <CheckCircle2 aria-hidden className="size-3.5 text-ok" />
         {s.state === "up-to-date" ? s.message : "Merges cleanly into the latest base branch."}
         <span className="text-faint">· checked {relativeTime(s.at)}</span>
@@ -1359,7 +1359,7 @@ function PrSyncNote({ pr, taskId }: { pr: PullRequest; taskId: string }) {
         {s.files.length > 0 && s.state !== "updated" && (
           <span className="mt-1.5 flex flex-wrap gap-1.5">
             {s.files.map((f) => (
-              <code key={f} className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[11.5px]">
+              <code key={f} className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[12px]">
                 {f}
               </code>
             ))}
@@ -1397,7 +1397,7 @@ function PrsTab({ d }: { d: TaskDetail }) {
             : {})}
         />
       ))}
-      <p className="text-[12.5px] text-faint">
+      <p className="text-[12px] text-faint">
         Agents never merge. When every pull request is merged, Tandem marks the
         task done and cleans up.
       </p>
@@ -1741,7 +1741,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
             ...(d.spec
               ? {
                   badge: (
-                    <span className="text-[11.5px] text-faint">
+                    <span className="text-[12px] text-faint">
                       v{d.spec.version}
                     </span>
                   ),
@@ -1769,7 +1769,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
               : openFindings
                 ? {
                     badge: (
-                      <span className="text-[11.5px] text-warn">
+                      <span className="text-[12px] text-warn">
                         {openFindings}
                       </span>
                     ),
@@ -1782,7 +1782,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
             ...(d.prs.length
               ? {
                   badge: (
-                    <span className="text-[11.5px] text-faint">
+                    <span className="text-[12px] text-faint">
                       {d.prs.length}
                     </span>
                   ),

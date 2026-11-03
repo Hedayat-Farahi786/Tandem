@@ -51,8 +51,8 @@ function Fold({ icon: Icon, label, meta, tone = 'muted', children, defaultOpen =
   const head = (
     <>
       <Icon aria-hidden className={cx('size-3.5 shrink-0', color)} strokeWidth={2} />
-      <span className={cx('min-w-0 flex-1 truncate text-left', tone === 'muted' ? 'text-fg/85' : color)}>{label}</span>
-      {meta && <span className="shrink-0 text-[11.5px] text-faint tabular-nums">{meta}</span>}
+      <span className={cx('min-w-0 flex-1 truncate text-left', tone === 'muted' ? 'text-muted' : color)}>{label}</span>
+      {meta && <span className="shrink-0 text-[12px] text-faint tabular-nums">{meta}</span>}
       {children && <ChevronRight aria-hidden className={cx('size-3.5 shrink-0 text-faint transition-transform duration-200', open && 'rotate-90')} />}
     </>
   );
@@ -70,7 +70,7 @@ function Fold({ icon: Icon, label, meta, tone = 'muted', children, defaultOpen =
   );
 }
 
-const Pre = ({ text }: { text: string }) => <pre className="max-h-80 overflow-auto rounded-lg bg-surface-2 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-words text-muted">{text}</pre>;
+const Pre = ({ text }: { text: string }) => <pre className="max-h-80 overflow-auto rounded-lg bg-surface-2 px-3 py-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-muted">{text}</pre>;
 
 function Message({ text }: { text: string }) {
   const long = text.length > 900;
@@ -82,7 +82,7 @@ function Message({ text }: { text: string }) {
         {long && !more && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent" />}
       </div>
       {long && (
-        <button type="button" onClick={() => setMore(!more)} className="mt-1 text-[12.5px] font-medium text-muted hover:text-fg">
+        <button type="button" onClick={() => setMore(!more)} className="mt-1 text-[13px] font-medium text-muted hover:text-fg">
           {more ? 'Show less' : 'Show all'}
         </button>
       )}
@@ -100,7 +100,7 @@ export function Step({ s }: { s: AgentStep }) {
       );
     case 'intent':
       return (
-        <p className="flex items-center gap-2.5 px-2 py-1 text-[12.5px] text-muted">
+        <p className="flex items-center gap-2.5 px-2 py-1 text-[13px] text-muted">
           <span aria-hidden className="grid size-3.5 place-items-center">
             <span className="size-1.5 rounded-full bg-faint" />
           </span>
@@ -133,7 +133,7 @@ export function Step({ s }: { s: AgentStep }) {
               {s.files?.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {s.files.map((f) => (
-                    <span key={f.path} className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11.5px] text-muted">
+                    <span key={f.path} className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[12px] text-muted">
                       {f.kind === 'create' ? '+ ' : f.kind === 'delete' ? '− ' : ''}
                       {f.path}
                     </span>
@@ -149,7 +149,7 @@ export function Step({ s }: { s: AgentStep }) {
     case 'blocked':
       return (
         <Fold icon={ShieldAlert} tone="warn" label={`Tandem blocked: ${s.text ?? s.tool}`}>
-          {s.output && <p className="text-[12.5px] text-muted">{s.output}</p>}
+          {s.output && <p className="text-[13px] text-muted">{s.output}</p>}
         </Fold>
       );
     case 'error':
@@ -183,9 +183,9 @@ function RunCard({ run, open, onToggle }: { run: RunActivity; open: boolean; onT
             <span className="truncate text-[14px] font-medium">{RUN_TITLE[run.kind] ?? run.kind}</span>
             {run.status === 'succeeded' && <CheckCircle2 aria-label="done" className="size-3.5 shrink-0 text-ok" />}
             {run.status === 'failed' && <XCircle aria-label="failed" className="size-3.5 shrink-0 text-danger" />}
-            {run.status === 'aborted' && <span className="shrink-0 text-[11.5px] text-faint">stopped</span>}
+            {run.status === 'aborted' && <span className="shrink-0 text-[12px] text-faint">stopped</span>}
           </span>
-          <span className={cx('mt-0.5 block truncate text-[12.5px]', run.status === 'failed' ? 'text-danger' : 'text-muted')}>{summary}</span>
+          <span className={cx('mt-0.5 block truncate text-[13px]', run.status === 'failed' ? 'text-danger' : 'text-muted')}>{summary}</span>
         </span>
         <span className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
           {run.model && (
@@ -237,7 +237,7 @@ export function TaskActivity({ taskId }: { taskId: string }) {
   if (!runs.length) return <EmptyState icon={Brain} title="Copilot hasn't started yet" body="When Copilot works on this task, each step shows here: what it read, what it changed, the commands it ran and why." />;
   const credits = Math.round(runs.reduce((n, r) => n + r.aiCredits, 0) * 100) / 100;
   return (
-    <div className="mx-auto max-w-[860px]">
+    <div className="max-w-[860px]">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2 px-1">
         <p className="text-[13px] text-muted">
           Everything Copilot did on this task, in order. Open a step to see its instructions, thinking, the files it read and changed, and the commands it ran.

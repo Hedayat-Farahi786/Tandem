@@ -86,7 +86,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
           Save
         </Button>
       </div>
-      <p className="flex items-center gap-2 text-[12.5px] text-muted">
+      <p className="flex items-center gap-2 text-[13px] text-muted">
         <span className={cx('size-1.5 rounded-full', present ? 'bg-ok' : 'bg-faint')} aria-hidden />
         {present ? 'Saved in your OS keychain' : 'Not set'}
         {present && (
@@ -228,7 +228,7 @@ export function SettingsScreen() {
     <div className="mx-auto w-full max-w-[1000px] pb-24">
       <div className="mb-10">
         <h1 className="font-display text-[26px] leading-tight">Settings</h1>
-        <p className="mt-1 text-[13.5px] text-muted">Stored on this machine. Tokens go only to your OS keychain.</p>
+        <p className="mt-1 text-[14px] text-muted">Stored on this machine. Tokens go only to your OS keychain.</p>
       </div>
       <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">
       <SectionNav />
@@ -273,7 +273,7 @@ export function SettingsScreen() {
                   <span className="text-[11px] font-medium tabular-nums">{Math.round((used / of) * 100)}%</span>
                 </Ring>
                 <div>
-                  <p className="text-[12.5px] text-muted">{label}</p>
+                  <p className="text-[13px] text-muted">{label}</p>
                   <p className="text-[15px] font-medium tabular-nums">
                     {shown} <span className="text-muted">of {of}</span>
                   </p>
@@ -285,7 +285,7 @@ export function SettingsScreen() {
                 <CalendarDays aria-hidden className="size-5 text-muted" />
               </span>
               <div>
-                <p className="text-[12.5px] text-muted">Last 30 days</p>
+                <p className="text-[13px] text-muted">Last 30 days</p>
                 <p className="text-[15px] font-medium tabular-nums">
                   {formatCredits(usage.data.last30Days.aiCredits)} <span className="text-muted">credits · {usage.data.last30Days.prompts} prompts</span>
                 </p>
@@ -351,7 +351,7 @@ export function SettingsScreen() {
         title="Jira"
         description="Optional. Import tasks, post specs and report pull requests."
         actions={
-          <span className="flex items-center gap-1.5 text-[12.5px] text-muted">
+          <span className="flex items-center gap-1.5 text-[13px] text-muted">
             <span aria-hidden className={cx('size-1.5 rounded-full', jiraOn ? 'bg-ok' : 'bg-faint')} />
             {jiraOn ? 'Enabled' : 'Not configured'}
           </span>
@@ -374,7 +374,7 @@ export function SettingsScreen() {
           <SecretField id="set-jtoken" name="jira-token" present={secrets.data?.jiraToken ?? false} disabled={!kcOk} />
         </Row>
         <Row label="Ready query (JQL)" htmlFor="set-jql" description="Issues Tandem imports. A project's own query wins." wide>
-          <Input id="set-jql" value={s.jira.readyJql} onChange={(e) => set('jira', { ...s.jira, readyJql: e.target.value })} className="font-mono text-[12.5px]" />
+          <Input id="set-jql" value={s.jira.readyJql} onChange={(e) => set('jira', { ...s.jira, readyJql: e.target.value })} className="font-mono text-[13px]" />
         </Row>
         <Row label="Move to status after PRs" htmlFor="set-jstatus">
           <Input id="set-jstatus" value={s.jira.inReviewStatus} onChange={(e) => set('jira', { ...s.jira, inReviewStatus: e.target.value })} />

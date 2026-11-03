@@ -159,7 +159,7 @@ const Dot = ({ kind, tone }: { kind: StepKind; tone?: 'danger' | 'warn' }) => {
   );
 };
 
-const Output = ({ text }: { text: string }) => <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-surface-2 px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-words text-muted">{text}</pre>;
+const Output = ({ text }: { text: string }) => <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-surface-2 px-3 py-2 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-muted">{text}</pre>;
 
 /** One row of the timeline; opens to show what was read, searched or run. */
 function GroupRow({ g, last }: { g: StepGroup; last: boolean }) {
@@ -177,23 +177,23 @@ function GroupRow({ g, last }: { g: StepGroup; last: boolean }) {
       <Dot kind={g.kind} {...(failed || g.kind === 'error' ? { tone: 'danger' as const } : g.kind === 'blocked' ? { tone: 'warn' as const } : {})} />
       <div className="min-w-0 flex-1 pt-[3px] pb-1.5">
         {details ? (
-          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="group inline-flex max-w-full items-center gap-1 text-left text-[13px] text-fg/85 transition-colors hover:text-fg">
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="group inline-flex max-w-full items-center gap-1 text-left text-[13px] text-muted transition-colors hover:text-fg">
             <span className={cx('truncate', g.kind === 'think' && 'italic', failed && 'text-danger')}>{label}</span>
             <ChevronRight aria-hidden className={cx('size-3.5 shrink-0 text-faint transition-transform duration-200', open && 'rotate-90')} />
           </button>
         ) : (
-          <p className={cx('truncate text-[13px] text-fg/85', g.kind === 'error' && 'text-danger')}>{label}</p>
+          <p className={cx('truncate text-[13px] text-muted', g.kind === 'error' && 'text-danger')}>{label}</p>
         )}
         <Collapse open={open}>
           <div className="pt-1.5">
             {think?.body ? (
-              <div className="border-l-2 border-line pl-3 text-[12.5px] text-muted [&_.prose-tandem]:text-[12.5px] [&_.prose-tandem]:text-muted">
+              <div className="border-l-2 border-line pl-3 text-[13px] text-muted [&_.prose-tandem]:text-[13px] [&_.prose-tandem]:text-muted">
                 <Markdown source={think.body} />
               </div>
             ) : g.steps.length > 1 ? (
-              <ul className="flex flex-col gap-0.5 text-[12.5px] text-muted">
+              <ul className="flex flex-col gap-0.5 text-[13px] text-muted">
                 {g.steps.map((s) => (
-                  <li key={s.id} className="truncate font-mono text-[11.5px]" title={shortPath(s.input ?? '')}>
+                  <li key={s.id} className="truncate font-mono text-[12px]" title={shortPath(s.input ?? '')}>
                     {g.kind === 'search' ? (s.input ?? '').replace(/\|/g, ' | ') : shortPath(s.files?.[0]?.path ?? s.input ?? '')}
                   </li>
                 ))}
@@ -262,9 +262,9 @@ export function LiveActivity({ steps, since, answering }: { steps: readonly Agen
       </div>
       {recent.length > 0 && (
         <ol className="border-t border-line px-4 pt-2.5 pb-2">
-          {earlier > 0 && <li className="pb-1.5 pl-9 text-[11.5px] text-faint">{earlier} earlier step{earlier === 1 ? '' : 's'}</li>}
+          {earlier > 0 && <li className="pb-1.5 pl-9 text-[12px] text-faint">{earlier} earlier step{earlier === 1 ? '' : 's'}</li>}
           {recent.map((s, i) => (
-            <li key={s.id} className={cx('flex animate-[step-in_380ms_cubic-bezier(0.16,1,0.3,1)_both] items-center gap-3 py-1 text-[12.5px] transition-opacity duration-500', i < recent.length - 2 ? 'opacity-55' : 'text-fg/85')}>
+            <li key={s.id} className={cx('flex animate-[step-in_380ms_cubic-bezier(0.16,1,0.3,1)_both] items-center gap-3 py-1 text-[13px] transition-opacity duration-500', i < recent.length - 2 ? 'opacity-55' : 'text-muted')}>
               <Dot kind={kindOf(s)} {...(s.ok === false ? { tone: 'danger' as const } : {})} />
               <span className="min-w-0 truncate">{describe(s)}</span>
             </li>
@@ -282,7 +282,7 @@ export function ActivitySummary({ steps }: { steps: readonly AgentStep[] }) {
   if (!shown.length) return null;
   return (
     <div className="mb-3">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="group -ml-1 inline-flex items-center gap-2 rounded-lg px-1.5 py-1 text-[12.5px] text-muted transition-colors hover:bg-surface-2 hover:text-fg">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="group -ml-1 inline-flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-fg">
         <Lightbulb aria-hidden className="size-3.5" strokeWidth={1.9} />
         {summaryLine(shown)}
         <ChevronRight aria-hidden className={cx('size-3.5 transition-transform duration-200', open && 'rotate-90')} />

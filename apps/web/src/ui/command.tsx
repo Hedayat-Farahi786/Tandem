@@ -244,7 +244,7 @@ export function CommandPalette({
             return (
               <li key={item.id} role="presentation">
                 {header && (
-                  <p className="px-3 pt-2.5 pb-1 text-[11.5px] font-medium text-faint">
+                  <p className="px-3 pt-2.5 pb-1 text-[12px] font-medium text-faint">
                     {header}
                   </p>
                 )}
@@ -271,7 +271,7 @@ export function CommandPalette({
                     {item.label}
                   </span>
                   {item.hint && (
-                    <span className="font-mono text-[11.5px] text-faint">
+                    <span className="font-mono text-[12px] text-faint">
                       {item.hint}
                     </span>
                   )}
@@ -289,7 +289,7 @@ export function CommandPalette({
             );
           })}
         </ul>
-        <div className="flex items-center gap-4 border-t border-line bg-surface-2/60 px-4 py-2 text-[11.5px] text-faint">
+        <div className="flex items-center gap-4 border-t border-line bg-surface-2/60 px-4 py-2 text-[12px] text-faint">
           <span className="flex items-center gap-1.5">
             <kbd className="font-sans">↑↓</kbd> to move
           </span>

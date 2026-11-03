@@ -55,6 +55,15 @@ All notable changes to Tandem. The format follows
 
 ### Changed
 
+- **Clearer visual hierarchy.** Text has three distinct steps (primary for
+  names and content, secondary for descriptions, tertiary for times, IDs and
+  captions), each tied to one size, and every step meets WCAG AA on every
+  surface in both themes. Surfaces and hairlines step more clearly, so cards
+  and dividers read crisply, especially in dark mode. The type scale went
+  from 17 sizes to 11. Blue "info" is now the teal accent, so one color
+  leads. The selected tab shows its underline again, the Activity tab lines
+  up with the tabs, and sidebar links stand above the Recents list.
+
 - A new visual design: a deep teal accent (#0E3B3B, a lighter teal in dark
   mode), a neutral palette, Inter display headings, pages on
   a raised panel, grouped settings cards, a step indicator and icon

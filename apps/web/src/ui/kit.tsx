@@ -134,12 +134,12 @@ export function Field({ label, help, error, children, htmlFor, optional, hideLab
       )}
       {children}
       {error ? (
-        <p id={`${htmlFor}-error`} className="flex items-center gap-1.5 text-[12.5px] text-danger">
+        <p id={`${htmlFor}-error`} className="flex items-center gap-1.5 text-[13px] text-danger">
           <XCircle aria-hidden className="size-3.5" />
           {error}
         </p>
       ) : help ? (
-        <p id={`${htmlFor}-help`} className="text-[12.5px] leading-snug text-muted">
+        <p id={`${htmlFor}-help`} className="text-[13px] leading-snug text-muted">
           {help}
         </p>
       ) : null}
@@ -316,9 +316,9 @@ export function Checkbox({ checked, onChange, label, description, disabled }: { 
           <Check className={cx('size-3 text-accent-fg transition-opacity', checked ? 'opacity-100' : 'opacity-0')} strokeWidth={3} />
         </span>
       </span>
-      <span className="min-w-0 text-sm">
+      <span className="min-w-0 text-[13.5px]">
         <span className="text-fg">{label}</span>
-        {description && <span className="block text-[12.5px] text-muted">{description}</span>}
+        {description && <span className="block text-[13px] text-muted">{description}</span>}
       </span>
     </label>
   );
@@ -329,10 +329,10 @@ export function Switch({ checked, onChange, label, description, hideLabel }: { c
   return (
     <div className="flex items-start justify-between gap-4">
       <span className={cx(hideLabel && 'sr-only')}>
-        <label htmlFor={id} className="text-sm font-medium">
+        <label htmlFor={id} className="text-[13.5px] font-medium">
           {label}
         </label>
-        {description && <span className="block text-[12.5px] text-muted">{description}</span>}
+        {description && <span className="block text-[13px] text-muted">{description}</span>}
       </span>
       <button
         id={id}
@@ -363,8 +363,8 @@ export function RadioCards<T extends string>({ label, value, onChange, options, 
                 <span className={cx('size-2 rounded-full bg-accent transition-transform', selected ? 'scale-100' : 'scale-0')} />
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-medium">{o.label}</span>
-                {o.description && <span className="block text-[12.5px] leading-snug text-muted">{o.description}</span>}
+                <span className="block text-[13.5px] font-medium">{o.label}</span>
+                {o.description && <span className="block text-[13px] leading-snug text-muted">{o.description}</span>}
               </span>
             </label>
           );
@@ -440,7 +440,7 @@ export function Row({ label, htmlFor, description, children, wide }: { label: Re
         ) : (
           <p className="text-[13.5px] font-medium">{label}</p>
         )}
-        {description && <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{description}</p>}
+        {description && <p className="mt-0.5 text-[13px] leading-snug text-muted">{description}</p>}
       </div>
       {children && <div className="min-w-0 sm:justify-self-end sm:self-center sm:w-full">{children}</div>}
     </div>
@@ -454,7 +454,7 @@ export function Card({ title, description, actions, children, className, padded 
         <header className={cx('flex items-start justify-between gap-4 px-5 pt-4', padded ? 'pb-0' : 'pb-3')}>
           <div className="min-w-0">
             {typeof title === 'string' ? <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2> : title}
-            {description && <p className="mt-0.5 text-[12.5px] text-muted">{description}</p>}
+            {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
@@ -485,7 +485,7 @@ export function ErrorState({ title = 'Something went wrong', error, retry }: { t
     <div role="alert" className="flex gap-3 rounded-xl border border-danger/25 bg-danger-soft px-4 py-3">
       <XCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-sm font-semibold text-danger">{title}</p>
+        <p className="text-[13.5px] font-semibold text-danger">{title}</p>
         <p className="text-[13px] break-words text-fg">{error instanceof Error ? error.message : String(error)}</p>
         {retry && (
           <div className="mt-1">
@@ -523,7 +523,7 @@ export function Callout({ tone = 'neutral', title, children, actions }: { tone?:
     <div className={cx('flex gap-3 rounded-xl px-4 py-3', TONE[tone].split(' ')[0])}>
       <Icon aria-hidden className={cx('mt-0.5 size-4 shrink-0', TONE[tone].split(' ')[1])} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {title && <p className={cx('text-sm font-semibold', TONE[tone].split(' ')[1])}>{title}</p>}
+        {title && <p className={cx('text-[13.5px] font-semibold', TONE[tone].split(' ')[1])}>{title}</p>}
         {children && <div className="text-[13px] leading-relaxed whitespace-pre-line text-fg">{children}</div>}
         {actions && <div className="mt-2 flex flex-wrap gap-2">{actions}</div>}
       </div>
@@ -554,7 +554,7 @@ export function Avatar({ name, tone = 'neutral' }: { name: string; tone?: Tone }
 export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: Array<{ id: T; label: string; badge?: ReactNode }>; value: T; onChange: (t: T) => void; label: string }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   return (
-    <div role="tablist" aria-label={label} className="flex gap-6 overflow-x-auto border-b border-line">
+    <div role="tablist" aria-label={label} className="flex gap-6 overflow-x-auto shadow-[inset_0_-1px_0_var(--border)]">
       {tabs.map((t, i) => (
         <button
           key={t.id}
@@ -574,7 +574,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs:
             onChange(tabs[n]!.id);
             refs.current[n]?.focus();
           }}
-          className={cx('-mb-px flex h-10 shrink-0 items-center gap-2 border-b-[1.5px] text-[13.5px] transition-colors', value === t.id ? 'border-fg font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}
+          className={cx('relative flex h-10 shrink-0 items-center gap-2 text-[13.5px] transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-full after:transition-colors', value === t.id ? 'font-medium text-fg after:bg-fg' : 'text-muted after:bg-transparent hover:text-fg hover:after:bg-line-strong')}
         >
           {t.label}
           {t.badge}
@@ -627,7 +627,7 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
         <div className="flex max-h-[calc(100vh-48px)] flex-col">
           <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
             <div>
-              <h2 id={titleId} className="font-display text-[18px]">
+              <h2 id={titleId} className="font-display text-[17px]">
                 {title}
               </h2>
               {description && <p className="mt-1 text-[13px] text-muted">{description}</p>}
@@ -716,9 +716,9 @@ export function PageHeader({ title, subtitle, actions, eyebrow }: { title: React
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        {eyebrow && <div className="mb-2 flex items-center gap-2 text-[12.5px] text-muted">{eyebrow}</div>}
+        {eyebrow && <div className="mb-2 flex items-center gap-2 text-[13px] text-muted">{eyebrow}</div>}
         <h1 className="font-display text-[26px] leading-tight">{title}</h1>
-        {subtitle && <p className="mt-1 max-w-2xl text-[13.5px] text-muted">{subtitle}</p>}
+        {subtitle && <p className="mt-1 max-w-2xl text-[14px] text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -731,7 +731,7 @@ export function Section({ title, description, children, actions }: { title: stri
       <div className="flex items-end justify-between gap-4">
         <div>
           <h2 className="text-[13px] font-semibold tracking-wide text-muted uppercase">{title}</h2>
-          {description && <p className="mt-0.5 text-[12.5px] text-faint">{description}</p>}
+          {description && <p className="mt-0.5 text-[12px] text-faint">{description}</p>}
         </div>
         {actions}
       </div>

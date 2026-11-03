@@ -214,7 +214,7 @@ function ProjectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
           {boot.repos.map((r) => (
             <Checkbox key={r.id} checked={repoIds.includes(r.id)} onChange={(on) => setRepoIds(on ? [...repoIds, r.id] : repoIds.filter((x) => x !== r.id))} label={r.name} description={ROLE_LABEL[r.role]} />
           ))}
-          <p className="mt-1 text-[12.5px] text-muted">For separate repos, Tandem builds the backend first and the frontend against the approved API contract.</p>
+          <p className="mt-1 text-[13px] text-muted">For separate repos, Tandem builds the backend first and the frontend against the approved API contract.</p>
         </fieldset>
         <RadioCards
           label="PM approval"

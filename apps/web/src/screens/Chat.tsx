@@ -57,7 +57,7 @@ function Message({ m, repoName, steps, enter = isFresh(m) }: { m: ChatMessage; r
         {m.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {m.refs.map((r) => (
-              <span key={`${r.repoId}:${r.path}:${r.line}`} className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[11.5px] text-muted">
+              <span key={`${r.repoId}:${r.path}:${r.line}`} className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[12px] text-muted">
                 <FileText aria-hidden className="size-3" />
                 {repoName(r.repoId)}/{r.path}
                 {r.line ? `:${r.line}` : ''}
@@ -322,7 +322,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
                   submit();
                 }
               }}
-              className="block max-h-[220px] min-h-[40px] w-full resize-none bg-transparent px-2.5 pt-1.5 text-[14.5px] leading-relaxed focus:outline-none focus-visible:outline-none"
+              className="block max-h-[220px] min-h-[40px] w-full resize-none bg-transparent px-2.5 pt-1.5 text-[15px] leading-relaxed focus:outline-none focus-visible:outline-none"
             />
             <div className="flex items-center justify-end gap-1.5">
               <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} align="end" />
@@ -347,8 +347,8 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               </Button>
             </div>
           </div>
-          {testAgent && <p className="mt-1.5 px-2 text-[11.5px] font-medium text-warn">Test mode: answers come from Tandem's test agent, not Copilot.</p>}
-          <p className={cx('mt-1.5 px-2 text-[11.5px] text-faint', testAgent && 'hidden')}>{stuck ? 'Enter asks Copilot · Continue with this lets Copilot work on it again' : working ? 'Enter asks a question · Tell Copilot passes a note to its next step' : 'Enter to send · Shift+Enter for a new line · Chat never changes code.'}</p>
+          {testAgent && <p className="mt-1.5 px-2 text-[12px] font-medium text-warn">Test mode: answers come from Tandem's test agent, not Copilot.</p>}
+          <p className={cx('mt-1.5 px-2 text-[12px] text-faint', testAgent && 'hidden')}>{stuck ? 'Enter asks Copilot · Continue with this lets Copilot work on it again' : working ? 'Enter asks a question · Tell Copilot passes a note to its next step' : 'Enter to send · Shift+Enter for a new line · Chat never changes code.'}</p>
         </form>
       </div>
       {thread?.mode === 'request' && view.data.readiness && !compact && (
@@ -357,7 +357,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             Ready to build?
             <Pill tone={view.data.readiness.ready ? 'ok' : 'neutral'}>{view.data.readiness.ready ? 'Ready' : `${view.data.readiness.missing.length} to go`}</Pill>
           </p>
-          <p className="mb-4 text-[12.5px] text-muted">{thread.draftTitle ?? 'The task takes shape as you answer.'}</p>
+          <p className="mb-4 text-[13px] text-muted">{thread.draftTitle ?? 'The task takes shape as you answer.'}</p>
           <ReadinessChecklist readiness={view.data.readiness} compact />
           {createTask.isError && (
             <div className="mt-3">
@@ -416,7 +416,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
   return (
     <div className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-2rem)]">
       <h1 className="animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
-      <p className="mt-2 animate-rise text-[14.5px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
+      <p className="mt-2 animate-rise text-[15px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form
         className="mt-8 w-full animate-rise text-left [animation-delay:80ms]"
         onSubmit={(e) => {
@@ -468,7 +468,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
       </form>
       <div className="mt-4 flex animate-rise flex-wrap justify-center gap-2 [animation-delay:120ms]" aria-label="Examples" role="group">
         {EXAMPLES[mode].map((ex) => (
-          <button key={ex} type="button" onClick={() => setText(ex)} className="rounded-full px-3.5 py-1.5 text-[12.5px] text-muted shadow-[0_0_0_1px_var(--border)] transition-[color,background-color,box-shadow,transform] duration-150 hover:bg-surface hover:text-fg hover:shadow-[0_0_0_1px_var(--border-strong)] active:scale-[0.97]">
+          <button key={ex} type="button" onClick={() => setText(ex)} className="rounded-full px-3.5 py-1.5 text-[13px] text-muted shadow-[0_0_0_1px_var(--border)] transition-[color,background-color,box-shadow,transform] duration-150 hover:bg-surface hover:text-fg hover:shadow-[0_0_0_1px_var(--border-strong)] active:scale-[0.97]">
             {ex}
           </button>
         ))}
@@ -522,8 +522,8 @@ export function ChatScreen() {
             {/* A slim title bar, like a chat app: the conversation gets the room. */}
             <div className="sticky top-0 z-20 -mx-4 mb-2 flex h-14 items-center justify-between gap-4 bg-bg/85 px-4 backdrop-blur-md md:-mx-8 md:px-8">
               <div className="flex min-w-0 items-center gap-2.5">
-                <h1 className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">{current.title}</h1>
-                <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-muted">{current.mode === 'request' ? 'Request' : 'Question'}</span>
+                <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{current.title}</h1>
+                <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] text-muted">{current.mode === 'request' ? 'Request' : 'Question'}</span>
               </div>
               {current.createdTaskId && (
                 <Button size="sm" variant="primary" onClick={() => navigate(`/tasks/${current.createdTaskId}`)}>

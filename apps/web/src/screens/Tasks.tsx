@@ -23,7 +23,7 @@ export function ReadinessChecklist({ readiness, compact }: { readiness: Readines
             <span className={cx('font-medium', !i.ok && 'text-fg')}>{i.label}</span>
             <span className="sr-only">{i.ok ? ' — done' : ' — missing'}</span>
             {!compact && (
-              <span className="block text-[12.5px] break-words text-muted">
+              <span className="block text-[13px] break-words text-muted">
                 <InlineText text={i.detail} />
               </span>
             )}
@@ -98,7 +98,7 @@ function ImportDialog({ boot, onClose }: { boot: Bootstrap; onClose: () => void 
       }
     >
       {done ? (
-        <p className="text-[13.5px]">{done.length ? `Imported ${done.map((t) => t.key).join(', ')}.` : 'Nothing new to import.'}</p>
+        <p className="text-[14px]">{done.length ? `Imported ${done.map((t) => t.key).join(', ')}.` : 'Nothing new to import.'}</p>
       ) : (
         <div className="flex flex-col gap-4">
           {boot.projects.length > 1 && <Select label="Project" value={projectId} onChange={setProjectId} options={boot.projects.map((p) => ({ value: p.id, label: p.name }))} />}
@@ -217,7 +217,7 @@ export function TasksScreen() {
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Tasks</h1>
-          <p className="mt-1 text-[13.5px] text-muted">Every request, from spec to pull request.</p>
+          <p className="mt-1 text-[14px] text-muted">Every request, from spec to pull request.</p>
         </div>
         <div className="flex items-center gap-2">
           {boot.data?.jiraConfigured && (
@@ -246,7 +246,7 @@ export function TasksScreen() {
               type="button"
               aria-pressed={filter === id}
               onClick={() => setFilter(id)}
-              className={cx('flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] whitespace-nowrap transition-[background-color,color,box-shadow] duration-150', filter === id ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.06)]' : 'text-muted hover:text-fg')}
+              className={cx('flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[13px] whitespace-nowrap transition-[background-color,color,box-shadow] duration-150', filter === id ? 'bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.06)]' : 'text-muted hover:text-fg')}
             >
               {label}
               <span className={cx('tabular-nums', id === 'needs-you' && counts[id] > 0 ? 'font-semibold text-warn' : 'text-faint')}>{counts[id]}</span>
@@ -288,7 +288,7 @@ export function TasksScreen() {
                   <StatusIcon state={t.state} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[14px] font-medium">{t.title}</p>
-                    <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                    <p className="mt-0.5 truncate text-[13px] text-muted">
                       <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{status}</span>
                       {note && <span> · {note}</span>}
                     </p>
@@ -301,7 +301,7 @@ export function TasksScreen() {
                         {t.prCount}
                       </span>
                     )}
-                    <span className="w-14 font-mono text-[11.5px]">{t.key}</span>
+                    <span className="w-14 font-mono text-[12px]">{t.key}</span>
                   </div>
                   <span className="w-16 shrink-0 text-right text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
                 </Link>
