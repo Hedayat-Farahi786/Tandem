@@ -47,6 +47,8 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
       repos,
       settings,
       agent: tandem.agent.name,
+      /** Test mode: CodeCommit repos come from local copies (TANDEM_TEST_REMOTE_ROOT). */
+      localRepoCopies: Boolean(process.env.TANDEM_TEST_REMOTE_ROOT),
       doctor: ctx.doctor.last ?? null,
       jiraConfigured: Boolean(settings.jira.baseUrl && (await tandem.secrets.get('jira-token'))),
     };

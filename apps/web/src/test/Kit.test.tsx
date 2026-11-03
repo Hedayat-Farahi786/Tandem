@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Select, Tabs } from '../ui/kit';
 import { DiffView, parseDiff } from '../ui/diff';
+import { CriterionText, clause } from '../ui/text';
 
 function Pick({ onChange }: { onChange: (v: string) => void }) {
   const [v, setV] = useState('b');
@@ -121,5 +122,17 @@ describe('DiffView', () => {
     expect(toggles.map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'false']);
     expect(screen.getByText('code()')).toBeTruthy();
     expect(screen.queryByText('# Spec')).toBeNull();
+  });
+});
+
+describe('criterion text', () => {
+  it('reads as one sentence with code shown as code', () => {
+    expect(clause('The server responds with JSON `{"status":"ok"}`.')).toBe('the server responds with JSON `{"status":"ok"}`');
+    expect(clause('GET /api/health is called')).toBe('GET /api/health is called');
+    expect(clause('A client sends a request')).toBe('a client sends a request');
+    expect(clause('I open the page')).toBe('I open the page');
+    const { container } = render(<CriterionText c={{ given: 'The server is running', when: 'a client sends `GET /api/health`', then: 'it returns 200.' }} />);
+    expect(container.textContent).toBe('Given the server is running, when a client sends GET /api/health, then it returns 200.');
+    expect(container.querySelector('code')?.textContent).toBe('GET /api/health');
   });
 });

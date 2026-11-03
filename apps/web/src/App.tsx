@@ -104,7 +104,13 @@ function Shell() {
             })}
           </ul>
           <div className="mt-auto flex items-center justify-between gap-2 px-1.5">
-            {boot.data && boot.data.agent !== 'copilot' ? <span className="rounded-md bg-warn-soft px-2 py-1 text-[11.5px] font-medium text-warn">Test mode · {boot.data.agent} agent</span> : <span className="text-[11.5px] text-faint">Local · 127.0.0.1</span>}
+            {boot.data && (boot.data.agent !== 'copilot' || boot.data.localRepoCopies) ? (
+              <span className="rounded-md bg-warn-soft px-2 py-1 text-[11.5px] font-medium text-warn" title={boot.data.localRepoCopies ? 'Repositories come from local copies, so pull requests are links to fill in by hand.' : undefined}>
+                Test mode · {boot.data.agent !== 'copilot' ? `${boot.data.agent} agent` : 'local repos'}
+              </span>
+            ) : (
+              <span className="text-[11.5px] text-faint">Local · 127.0.0.1</span>
+            )}
             <ThemeToggle />
           </div>
         </nav>

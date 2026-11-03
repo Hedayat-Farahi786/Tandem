@@ -28,6 +28,7 @@ import type {
 } from "@tandem/shared";
 import { api, fetchText, patch, post, put } from "../lib/api";
 import { ModelPicker } from "../ui/model-picker";
+import { CriterionText, InlineText } from "../ui/text";
 import {
   STATE_LABEL,
   STATE_TONE,
@@ -430,8 +431,12 @@ function Overview({ d }: { d: TaskDetail }) {
             <dl className="flex flex-col gap-4">
               <div>
                 <dt className="text-[12px] font-medium text-muted">Goal</dt>
-                <dd className="mt-0.5">
-                  {r.goal || <span className="text-faint">Not set</span>}
+                <dd className="mt-0.5 break-words">
+                  {r.goal ? (
+                    <InlineText text={r.goal} />
+                  ) : (
+                    <span className="text-faint">Not set</span>
+                  )}
                 </dd>
               </div>
               {r.userStory && (
@@ -439,7 +444,9 @@ function Overview({ d }: { d: TaskDetail }) {
                   <dt className="text-[12px] font-medium text-muted">
                     User story
                   </dt>
-                  <dd className="mt-0.5">{r.userStory}</dd>
+                  <dd className="mt-0.5 break-words">
+                    <InlineText text={r.userStory} />
+                  </dd>
                 </div>
               )}
               <div>
@@ -457,10 +464,8 @@ function Overview({ d }: { d: TaskDetail }) {
                           <span className="font-mono text-[12px] text-faint">
                             {i + 1}
                           </span>
-                          <span>
-                            <span className="text-muted">Given</span> {c.given},{" "}
-                            <span className="text-muted">when</span> {c.when},{" "}
-                            <span className="text-muted">then</span> {c.then}.
+                          <span className="min-w-0 break-words">
+                            <CriterionText c={c} />
                           </span>
                         </li>
                       ))}
@@ -482,7 +487,11 @@ function Overview({ d }: { d: TaskDetail }) {
                 <div key={k}>
                   <dt className="text-[12px] font-medium text-muted">{k}</dt>
                   <dd className="mt-0.5 break-words whitespace-pre-line">
-                    {v || <span className="text-faint">Not set</span>}
+                    {v ? (
+                      <InlineText text={v} />
+                    ) : (
+                      <span className="text-faint">Not set</span>
+                    )}
                   </dd>
                 </div>
               ))}
@@ -958,7 +967,7 @@ function ChecksTab({ d }: { d: TaskDetail }) {
                       <span className="mr-2 font-mono text-[12px] text-faint">
                         {i + 1}
                       </span>
-                      Given {c.given}, when {c.when}, then {c.then}.
+                      <CriterionText c={c} keywordClass="" />
                     </td>
                     <td className="px-5 py-3">
                       {tests.length ? (

@@ -32,6 +32,8 @@ export interface Bootstrap {
   repos: Repo[];
   settings: Settings;
   agent: string;
+  /** Test mode: CodeCommit repos come from local copies, so PRs are links to fill in by hand. */
+  localRepoCopies?: boolean;
   doctor: DoctorReport | null;
   jiraConfigured: boolean;
 }

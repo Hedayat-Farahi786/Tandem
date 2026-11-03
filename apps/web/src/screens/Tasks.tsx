@@ -7,6 +7,7 @@ import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format'
 import { Link, useRouter } from '../lib/router';
 import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
 import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, PageHeader, Pill, Select, Textarea, cx } from '../ui/kit';
+import { InlineText } from '../ui/text';
 
 const RUNNING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
 const NEEDS_YOU = new Set(['SPEC_REVIEW', 'BLOCKED', 'FAILED', 'DRAFT']);
@@ -20,7 +21,11 @@ export function ReadinessChecklist({ readiness, compact }: { readiness: Readines
           <span className="min-w-0">
             <span className={cx('font-medium', !i.ok && 'text-fg')}>{i.label}</span>
             <span className="sr-only">{i.ok ? ' — done' : ' — missing'}</span>
-            {!compact && <span className="block text-[12.5px] break-words text-muted">{i.detail}</span>}
+            {!compact && (
+              <span className="block text-[12.5px] break-words text-muted">
+                <InlineText text={i.detail} />
+              </span>
+            )}
           </span>
         </li>
       ))}
