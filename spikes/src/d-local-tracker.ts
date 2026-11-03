@@ -123,7 +123,7 @@ async function main(): Promise<void> {
       ctx.fact('sqlite.journal', s.journal);
     });
 
-    await report.step('Same process: create a second task after restart (key sequence continues)', async (ctx) => {
+    await report.step('Same process: create a second task after restart (key sequence continues)', async () => {
       const t = new LocalTracker(db);
       const second = t.createTask('Second task', '');
       t.transition(second.key, 'READY', 'ready');

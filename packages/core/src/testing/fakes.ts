@@ -1,0 +1,287 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join } from 'node:path';
+import type { HostKind, PullRequest, PullRequestStatus, Repo, TandemEvent } from '@tandem/shared';
+import type {
+  AgentRuntime,
+  AgentSession,
+  AgentSessionOptions,
+  AgentTurn,
+  AgentUsage,
+  Clock,
+  DetectedRepo,
+  EventSink,
+  GitOps,
+  Logger,
+  MirrorInfo,
+  PreflightCheck,
+  ProcessResult,
+  ProcessRunner,
+  PullRequestRequest,
+  PullRequestResult,
+  PushResult,
+  RebaseResult,
+  SourceHost,
+  Store,
+  Tracker,
+  TrackerComment,
+  TrackerTask,
+  Worktree,
+} from '../ports.js';
+
+export class FakeClock implements Clock {
+  constructor(private t = Date.parse('2026-11-03T09:00:00.000Z')) {}
+  now(): number {
+    return this.t;
+  }
+  iso(): string {
+    return new Date(this.t).toISOString();
+  }
+  advance(ms: number): void {
+    this.t += ms;
+  }
+}
+
+export class CollectingEvents implements EventSink {
+  readonly events: TandemEvent[] = [];
+  emit(e: TandemEvent): void {
+    this.events.push(e);
+  }
+}
+
+export const silentLogger: Logger = { info: () => undefined, warn: () => undefined, error: () => undefined };
+
+export function sequentialIds(prefix = 'id'): () => string {
+  let n = 0;
+  return () => `${prefix}-${++n}`;
+}
+
+/* ------------------------------------------------------------------ processes */
+
+export class FakeProcessRunner implements ProcessRunner {
+  readonly calls: Array<{ command: string; cwd: string }> = [];
+  /** Command -> result. A function lets a test fail the first run and pass later. */
+  constructor(private readonly results: Record<string, Partial<ProcessResult> | ((n: number) => Partial<ProcessResult>)> = {}) {}
+  async runCommand(command: string, opts: { cwd: string; onLine?: (line: string) => void }): Promise<ProcessResult> {
+    this.calls.push({ command, cwd: opts.cwd });
+    const n = this.calls.filter((c) => c.command === command).length;
+    const spec = this.results[command];
+    const r = typeof spec === 'function' ? spec(n) : (spec ?? {});
+    const out: ProcessResult = { exitCode: 0, timedOut: false, durationMs: 5, stdout: '', stderr: '', ...r };
+    for (const line of `${out.stdout}${out.stderr}`.split('\n').filter(Boolean)) opts.onLine?.(line);
+    return out;
+  }
+}
+
+/* ------------------------------------------------------------------ trackers */
+
+export class FakeTracker implements Tracker {
+  readonly kind = 'local' as const;
+  readonly comments: TrackerComment[] = [];
+  readonly transitions: Array<{ key: string; status: string }> = [];
+  readonly tasks = new Map<string, TrackerTask>();
+  private n = 0;
+  constructor(private readonly clock: Clock = new FakeClock()) {}
+  async getTask(key: string) {
+    return this.tasks.get(key);
+  }
+  async findReadyTasks() {
+    return [...this.tasks.values()].filter((t) => t.status === 'Ready for AI');
+  }
+  async comment(key: string, body: string) {
+    const c: TrackerComment = { id: `c${++this.n}`, key, authorId: 'tandem', authorName: 'Tandem', body, createdAt: this.clock.iso() };
+    this.comments.push(c);
+    return { id: c.id, createdAt: c.createdAt };
+  }
+  async transition(key: string, status: string) {
+    this.transitions.push({ key, status });
+    return 'moved' as const;
+  }
+  async readReplies(key: string, since: string, authorIds?: readonly string[]) {
+    return this.comments.filter((c) => c.key === key && c.createdAt > since && (!authorIds || authorIds.includes(c.authorId)));
+  }
+  link(key: string) {
+    return `https://tracker.example/${key}`;
+  }
+  /** Simulates a PM replying on the ticket. */
+  reply(key: string, authorId: string, body: string): void {
+    this.comments.push({ id: `c${++this.n}`, key, authorId, authorName: authorId, body, createdAt: this.clock.iso() });
+  }
+}
+
+/* ------------------------------------------------------------------ source host and git */
+
+export interface FakeHostScript {
+  rebase?: (repoId: string, n: number) => RebaseResult;
+  push?: (repoId: string, n: number) => PushResult;
+  openPr?: (req: PullRequestRequest) => PullRequestResult;
+  prStatus?: (pr: PullRequest, n: number) => PullRequestStatus;
+}
+
+/** Source host that creates real folders (agents write files there) but does no git or network. */
+export class FakeSourceHost implements SourceHost {
+  readonly descriptionLimit = 10_240;
+  readonly opened: PullRequestRequest[] = [];
+  readonly pushes: Array<{ repoId: string; forceWithLease?: string }> = [];
+  readonly updatedDescriptions: Array<{ prId: string; description: string }> = [];
+  private counts = new Map<string, number>();
+  constructor(
+    readonly kind: HostKind = 'codecommit',
+    private readonly script: FakeHostScript = {},
+  ) {}
+  private count(k: string): number {
+    const n = (this.counts.get(k) ?? 0) + 1;
+    this.counts.set(k, n);
+    return n;
+  }
+  detect(url: string): DetectedRepo | undefined {
+    const m = /^fake:\/\/([\w-]+)$/.exec(url);
+    return m ? { host: { kind: 'codecommit', region: 'eu-central-1', name: m[1]! }, name: m[1]!, gitUrl: url } : undefined;
+  }
+  async preflight(): Promise<PreflightCheck[]> {
+    return [{ id: 'read', label: 'Read access', status: 'pass', message: 'ok' }];
+  }
+  async mirror(repo: Repo): Promise<MirrorInfo> {
+    return { path: `/mirrors/${repo.name}.git`, defaultBranch: repo.defaultBranch };
+  }
+  async createWorktree(repo: Repo, opts: { path: string; branch: string; base?: string }): Promise<Worktree> {
+    await mkdir(opts.path, { recursive: true });
+    return { repoId: repo.id, path: opts.path, branch: opts.branch, base: opts.base ?? `origin/${repo.defaultBranch}` };
+  }
+  async rebase(repo: Repo): Promise<RebaseResult> {
+    return this.script.rebase?.(repo.id, this.count(`rebase:${repo.id}`)) ?? { kind: 'ok', head: `head-${repo.id}` };
+  }
+  async push(repo: Repo, _wt: Worktree, opts?: { forceWithLease?: string }): Promise<PushResult> {
+    this.pushes.push({ repoId: repo.id, ...(opts?.forceWithLease ? { forceWithLease: opts.forceWithLease } : {}) });
+    return this.script.push?.(repo.id, this.count(`push:${repo.id}`)) ?? { kind: 'pushed', sha: `sha-${repo.id}-${this.pushes.length}` };
+  }
+  async openPullRequest(req: PullRequestRequest): Promise<PullRequestResult> {
+    this.opened.push(req);
+    return this.script.openPr?.(req) ?? { kind: 'created', providerId: `${this.opened.length}`, url: `https://pr.example/${req.repo.name}/${this.opened.length}` };
+  }
+  async updatePullRequestDescription(_repo: Repo, pr: PullRequest, description: string): Promise<void> {
+    this.updatedDescriptions.push({ prId: pr.id, description });
+  }
+  async getPullRequestStatus(_repo: Repo, pr: PullRequest): Promise<PullRequestStatus> {
+    const scripted = this.script.prStatus?.(pr, this.count(`status:${pr.id}`));
+    if (scripted) return scripted;
+    // Like the real adapters: a fallback PR nobody has created yet stays pending.
+    return pr.manual && !pr.providerId ? 'manual-pending' : 'open';
+  }
+}
+
+export class FakeGit implements GitOps {
+  readonly commits: Array<{ worktree: string; message: string }> = [];
+  readonly removed: string[] = [];
+  conflicts: string[] = [];
+  dirty = true;
+  async status(): Promise<string[]> {
+    return this.dirty ? ['M file'] : [];
+  }
+  async commitAll(worktree: string, message: string): Promise<string | undefined> {
+    this.commits.push({ worktree, message });
+    return `commit-${this.commits.length}`;
+  }
+  async head(): Promise<string> {
+    return `commit-${this.commits.length}`;
+  }
+  async diff(): Promise<string> {
+    return 'diff --git a/src/app.ts b/src/app.ts\n+ added line\n';
+  }
+  async diffStat() {
+    return { files: 1, insertions: 1, deletions: 0 };
+  }
+  async continueRebase(): Promise<string> {
+    this.conflicts = [];
+    return 'rebased-head';
+  }
+  async abortRebase(): Promise<void> {
+    this.conflicts = [];
+  }
+  async conflictedFiles(): Promise<string[]> {
+    return this.conflicts;
+  }
+  async removeWorktree(_repo: Repo, worktree: string): Promise<void> {
+    this.removed.push(worktree);
+  }
+  async isAncestor(): Promise<boolean> {
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ scripted agent */
+
+export interface ScriptCall {
+  prompt: string;
+  opts: AgentSessionOptions;
+  structured: boolean;
+  /** Index of this prompt within its session (0-based). */
+  turn: number;
+}
+
+export interface ScriptReply {
+  text?: string;
+  /** Value for sendStructured (validated with the caller's schema). */
+  value?: unknown;
+  /** Files to write, relative to the session workspace. */
+  edits?: Array<{ path: string; content: string }>;
+  /** Tandem custom tools to call, as the model would. */
+  tools?: Array<{ name: string; args: unknown }>;
+  /** Throw this instead of answering (to test retries and failures). */
+  error?: Error;
+}
+
+export type Script = (call: ScriptCall) => ScriptReply | Promise<ScriptReply>;
+
+/**
+ * Deterministic AgentRuntime: same interface as the Copilot adapter, no network. Used by all
+ * workflow tests and the scripted end-to-end runs.
+ */
+export class ScriptedAgent implements AgentRuntime {
+  readonly name = 'scripted';
+  readonly calls: ScriptCall[] = [];
+  private sessions = 0;
+  constructor(private readonly script: Script) {}
+
+  async startSession(opts: AgentSessionOptions): Promise<AgentSession> {
+    const id = opts.resumeId ?? `scripted-${++this.sessions}`;
+    let turn = 0;
+    const usage = (): AgentUsage => ({ model: opts.model ?? 'scripted', modelCalls: 1, nanoAiu: 0 });
+    const act = async (prompt: string, structured: boolean): Promise<ScriptReply> => {
+      const call: ScriptCall = { prompt, opts, structured, turn: turn++ };
+      this.calls.push(call);
+      const reply = await this.script(call);
+      if (reply.error) throw reply.error;
+      for (const e of reply.edits ?? []) {
+        if (opts.mode !== 'build') throw new Error('scripted agent tried to edit in a read-only session');
+        const p = isAbsolute(e.path) ? e.path : join(opts.workspace, e.path);
+        await mkdir(dirname(p), { recursive: true });
+        await writeFile(p, e.content);
+      }
+      for (const t of reply.tools ?? []) {
+        const tool = opts.tools?.find((x) => x.name === t.name);
+        if (!tool) throw new Error(`scripted agent called unknown tool ${t.name}`);
+        await tool.handler(tool.schema.parse(t.args) as never);
+        opts.onEvent?.({ type: 'tool', tool: t.name, summary: t.name, allowed: true });
+      }
+      if (reply.text) opts.onEvent?.({ type: 'delta', text: reply.text });
+      return reply;
+    };
+    return {
+      id,
+      send: async (prompt): Promise<AgentTurn> => {
+        const r = await act(prompt, false);
+        return { text: r.text ?? 'Done.', usage: usage() };
+      },
+      sendStructured: async (prompt, schema) => {
+        const r = await act(prompt, true);
+        return { value: schema.parse(r.value), usage: usage() };
+      },
+      stop: async () => undefined,
+    };
+  }
+}
+
+/** Convenience: run something inside a store transaction in tests. */
+export async function inTx<T>(store: Store, fn: (tx: Store) => Promise<T>): Promise<T> {
+  return store.transaction(fn);
+}

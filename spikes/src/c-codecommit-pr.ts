@@ -63,7 +63,7 @@ try {
     report.fact('region', region);
     report.fact('repo', repoName);
 
-    const defaultBranch = await report.step('Default branch over git', async (ctx) => {
+    const defaultBranch = await report.step('Default branch over git', async () => {
       const b = await remoteDefaultBranch(gitUrl);
       check(b, 'Repo has no default branch. Seed it first: pnpm spike:seed -- backend <url>');
       return b;
@@ -71,7 +71,7 @@ try {
 
     // A branch with one commit, so a PR (or the console page) has something to show.
     if (defaultBranch) {
-      await report.step(`Push a branch ${branch} with one commit`, async (ctx) => {
+      await report.step(`Push a branch ${branch} with one commit`, async () => {
         mirror = join(work.path, 'mirror.git');
         await bareClone(gitUrl, mirror);
         wt = join(work.path, 'wt');
@@ -100,6 +100,7 @@ try {
           /InvalidClientTokenId|ExpiredToken|CredentialsProviderError|ValidationException|TokenProviderError/.test(name) || /expired|invalid|locate credentials/i.test(String(err))
             ? `AWS credentials for ${profile ?? 'the default profile'} are missing or expired (${name}). Sign in again (for example \`aws login${profile ? ` --profile ${profile}` : ''}\`) and re-run.`
             : String(err),
+          { cause: err },
         );
       }
       const account = who.Account ?? '';
@@ -181,7 +182,7 @@ try {
         ctx.detail(`status ${r.pullRequest?.pullRequestStatus}, merged ${t?.mergeMetadata?.isMerged}, source ${t?.sourceCommit?.slice(0, 10)}`);
       });
 
-      await report.step('UpdatePullRequestDescription (used to cross-link PRs)', async (ctx) => {
+      await report.step('UpdatePullRequestDescription (used to cross-link PRs)', async () => {
         const description = `Updated by spike ${id}.\n\n| Criterion | Test | Result |\n| --- | --- | --- |\n| 1 | test/app.test.ts | pass |`;
         await cc!.send(new UpdatePullRequestDescriptionCommand({ pullRequestId: prId!, description }));
         const r = await cc!.send(new GetPullRequestCommand({ pullRequestId: prId! }));
@@ -201,7 +202,7 @@ try {
         }
       });
 
-      await report.step('Close the PR (UpdatePullRequestStatus CLOSED)', async (ctx) => {
+      await report.step('Close the PR (UpdatePullRequestStatus CLOSED)', async () => {
         await cc!.send(new UpdatePullRequestStatusCommand({ pullRequestId: prId!, pullRequestStatus: 'CLOSED' }));
         const r = await cc!.send(new GetPullRequestCommand({ pullRequestId: prId! }));
         check(r.pullRequest?.pullRequestStatus === 'CLOSED', `status ${r.pullRequest?.pullRequestStatus}`);

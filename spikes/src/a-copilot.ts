@@ -165,6 +165,7 @@ try {
               (accounts.length > 1
                 ? `The GitHub CLI is signed in to: ${accounts.map((x) => `${x.login} on ${x.host}`).join(', ')}. If your Copilot comes from one of the others, set COPILOT_GH_HOST to that host in spikes/.env.`
                 : 'Ask your admin whether the "Copilot CLI" policy is enabled for you.'),
+            { cause: err },
           );
         }
         throw err;
@@ -311,7 +312,7 @@ try {
       });
 
       await report.step('Unavailable model is reported clearly (no model call)', async (ctx) => {
-        let message = '';
+        let message: string;
         try {
           const s = await track(await c.createSession({ ...enforcedConfig({ mode: 'read-only', root: root.wt, decisions }), model: 'tandem-no-such-model' }));
           message = 'createSession accepted the unknown model; the error appears on the first prompt';

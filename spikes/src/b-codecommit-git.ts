@@ -190,7 +190,7 @@ try {
           ctx.detail(`history now:\n${log}`);
         });
 
-        await report.step('Re-push after rebase with --force-with-lease (lease = last pushed sha)', async (ctx) => {
+        await report.step('Re-push after rebase with --force-with-lease (lease = last pushed sha)', async () => {
           const r = await pushBranch(wt, branch, { forceWithLease: headAfterPush });
           check(r.code === 0, `lease push failed: ${r.stderr.trim()}`);
           headAfterPush = await git(['rev-parse', 'HEAD'], { cwd: wt });
@@ -259,7 +259,7 @@ try {
           ctx.detail(`resolved and pushed ${head.slice(0, 10)}`);
         });
 
-        await report.step('Default branch untouched', async (ctx) => {
+        await report.step('Default branch untouched', async () => {
           const heads = await lsRemoteHeads(remoteUrl);
           const now = heads.get(`refs/heads/${defaultBranch}`);
           const before = await git(['rev-parse', `refs/remotes/origin/${defaultBranch}`], { gitDir: mirror });

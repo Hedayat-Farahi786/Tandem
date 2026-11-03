@@ -9,19 +9,36 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --project integration",
+    "check": "pnpm build && pnpm lint && pnpm test:coverage",
     "spike:a": "pnpm --filter @tandem/spikes run a",
     "spike:b": "pnpm --filter @tandem/spikes run b",
     "spike:c": "pnpm --filter @tandem/spikes run c",
     "spike:d": "pnpm --filter @tandem/spikes run d",
     "spike:d-jira": "pnpm --filter @tandem/spikes run d-jira",
     "spike:all": "pnpm --filter @tandem/spikes run all",
-    "typecheck": "pnpm -r run typecheck",
     "spike:seed": "pnpm --filter @tandem/spikes run seed"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@napi-rs/keyring",
       "esbuild",
       "koffi"
     ]
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "5.1.0",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
   }
 }
