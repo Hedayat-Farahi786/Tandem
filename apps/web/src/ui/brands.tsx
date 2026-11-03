@@ -1,4 +1,5 @@
 import { BRANDS } from './brand-data';
+import { TECH } from './tech-data';
 import { cx } from './kit';
 
 export type Brand = keyof typeof BRANDS;
@@ -47,3 +48,74 @@ export function providerOf(model: { id?: string; name?: string; vendor?: string 
 
 /** The logo for a repository host. */
 export const hostBrand = (kind: 'codecommit' | 'github'): Brand => (kind === 'github' ? 'github' : 'aws');
+
+/* ------------------------------------------------------------------ languages and frameworks */
+
+const TECH_ALIASES: Record<string, string> = {
+  ts: 'typescript',
+  js: 'javascript',
+  'node.js': 'node',
+  nodejs: 'node',
+  'next.js': 'nextjs',
+  next: 'nextjs',
+  'vue.js': 'vue',
+  vuejs: 'vue',
+  golang: 'go',
+  'c#': 'csharp',
+  '.net': 'dotnet',
+  'asp.net': 'dotnet',
+  'asp.net core': 'dotnet',
+  'spring boot': 'springboot',
+  'ruby on rails': 'rails',
+  tailwindcss: 'tailwind',
+  'tailwind css': 'tailwind',
+  'nuxt.js': 'nuxt',
+  'react native': 'reactnative',
+  'express.js': 'express',
+  expressjs: 'express',
+  'nest.js': 'nestjs',
+  nest: 'nestjs',
+  sveltekit: 'svelte',
+  'solid.js': 'solid',
+  solidjs: 'solid',
+  html5: 'html',
+  css3: 'css',
+  scss: 'sass',
+};
+
+/** The logo key for a language or framework name, if Tandem has its logo. */
+export function techKey(name: string): string | undefined {
+  const n = name.trim().toLowerCase();
+  if (TECH[n]) return n;
+  if (TECH_ALIASES[n]) return TECH_ALIASES[n];
+  const compact = n.replace(/[\s.-]/g, '');
+  return TECH[compact] ? compact : undefined;
+}
+
+export function TechLogo({ name, size = 14, className }: { name: string; size?: number; className?: string }) {
+  const key = techKey(name);
+  const t = key ? TECH[key] : undefined;
+  if (!t) return null;
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden className={cx('shrink-0', className)}>
+      <path d={t.path} fill={t.color} />
+    </svg>
+  );
+}
+
+/** "TypeScript · Fastify + React" as logos with names; unknown names keep a plain dot. */
+export function TechStack({ language, framework, className }: { language?: string | undefined; framework?: string | undefined; className?: string }) {
+  const parts = [language, ...(framework ?? '').split(/\s*(?:\+|,|\/|&|\band\b)\s*/i)].map((p) => p?.trim()).filter((p): p is string => Boolean(p));
+  const unique = parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i);
+  if (!unique.length) return <span className={className}>Unknown stack</span>;
+  return (
+    <span className={cx('inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1', className)}>
+      {unique.map((p) => (
+        <span key={p} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {techKey(p) ? <TechLogo name={p} size={13} /> : <span aria-hidden className="size-2 rounded-full bg-faint/60" />}
+          {p}
+        </span>
+      ))}
+    </span>
+  );
+}

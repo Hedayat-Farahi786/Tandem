@@ -27,6 +27,9 @@ All notable changes to Tandem. The format follows
 - **Logos** for the services and model makers Tandem works with: GitHub,
   GitHub Copilot, AWS, Jira, and Anthropic, OpenAI, Google, xAI, Mistral,
   Meta and Microsoft in the model menu. Bundled with the app; see THIRD_PARTY_NOTICES.md.
+- **Language and framework logos** next to each repository (TypeScript,
+  React, Fastify, Next.js, Python and about 50 more).
+- Everything clickable shows the pointer cursor.
 
 ### Changed
 

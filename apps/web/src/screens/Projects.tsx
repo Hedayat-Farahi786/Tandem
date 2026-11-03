@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, ChevronRight, FolderGit2, Pencil, Plus, Sparkles } from 'lucide-react';
-import { BrandLogo, hostBrand } from '../ui/brands';
+import { BrandLogo, TechStack, hostBrand } from '../ui/brands';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
-import { IconTile, LangDot, ProjectAvatar } from '../ui/visual';
+import { IconTile, ProjectAvatar } from '../ui/visual';
 import { Button, LinkButton, SettingsSection, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
@@ -279,10 +279,7 @@ export function ProjectsScreen() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>
-                      <span className="mt-0.5 flex items-center gap-2 truncate text-[12.5px] text-muted">
-                        <LangDot language={r.language} />
-                        {[r.language, r.framework].filter(Boolean).join(' · ') || 'Unknown stack'}
-                      </span>
+                      <TechStack language={r.language} framework={r.framework} className="mt-1 text-[12.5px] text-muted" />
                     </span>
                     <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
                       <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] text-muted">{ROLE_LABEL[r.role]}</span>

@@ -6,7 +6,7 @@ import { api, post, put } from '../lib/api';
 import { useRouter } from '../lib/router';
 import type { Bootstrap } from '../lib/types';
 import { ArrowRight, GitBranch, Plus } from 'lucide-react';
-import { BrandTile } from '../ui/brands';
+import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
@@ -138,7 +138,7 @@ function ReposStep({ repos, onNext, onBack }: { repos: Repo[]; onNext: () => voi
         )}
       </Card>
       {draft && (
-        <Card title={`Confirm ${draft.name}`} actions={<Pill tone="accent">{[draft.language, draft.framework].filter(Boolean).join(' · ') || 'Unknown stack'}</Pill>}>
+        <Card title={`Confirm ${draft.name}`} actions={<TechStack language={draft.language} framework={draft.framework} className="rounded-full bg-surface-2 px-3 py-1 text-[12px] text-muted" />}>
           <div className="grid gap-3 md:grid-cols-2">
             <Input label="Name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             <Input label="Default branch" value={draft.defaultBranch} onChange={(e) => setDraft({ ...draft, defaultBranch: e.target.value })} />
@@ -171,7 +171,10 @@ function ReposStep({ repos, onNext, onBack }: { repos: Repo[]; onNext: () => voi
                 <span className="font-medium">{r.name}</span>
                 <span className="flex gap-2">
                   <Pill>{ROLE_LABEL[r.role]}</Pill>
-                  <Pill>{r.host.kind === 'codecommit' ? `CodeCommit ${r.host.region}` : 'GitHub'}</Pill>
+                  <Pill>
+                    <BrandLogo brand={hostBrand(r.host.kind)} size={13} />
+                    {r.host.kind === 'codecommit' ? `CodeCommit ${r.host.region}` : 'GitHub'}
+                  </Pill>
                 </span>
               </li>
             ))}

@@ -32,3 +32,15 @@ describe('brand logos', () => {
     expect(container.innerHTML).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
   });
 });
+
+describe('technology logos', () => {
+  it('shows a logo for each known language and framework, and a dot for the rest', async () => {
+    const { TechStack, techKey } = await import('../ui/brands');
+    expect(['TypeScript', 'Node.js', 'Next.js', 'golang', 'C#', 'Spring Boot', 'Tailwind CSS'].map(techKey)).toEqual(['typescript', 'node', 'nextjs', 'go', 'csharp', 'springboot', 'tailwind']);
+    expect(techKey('Cobol')).toBeUndefined();
+    const { container } = render(<TechStack language="TypeScript" framework="Fastify + React, Cobol" />);
+    expect(container.textContent).toBe('TypeScriptFastifyReactCobol');
+    expect(container.querySelectorAll('svg')).toHaveLength(3);
+    expect(render(<TechStack />).container.textContent).toBe('Unknown stack');
+  });
+});

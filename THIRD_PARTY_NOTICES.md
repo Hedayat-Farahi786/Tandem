@@ -8,7 +8,9 @@
   MIT License (below): GitHub, GitHub Copilot, AWS, OpenAI, Claude, Anthropic,
   Google Gemini, Grok, xAI, Mistral AI, Meta and Microsoft.
 - **simple-icons** 16.35.0, https://github.com/simple-icons/simple-icons,
-  CC0 1.0: Jira.
+  CC0 1.0: Jira, and the language and framework logos in
+  `apps/web/src/ui/tech-data.ts` (TypeScript, React, Fastify, Next.js and
+  others).
 
 The logos are trademarks of their owners. Tandem shows them only to name the
 service or model provider they stand for; it is not affiliated with or
