@@ -4,7 +4,7 @@ import { IconTile, Ring } from '../ui/visual';
 import { api, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import type { DoctorCheck, DoctorReport } from '../lib/types';
-import { Button, EmptyState, ErrorState, Loading, SettingsSection, cx } from '../ui/kit';
+import { Button, ErrorState, Loading, SettingsSection, cx } from '../ui/kit';
 
 const ICON = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle, skipped: MinusCircle } as const;
 const COLOR = { pass: 'text-ok', warn: 'text-warn', fail: 'text-danger', skipped: 'text-faint' } as const;
@@ -71,10 +71,10 @@ export function DoctorSummary({ report }: { report: DoctorReport }) {
   const tone = fails ? 'fail' : warns ? 'warn' : 'pass';
   const Icon = ICON[tone];
   return (
-    <div role="status" className="flex items-center gap-5 rounded-2xl border border-line bg-surface p-5 shadow-sm">
+    <div role="status" className="flex items-center gap-5 rounded-2xl bg-surface p-5 shadow-panel">
       <Ring value={passed / Math.max(1, report.checks.length)} size={76} stroke={7} tone={fails ? 'danger' : warns ? 'warn' : 'ok'}>
         <span className="text-center leading-none">
-          <span className="block font-serif text-[22px] font-medium tabular-nums">{passed}</span>
+          <span className="block font-display text-[22px] tabular-nums">{passed}</span>
           <span className="text-[10.5px] text-muted">of {report.checks.length}</span>
         </span>
       </Ring>
@@ -91,6 +91,45 @@ export function DoctorSummary({ report }: { report: DoctorReport }) {
   );
 }
 
+const INTRO: Array<[string, string]> = [
+  ['tools', 'Git, Node, the Copilot CLI and the AWS CLI'],
+  ['machine', 'Free disk space and the OS keychain'],
+  ['copilot', 'Sign-in and the models you can use'],
+  ['repositories', 'Read access and permission to open pull requests'],
+  ['aws', 'The profile and its session'],
+  ['jira', 'The URL and token, when you use Jira'],
+];
+
+/** Before the first run: what doctor looks at, so the page is useful before anything is checked. */
+function DoctorIntro({ running, onRun }: { running: boolean; onRun: () => void }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-surface shadow-panel">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top,var(--ok-soft),transparent_70%)]" />
+      <div className="relative flex flex-col items-center px-6 pt-10 pb-8 text-center">
+        <span className="mb-4 grid size-14 place-items-center rounded-2xl bg-surface text-ok shadow-[0_0_0_1px_var(--border),0_8px_20px_-8px_rgb(0_0_0/0.2),inset_0_1px_0_var(--hairline-highlight)]">
+          <Stethoscope aria-hidden className="size-6" strokeWidth={1.8} />
+        </span>
+        <p className="font-display text-[19px]">No checks yet</p>
+        <p className="mt-1.5 max-w-md text-[13.5px] text-muted">A full check takes a few seconds and sends no prompt to Copilot, so it costs nothing.</p>
+        <Button variant="primary" size="lg" icon={Stethoscope} busy={running} onClick={onRun} className="mt-5">
+          {running ? 'Running checks…' : 'Run checks'}
+        </Button>
+      </div>
+      <ul className="relative grid gap-px border-t border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+        {INTRO.map(([g, text]) => (
+          <li key={g} className="flex items-start gap-3 bg-surface px-5 py-4">
+            <IconTile icon={GROUP_ICON[g]!} size="sm" />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">{GROUP_TITLE(g === 'aws' ? 'AWS' : g)}</span>
+              <span className="block text-[12px] leading-snug text-muted">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function DoctorScreen() {
   const qc = useQueryClient();
   const last = useQuery({ queryKey: ['doctor'], queryFn: () => api<DoctorReport | null>('/api/doctor') });
@@ -100,18 +139,20 @@ export function DoctorScreen() {
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Doctor</h1>
+          <h1 className="font-display text-[26px] leading-tight">Doctor</h1>
           <p className="mt-1 text-[13.5px] text-muted">Checks your tools, repositories, Copilot, AWS and Jira. It never sends a prompt, so it uses none of your budget.</p>
         </div>
-        <Button icon={RefreshCw} busy={run.isPending} onClick={() => run.mutate()}>
-          {run.isPending ? 'Running checks…' : 'Run checks'}
-        </Button>
+        {report && (
+          <Button icon={RefreshCw} busy={run.isPending} onClick={() => run.mutate()}>
+            {run.isPending ? 'Running checks…' : 'Run checks'}
+          </Button>
+        )}
       </div>
       {run.isError && <ErrorState error={run.error} />}
       {last.isLoading ? (
         <Loading />
       ) : !report ? (
-        <EmptyState icon={Stethoscope} title="No checks yet" body="Run doctor to see what works and what needs a fix." action={<Button variant="primary" onClick={() => run.mutate()}>Run checks</Button>} />
+        <DoctorIntro running={run.isPending} onRun={() => run.mutate()} />
       ) : (
         <div className={cx('flex flex-col gap-10 transition-opacity duration-200', run.isPending && 'opacity-60')}>
           <DoctorSummary report={report} />

@@ -349,3 +349,32 @@ export const UsageRecord = z.object({
   at: Iso,
 });
 export type UsageRecord = z.infer<typeof UsageRecord>;
+
+/* ------------------------------------------------------------------ audit log */
+
+/**
+ * One entry in the append-only audit log: who did what, when, to what. Entries form a hash chain
+ * (each hash covers the previous one), so a changed or removed entry is detected on verification.
+ * Never holds secret values: a secret change records only its name.
+ */
+export const AuditEntry = z.object({
+  seq: z.number().int().positive(),
+  at: Iso,
+  /** "owner", "system", "agent", or "pm". */
+  actor: Actor,
+  /** Who acted, when known: the owner's name from Settings, a PM's name. */
+  actorName: z.string().optional(),
+  /** Dotted verb, e.g. "settings.updated", "task.approved", "git.pushed". */
+  action: z.string().min(1),
+  /** A short human summary, e.g. "Approved spec version 2". */
+  summary: z.string(),
+  taskId: Id.optional(),
+  projectId: Id.optional(),
+  repoId: Id.optional(),
+  /** Structured facts: changed fields, commit, branch, URL, HTTP status. */
+  detail: z.record(z.string(), z.unknown()).default({}),
+  prevHash: z.string(),
+  hash: z.string(),
+});
+export type AuditEntry = z.infer<typeof AuditEntry>;
+export type AuditInput = Omit<AuditEntry, 'seq' | 'prevHash' | 'hash' | 'detail'> & { detail?: Record<string, unknown> };

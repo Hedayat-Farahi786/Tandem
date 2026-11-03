@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, Requirement, type Task } from '@tandem/shared';
-import type { Store } from '@tandem/core';
+import { verifyAuditChain, type Store } from '@tandem/core';
 import { MemoryStore } from '@tandem/core/testing';
 import { SqliteStore } from './sqlite-store.js';
 
@@ -179,6 +179,35 @@ function contract(name: string, make: () => Promise<Store>) {
       expect(order).toEqual(['tx done', 'read saw 1']);
       expect(await s.transaction(async (t) => t.transaction(async (t2) => (await t2.tasks.list()).length))).toBe(1);
     });
+
+    it('keeps an append-only, hash-chained audit log that verifies', async () => {
+      const s = await make();
+      const a = await s.audit.append({ at: '2026-11-03T10:00:00.000Z', actor: 'owner', actorName: 'Sam', action: 'settings.updated', summary: 'Changed limits.', detail: { changes: [{ field: 'limits.creditsPerDay', from: 75, to: 50 }] } });
+      const b = await s.audit.append({ at: '2026-11-03T10:05:00.000Z', actor: 'system', action: 'git.pushed', summary: 'Pushed.', taskId: 't1', detail: { commit: 'abc' } });
+      await s.transaction(async (tx) => void (await tx.audit.append({ at: '2026-11-03T10:06:00.000Z', actor: 'pm', action: 'spec.approved', summary: 'Approved.', taskId: 't1' })));
+      expect([a.seq, b.seq]).toEqual([1, 2]);
+      expect(b.prevHash).toBe(a.hash);
+      expect(a.hash).toMatch(/^[0-9a-f]{64}$/);
+      const all = await s.audit.list();
+      expect(all.map((e) => e.seq)).toEqual([1, 2, 3]);
+      expect(verifyAuditChain(all)).toMatchObject({ ok: true, count: 3, head: all[2]!.hash });
+      expect((await s.audit.list({ taskId: 't1' })).map((e) => e.seq)).toEqual([2, 3]);
+      expect((await s.audit.list({ since: '2026-11-03T10:05:00.000Z', until: '2026-11-03T10:06:00.000Z' })).map((e) => e.seq)).toEqual([2]);
+      expect((await s.audit.list({ limit: 2 })).map((e) => e.seq)).toEqual([2, 3]);
+      expect((await s.audit.list({ afterSeq: 2 })).map((e) => e.seq)).toEqual([3]);
+      // A changed or missing entry no longer verifies.
+      expect(verifyAuditChain(all.map((e) => (e.seq === 2 ? { ...e, summary: 'Pushed something else.' } : e)))).toMatchObject({ ok: false, brokenAt: 2 });
+      expect(verifyAuditChain(all.filter((e) => e.seq !== 2))).toMatchObject({ ok: false, brokenAt: 3 });
+    });
+
+    it('redacts secrets in audit entries before hashing them', async () => {
+      const s = await make();
+      const fakeToken = ['ghp', 'abcdefghijklmnopqrstuvwxyz0123456789'].join('_');
+      const e = await s.audit.append({ at: '1', actor: 'owner', action: 'settings.updated', summary: `token ${fakeToken}`, detail: { note: 'password=hunter22' } });
+      expect(JSON.stringify(e)).not.toContain('hunter22');
+      expect(JSON.stringify(e)).not.toContain(fakeToken);
+      expect(verifyAuditChain(await s.audit.list()).ok).toBe(true);
+    });
   });
 }
 
@@ -191,13 +220,27 @@ describe('SqliteStore', () => {
     const a = await SqliteStore.open(path);
     await a.tasks.upsert(task('t1', 'TND-1', 'BUILDING'));
     await a.jobs.upsert({ taskId: 't1', state: 'BUILDING', step: 'implement', status: 'running', attempt: 0, notBefore: 0, leaseBootId: 'old' });
-    expect(a.schemaVersion()).toBe(1);
+    expect(a.schemaVersion()).toBe(2);
     a.close();
     const b = await SqliteStore.open(path);
     expect((await b.tasks.get('t1'))?.state).toBe('BUILDING');
     expect((await b.jobs.get('t1'))?.leaseBootId).toBe('old');
     expect((b.db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal');
     b.close();
+  });
+
+  it('refuses to change or delete audit entries, and verification catches a forced change', async () => {
+    const s = await SqliteStore.open(':memory:');
+    await s.audit.append({ at: '1', actor: 'owner', action: 'secret.saved', summary: 'Saved jira-token.' });
+    await s.audit.append({ at: '2', actor: 'owner', action: 'secret.removed', summary: 'Removed jira-token.' });
+    expect(() => s.db.prepare("UPDATE audit SET doc = '{}' WHERE seq = 1").run()).toThrow(/append-only/);
+    expect(() => s.db.prepare('DELETE FROM audit WHERE seq = 1').run()).toThrow(/append-only/);
+    // Someone with the database file can drop the trigger; the chain still shows the change.
+    s.db.exec('DROP TRIGGER audit_no_update');
+    const doc = JSON.parse((s.db.prepare('SELECT doc FROM audit WHERE seq = 1').get() as { doc: string }).doc);
+    s.db.prepare('UPDATE audit SET doc = ? WHERE seq = 1').run(JSON.stringify({ ...doc, summary: 'Nothing happened.' }));
+    expect(verifyAuditChain(await s.audit.list())).toMatchObject({ ok: false, brokenAt: 1, reason: 'Entry 1 was changed after it was written.' });
+    s.close();
   });
 
   it('redacts secrets before they reach the database', async () => {

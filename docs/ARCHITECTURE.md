@@ -601,6 +601,32 @@ and secret keys, GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`,
 `token=` assignments, plus the exact values of any secret Tandem holds
 (registered at runtime from the keychain). Tested with fixtures.
 
+### Audit log and traceability
+
+`store.audit` is an append-only log (`audit` table, SQLite migration 2).
+`append` assigns the next sequence number and a SHA-256 hash over the
+previous hash and the canonical JSON of the entry (`core/audit.ts`), after
+redaction, so the hash covers exactly what is stored. SQLite triggers
+refuse `UPDATE` and `DELETE` on the table; someone who drops the triggers
+can still change a row, but `verifyAuditChain` then reports the first
+entry whose hash or link does not match. The memory and SQLite stores
+share `chainEntry`, and the store contract test covers both.
+
+Written by core: every state change (`task.state`, inside the transition's
+transaction), task creation, spec edits, approvals (Tandem and Jira),
+pushes with the commit (`git.pushed`), pull requests opened, prepared or
+linked, and "mark merged". Written by the server: settings changes (field,
+old and new value), token saved or removed (name only), repositories,
+projects, rules, model changes, "Fix conflicts" and "Request changes".
+
+`GET /api/activity` merges the audit log with Copilot usage records, check
+runs and (for tasks from before the audit log) transitions; it filters by
+time, project, task and kind, and exports CSV (formula-like cells are
+quoted) or JSON. `GET /api/audit/verify` recomputes the chain.
+`GET /api/tasks/:id/trace` joins a task's criteria, criterion tests, spec
+versions and approvals, agent runs and usage, verify runs, findings,
+commits and PRs, and its audit entries; `?format=md` is the report.
+
 ---
 
 ## 8. Trackers
@@ -658,7 +684,8 @@ interface Tracker {
   submit, accept split, override, approve, request changes, record PM
   approval, edit spec, retry, cancel), specs (versions, markdown, pdf),
   diffs, verify results, findings, PRs (mark merged, set manual PR URL),
-  rules, chat threads and messages, settings, doctor.
+  rules, chat threads and messages, settings, doctor, activity (with CSV
+  and JSON export), audit verification, and each task's trace.
 - One SSE stream `/api/events` with typed events (`task.transition`,
   `task.step`, `agent.delta`, `agent.tool`, `chat.delta`, `chat.done`,
   `verify.output`, `doctor.check`). Events have monotonically increasing
@@ -679,11 +706,12 @@ React 19 + Vite + Tailwind 4, React Router, TanStack Query for REST data,
 one SSE hook for live events. Screens: Setup wizard, Chat (Ask / Request),
 Tasks, Task detail (timeline, task chat, readiness, spec viewer/editor with
 versions and approvals, Copy as Markdown, Export as PDF, per-repo diff
-viewer, verify and review results, criterion → test table, PR links),
-Projects, Settings, Doctor.
+viewer, verify and review results, criterion → test table, PR links, trace),
+Projects, Activity, Settings, Doctor, and a Ctrl/⌘K command palette.
 
 Design tokens as CSS variables mapped into Tailwind's theme: neutral grays,
-one accent, 8 px spacing grid, system font stack, 1 px subtle borders,
+one monochrome accent, 8 px spacing grid, Inter with optical sizing (display
+cut for headings), the sidebar as the canvas and pages on a raised panel,
 light and dark mode (system default, manual toggle). WCAG AA contrast
 checked in tests (axe in Playwright), full keyboard support, visible focus
 rings, `aria-live` for streaming text. Each screen has designed loading,

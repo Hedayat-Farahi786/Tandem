@@ -1,4 +1,6 @@
-import { DEFAULT_SETTINGS, type Settings, type Task, type TaskTransition, type UsageRecord } from '@tandem/shared';
+import { DEFAULT_SETTINGS, type AuditEntry, type Settings, type Task, type TaskTransition, type UsageRecord } from '@tandem/shared';
+import { auditMatches, chainEntry } from '../audit.js';
+import { redactor } from '../policies/redact.js';
 import type { Collection, Job, Store, TaskScoped, TrackerComment } from '../ports.js';
 import { lockedStore, type RawRepos } from '../store-lock.js';
 
@@ -14,6 +16,7 @@ interface Data {
   jobs: Map<string, Job>;
   settings: Settings | undefined;
   trackerComments: TrackerComment[];
+  audit: AuditEntry[];
   nextTransitionId: number;
 }
 
@@ -31,6 +34,7 @@ class MemoryRepos implements RawRepos {
     jobs: new Map(),
     settings: undefined,
     trackerComments: [],
+    audit: [],
     nextTransitionId: 1,
   };
   snapshot(): Data {
@@ -146,6 +150,18 @@ class MemoryRepos implements RawRepos {
   trackerComments: Store['trackerComments'] = {
     add: async (c) => void this.data.trackerComments.push(clone(c)),
     list: async (key) => this.data.trackerComments.filter((c) => c.key === key).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(clone),
+  };
+
+  audit: Store['audit'] = {
+    append: async (input) => {
+      const e = chainEntry(this.data.audit.at(-1), redactor.redactDeep(input));
+      this.data.audit.push(clone(e));
+      return clone(e);
+    },
+    list: async (scope = {}) => {
+      const hits = this.data.audit.filter((e) => auditMatches(e, scope));
+      return (scope.limit ? hits.slice(-scope.limit) : hits).map(clone);
+    },
   };
 
   private filterUsage(scope: { taskId?: string; since?: string }): UsageRecord[] {

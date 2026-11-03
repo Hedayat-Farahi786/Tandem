@@ -9,10 +9,8 @@ import { Link, useRouter } from '../lib/router';
 import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
 import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, Pill, Select, Textarea, controlBase, cx } from '../ui/kit';
 import { InlineText } from '../ui/text';
+import { NEEDS_YOU, RUNNING, groupOf } from '../lib/tasks';
 
-const RUNNING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
-const NEEDS_YOU = new Set(['SPEC_REVIEW', 'BLOCKED', 'FAILED', 'DRAFT']);
-const groupOf = (s: string) => (NEEDS_YOU.has(s) ? 'needs-you' : s === 'DONE' || s === 'CANCELLED' ? 'finished' : 'active');
 
 export function ReadinessChecklist({ readiness, compact }: { readiness: Readiness; compact?: boolean }) {
   return (
@@ -216,7 +214,10 @@ export function TasksScreen() {
   return (
     <div className="mx-auto w-full max-w-[760px]">
       <div className="mb-7 flex items-end justify-between gap-4">
-        <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Tasks</h1>
+        <div>
+          <h1 className="font-display text-[26px] leading-tight">Tasks</h1>
+          <p className="mt-1 text-[13.5px] text-muted">Every request, from spec to pull request.</p>
+        </div>
         <div className="flex items-center gap-2">
           {boot.data?.jiraConfigured && (
             <Button variant="ghost" icon={Download} onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
@@ -242,14 +243,14 @@ export function TasksScreen() {
             aria-pressed={filter === id}
             onClick={() => setFilter(filter === id ? 'all' : id)}
             className={cx(
-              'group flex flex-col items-start gap-3 rounded-2xl border bg-surface p-4 text-left transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:shadow-md',
-              filter === id ? 'border-fg shadow-md' : 'border-line hover:border-line-strong',
+              'group relative flex flex-col items-start gap-4 overflow-hidden rounded-2xl bg-surface p-4 text-left transition-[box-shadow,transform] duration-200 hover:-translate-y-px',
+              filter === id ? 'shadow-[0_0_0_1.5px_var(--accent),0_8px_24px_-8px_rgb(0_0_0/0.18)]' : 'shadow-panel hover:shadow-[var(--shadow-panel),0_8px_24px_-10px_rgb(0_0_0/0.14)]',
             )}
           >
             <IconTile icon={icon} tone={counts[id] > 0 ? tone : 'neutral'} />
             <span className="flex w-full items-end justify-between gap-2">
               <span className="text-[13px] font-medium text-muted">{label}</span>
-              <span className="font-serif text-[28px] leading-none font-medium tabular-nums">{counts[id]}</span>
+              <span className="font-display text-[30px] leading-none tabular-nums">{counts[id]}</span>
             </span>
           </button>
         ))}
@@ -278,7 +279,7 @@ export function TasksScreen() {
           action={!tasks.data?.length && <LinkButton to="/chat" variant="primary" icon={MessageSquare}>Start in chat</LinkButton>}
         />
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-5">
           {(
             [
               ['needs-you', 'Needs you'],
@@ -289,17 +290,18 @@ export function TasksScreen() {
             .map(([id, label]) => [id, label, list.filter((t) => groupOf(t.state) === id)] as const)
             .filter(([, , items]) => items.length > 0)
             .map(([id, label, items]) => (
-              <section key={id} aria-label={label}>
-                <h2 className="mb-1 flex items-center gap-2 px-3 text-[12.5px] font-medium text-muted">
+              <section key={id} aria-label={label} className="overflow-hidden rounded-2xl bg-surface shadow-panel">
+                <h2 className="flex h-10 items-center gap-2 border-b border-line bg-surface-2/50 px-4 text-[12.5px] font-semibold text-muted">
+                  <span aria-hidden className={cx('size-1.5 rounded-full', id === 'needs-you' ? 'bg-warn' : id === 'active' ? 'bg-info' : 'bg-ok')} />
                   {label}
-                  <span className="text-faint tabular-nums">{items.length}</span>
+                  <span className="rounded-full bg-surface-3/70 px-1.5 text-[11px] leading-[18px] font-medium text-muted tabular-nums">{items.length}</span>
                 </h2>
-                <ul className="-mx-0 flex flex-col">
+                <ul className="flex flex-col divide-y divide-line">
                   {items.map((t) => {
                     const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
                     return (
                       <li key={t.id}>
-                        <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-surface-2/80">
+                        <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 px-4 py-3 transition-colors duration-150 hover:bg-surface-2/70">
                           <StatusIcon state={t.state} />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[14px] font-medium">{t.title}</p>

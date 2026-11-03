@@ -17,6 +17,22 @@ export const TASK_STATES = [
 export const TaskState = z.enum(TASK_STATES);
 export type TaskState = z.infer<typeof TaskState>;
 
+/** Plain-language names for the UI, logs and reports. */
+export const STATE_LABELS: Record<TaskState, string> = {
+  DRAFT: 'Draft',
+  READINESS: 'Readiness check',
+  SPEC_DRAFTING: 'Drafting spec',
+  SPEC_REVIEW: 'Spec review',
+  BUILDING: 'Building',
+  VERIFYING: 'Verifying',
+  SELF_REVIEW: 'Self-review',
+  PR_OPEN: 'PR open',
+  DONE: 'Done',
+  BLOCKED: 'Blocked',
+  FAILED: 'Failed',
+  CANCELLED: 'Cancelled',
+};
+
 export const TERMINAL_STATES: readonly TaskState[] = ['DONE', 'CANCELLED'];
 /** States in which the runner does work without waiting for a person. */
 export const ACTIVE_STATES: readonly TaskState[] = ['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW', 'PR_OPEN', 'DONE'];

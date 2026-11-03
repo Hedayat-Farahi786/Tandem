@@ -21,7 +21,7 @@ export interface TxHooks {
 
 export type RawRepos = Omit<Store, 'transaction'>;
 
-export const REPO_KEYS = ['projects', 'repos', 'tasks', 'transitions', 'specs', 'approvals', 'runs', 'verifyRuns', 'criterionTests', 'findings', 'prs', 'threads', 'messages', 'rules', 'usage', 'jobs', 'settings', 'trackerComments'] as const satisfies ReadonlyArray<keyof RawRepos>;
+export const REPO_KEYS = ['projects', 'repos', 'tasks', 'transitions', 'specs', 'approvals', 'runs', 'verifyRuns', 'criterionTests', 'findings', 'prs', 'threads', 'messages', 'rules', 'usage', 'jobs', 'settings', 'trackerComments', 'audit'] as const satisfies ReadonlyArray<keyof RawRepos>;
 
 /**
  * Wraps raw repositories so every call outside a transaction waits for the lock, and the

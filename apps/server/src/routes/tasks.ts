@@ -7,6 +7,7 @@ import { runGit } from '@tandem/adapters';
 import { Requirement, TaskState, type Task } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
 import { specPdf } from '../pdf.js';
+import { auditOwner } from '../audit.js';
 
 const id = (req: { params: unknown }) => (req.params as { id: string }).id;
 
@@ -103,14 +104,29 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
   });
 
   /** Picks the Copilot model for the task's next agent steps ('' = Auto). */
-  app.put('/api/tasks/:id/model', async (req) => service.setModel(id(req), z.object({ model: z.string() }).parse(req.body).model));
+  app.put('/api/tasks/:id/model', async (req) => {
+    const { model } = z.object({ model: z.string() }).parse(req.body);
+    const before = await getTask(id(req));
+    const t = await service.setModel(id(req), model);
+    if ((before.model ?? '') !== model) await auditOwner(store, { action: 'task.model', summary: `${t.key}: Copilot model set to ${model || 'Auto'}.`, taskId: t.id, projectId: t.projectId, detail: { from: before.model ?? '', to: model } });
+    return t;
+  });
   app.post('/api/tasks/:id/submit', async (req) => service.submit(id(req)));
   app.post('/api/tasks/:id/resume', async (req) => service.resume(id(req)));
   app.post('/api/tasks/:id/cancel', async (req) => service.cancel(id(req)));
-  app.post('/api/tasks/:id/fix-conflicts', async (req) => service.fixConflicts(id(req)));
+  app.post('/api/tasks/:id/fix-conflicts', async (req) => {
+    const t = await service.fixConflicts(id(req));
+    await auditOwner(store, { action: 'task.fix-conflicts', summary: `${t.key}: asked Tandem to fix conflicts in its pull requests, including on branches others pushed to.`, taskId: t.id, projectId: t.projectId });
+    return t;
+  });
   app.post('/api/tasks/:id/accept-split', async (req) => service.acceptSplit(id(req)));
   app.post('/api/tasks/:id/override-split', async (req) => service.overrideSplit(id(req), z.object({ reason: z.string() }).parse(req.body).reason));
-  app.post('/api/tasks/:id/request-changes', async (req) => service.requestChanges(id(req), z.object({ feedback: z.string() }).parse(req.body).feedback));
+  app.post('/api/tasks/:id/request-changes', async (req) => {
+    const { feedback } = z.object({ feedback: z.string() }).parse(req.body);
+    const t = await service.requestChanges(id(req), feedback);
+    await auditOwner(store, { action: 'spec.changes-requested', summary: `${t.key}: requested changes to the spec.`, taskId: t.id, projectId: t.projectId, detail: { feedback } });
+    return t;
+  });
   app.post('/api/tasks/:id/approve', async (req) => {
     const { name } = z.object({ name: z.string().optional() }).parse(req.body ?? {});
     return service.approve(id(req), name?.trim() || (await tandem.settings()).ownerName || 'Owner');
@@ -174,6 +190,8 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.get('/api/rules', async () => store.rules.list());
   app.post('/api/rules', async (req) => {
     const b = z.object({ repoId: z.string(), text: z.string(), source: z.string().default('Added in Tandem') }).parse(req.body);
-    return service.addRule(b.repoId, b.text, b.source);
+    const rule = await service.addRule(b.repoId, b.text, b.source);
+    await auditOwner(store, { action: 'rule.added', summary: `Added an agent rule: ${b.text}`, repoId: b.repoId, detail: { text: b.text, source: b.source } });
+    return rule;
   });
 }

@@ -24,11 +24,11 @@ export const cx = (...c: Array<string | false | null | undefined>) => c.filter(B
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'subtle';
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-accent text-accent-fg shadow-sm hover:bg-accent-hover active:translate-y-px',
-  secondary: 'bg-surface text-fg border border-line-strong shadow-sm hover:bg-surface-2 active:translate-y-px',
+  primary: 'bg-accent text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.18),0_0_0_1px_var(--accent)] hover:bg-accent-hover active:scale-[0.98]',
+  secondary: 'bg-surface text-fg shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_rgb(0_0_0/0.05)] hover:bg-surface-2 active:scale-[0.98]',
   subtle: 'bg-surface-2 text-fg hover:bg-surface-3',
   ghost: 'bg-transparent text-muted hover:bg-surface-2 hover:text-fg',
-  danger: 'bg-surface text-danger border border-line-strong shadow-sm hover:bg-danger-soft hover:border-danger/40',
+  danger: 'bg-surface text-danger shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_rgb(0_0_0/0.05)] hover:bg-danger-soft active:scale-[0.98]',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -41,8 +41,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 /** Button styling, also for links that look like buttons (never nest a button in a link). */
 export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' | 'lg' = 'md', className?: string) {
   return cx(
-    'inline-flex shrink-0 select-none items-center justify-center gap-2 rounded-[10px] font-medium whitespace-nowrap transition-[background-color,border-color,color,transform] duration-100 disabled:pointer-events-none disabled:opacity-45',
-    size === 'sm' ? 'h-8 px-3 text-[13px]' : size === 'lg' ? 'h-11 px-5 text-[15px]' : 'h-9 px-3.5 text-sm',
+    'inline-flex shrink-0 select-none items-center justify-center gap-2 rounded-[9px] font-medium whitespace-nowrap transition-[background-color,box-shadow,color,transform] duration-150 ease-out disabled:pointer-events-none disabled:opacity-45',
+    size === 'sm' ? 'h-8 px-3 text-[13px]' : size === 'lg' ? 'h-11 px-5 text-[15px]' : 'h-9 px-3.5 text-[13.5px]',
     VARIANT[variant],
     className,
   );
@@ -119,7 +119,7 @@ export function Tooltip({ label, children, side = 'top' }: { label: string; chil
 /* ================================================================== fields */
 
 export const controlBase =
-  'w-full rounded-[10px] border border-line-strong bg-surface text-sm text-fg shadow-[inset_0_1px_1px_rgb(0_0_0/0.03)] transition-[border-color,box-shadow] duration-100 hover:border-faint focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)] focus-visible:outline-none aria-[invalid=true]:border-danger';
+  'w-full rounded-[9px] border border-line-strong bg-surface text-[13.5px] text-fg shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-[border-color,box-shadow] duration-150 hover:border-faint/70 focus:border-fg/60 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_12%,transparent)] focus-visible:outline-none aria-[invalid=true]:border-danger';
 
 export function Field({ label, help, error, children, htmlFor, optional, hideLabel }: { label?: string; help?: ReactNode; error?: string | undefined; children: ReactNode; htmlFor: string; optional?: boolean; hideLabel?: boolean }) {
   return (
@@ -273,7 +273,7 @@ export function Select<T extends string>({ id, label, hideLabel, help, value, on
             role="listbox"
             aria-label={label ?? placeholder}
             tabIndex={-1}
-            className="absolute z-40 mt-1.5 max-h-72 w-full animate-pop overflow-auto rounded-xl border border-line bg-surface p-1 shadow-lg"
+            className="absolute z-40 mt-1.5 max-h-72 w-full min-w-44 animate-pop overflow-auto rounded-xl border border-line bg-surface p-1 shadow-lg"
           >
             {options.map((o, i) => (
               <li
@@ -285,7 +285,7 @@ export function Select<T extends string>({ id, label, hideLabel, help, value, on
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => choose(i)}
-                className={cx('flex cursor-default items-start gap-2 rounded-lg px-2.5 py-2 text-sm', i === active && 'bg-surface-2', o.disabled && 'opacity-45')}
+                className={cx('flex cursor-default items-start gap-2 rounded-lg px-2.5 py-1.5 text-[13.5px]', i === active && 'bg-surface-2', o.disabled && 'opacity-45')}
               >
                 <Check aria-hidden className={cx('mt-0.5 size-4 shrink-0 text-accent', o.value !== value && 'invisible')} />
                 <span className="min-w-0">
@@ -411,11 +411,11 @@ export function SettingsSection({ id: anchor, icon, title, description, actions,
   const id = useId();
   return (
     <section id={anchor} aria-labelledby={id} className={cx('scroll-mt-8', className)}>
-      <div className="flex items-center justify-between gap-4 pb-3">
+      <div className="flex items-center justify-between gap-4 px-1 pb-3">
         <div className="flex min-w-0 items-center gap-3">
           {icon}
           <div className="min-w-0">
-          <h2 id={id} className="text-[15px] font-semibold tracking-tight">
+          <h2 id={id} className="text-[15px] font-semibold tracking-[-0.01em]">
             {title}
           </h2>
           {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
@@ -423,7 +423,7 @@ export function SettingsSection({ id: anchor, icon, title, description, actions,
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
-      <div className="divide-y divide-line border-t border-line">{children}</div>
+      <div className="divide-y divide-line rounded-2xl bg-surface px-5 shadow-panel">{children}</div>
     </section>
   );
 }
@@ -434,13 +434,13 @@ export function Row({ label, htmlFor, description, children, wide }: { label: Re
     <div className={cx('grid gap-x-8 gap-y-2.5 py-4', children ? (wide ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]') : '')}>
       <div className="min-w-0">
         {htmlFor ? (
-          <label htmlFor={htmlFor} className="text-[14px] font-medium">
+          <label htmlFor={htmlFor} className="text-[13.5px] font-medium">
             {label}
           </label>
         ) : (
-          <p className="text-[14px] font-medium">{label}</p>
+          <p className="text-[13.5px] font-medium">{label}</p>
         )}
-        {description && <p className="mt-0.5 text-[13px] leading-snug text-muted">{description}</p>}
+        {description && <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{description}</p>}
       </div>
       {children && <div className="min-w-0 sm:justify-self-end sm:self-center sm:w-full">{children}</div>}
     </div>
@@ -449,9 +449,9 @@ export function Row({ label, htmlFor, description, children, wide }: { label: Re
 
 export function Card({ title, description, actions, children, className, padded = true }: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; padded?: boolean }) {
   return (
-    <section className={cx('rounded-2xl border border-line bg-surface shadow-sm', className)}>
+    <section className={cx('rounded-2xl bg-surface shadow-panel', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+        <header className={cx('flex items-start justify-between gap-4 px-5 pt-4', padded ? 'pb-0' : 'pb-3')}>
           <div className="min-w-0">
             {typeof title === 'string' ? <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2> : title}
             {description && <p className="mt-0.5 text-[12.5px] text-muted">{description}</p>}
@@ -459,22 +459,23 @@ export function Card({ title, description, actions, children, className, padded 
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={padded ? 'p-5' : ''}>{children}</div>
+      <div className={padded ? (title || actions ? 'px-5 pt-3 pb-5' : 'p-5') : ''}>{children}</div>
     </section>
   );
 }
 
 export function EmptyState({ icon: Icon, title, body, action }: { icon?: LucideIcon; title: string; body?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong bg-surface/50 px-6 py-14 text-center">
+    <div className="relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl bg-surface px-6 py-16 text-center shadow-panel">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(ellipse_at_top,var(--surface-3),transparent_70%)] opacity-70" />
       {Icon && (
-        <span className="mb-1 grid size-10 place-items-center rounded-xl bg-surface-2 text-muted">
-          <Icon aria-hidden className="size-5" />
+        <span className="relative mb-2 grid size-12 place-items-center rounded-2xl bg-surface text-fg shadow-[0_0_0_1px_var(--border),0_6px_16px_-6px_rgb(0_0_0/0.18),inset_0_1px_0_var(--hairline-highlight)]">
+          <Icon aria-hidden className="size-5" strokeWidth={1.8} />
         </span>
       )}
-      <p className="font-serif text-[17px] font-medium">{title}</p>
-      {body && <p className="max-w-md text-[13px] text-muted">{body}</p>}
-      {action && <div className="mt-3">{action}</div>}
+      <p className="relative font-display text-[17px]">{title}</p>
+      {body && <p className="relative max-w-md text-[13px] text-muted">{body}</p>}
+      {action && <div className="relative mt-3">{action}</div>}
     </div>
   );
 }
@@ -573,7 +574,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs:
             onChange(tabs[n]!.id);
             refs.current[n]?.focus();
           }}
-          className={cx('-mb-px flex h-10 shrink-0 items-center gap-2 border-b-2 text-[13.5px] transition-colors', value === t.id ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}
+          className={cx('-mb-px flex h-10 shrink-0 items-center gap-2 border-b-[1.5px] text-[13.5px] transition-colors', value === t.id ? 'border-fg font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}
         >
           {t.label}
           {t.badge}
@@ -620,13 +621,13 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
         onClose();
       }}
       onMouseDown={(e) => e.target === ref.current && onClose()}
-      className={cx('m-auto max-h-[calc(100vh-48px)] animate-pop rounded-2xl border border-line bg-surface p-0 text-fg shadow-lg backdrop:bg-[rgb(20_18_15/0.45)] backdrop:backdrop-blur-[2px]', wide ? 'w-[min(880px,calc(100vw-32px))]' : 'w-[min(560px,calc(100vw-32px))]')}
+      className={cx('m-auto max-h-[calc(100vh-48px)] animate-pop rounded-2xl border-0 bg-surface p-0 text-fg shadow-lg backdrop:bg-[rgb(10_10_12/0.4)] backdrop:backdrop-blur-[3px]', wide ? 'w-[min(880px,calc(100vw-32px))]' : 'w-[min(560px,calc(100vw-32px))]')}
     >
       {open && (
         <div className="flex max-h-[calc(100vh-48px)] flex-col">
           <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
             <div>
-              <h2 id={titleId} className="font-serif text-[19px] font-medium tracking-tight">
+              <h2 id={titleId} className="font-display text-[18px]">
                 {title}
               </h2>
               {description && <p className="mt-1 text-[13px] text-muted">{description}</p>}
@@ -716,8 +717,8 @@ export function PageHeader({ title, subtitle, actions, eyebrow }: { title: React
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow && <div className="mb-2 flex items-center gap-2 text-[12.5px] text-muted">{eyebrow}</div>}
-        <h1 className="font-serif text-[28px] leading-tight font-medium tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1.5 max-w-2xl text-[13.5px] text-muted">{subtitle}</p>}
+        <h1 className="font-display text-[26px] leading-tight">{title}</h1>
+        {subtitle && <p className="mt-1 max-w-2xl text-[13.5px] text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

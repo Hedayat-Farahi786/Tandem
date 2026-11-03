@@ -187,7 +187,7 @@ export function SettingsScreen() {
   return (
     <div className="mx-auto w-full max-w-[1000px] pb-24">
       <div className="mb-10">
-        <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Settings</h1>
+        <h1 className="font-display text-[26px] leading-tight">Settings</h1>
         <p className="mt-1 text-[13.5px] text-muted">Stored on this machine. Tokens go only to your OS keychain.</p>
       </div>
       <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">

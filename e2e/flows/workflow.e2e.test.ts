@@ -96,6 +96,23 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     expect(branches.has(d.task.branch)).toBe(true);
     expect(branches.get(h.base)).toBe(baseBefore);
     expect(h.remoteFile('fullstack', d.task.branch, 'src/server/app.ts')).toContain("app.get('/health'");
+    // Traceability: the commit the audit log records is the one on the remote branch, each
+    // criterion has a passing test, both approvals belong to the approved version, and the chain verifies.
+    const trace = await h.api<{
+      criteria: Array<{ status: string; tests: unknown[] }>;
+      specs: Array<{ version: number; status: string; approvals: Array<{ role: string; name: string }> }>;
+      commits: Array<{ commit: string; branch: string }>;
+      pullRequests: Array<{ status: string }>;
+      audit: Array<{ action: string }>;
+      integrity: { ok: boolean };
+    }>('GET', `/api/tasks/${task.id}/trace`);
+    expect(trace.criteria.map((c) => c.status)).toEqual(['pass', 'pass']);
+    expect(trace.specs).toEqual([expect.objectContaining({ version: 1, status: 'approved', approvals: [expect.objectContaining({ role: 'owner' }), expect.objectContaining({ role: 'pm', name: 'Pat Lee' })] })]);
+    expect(trace.commits).toEqual([expect.objectContaining({ branch: d.task.branch, commit: branches.get(d.task.branch) })]);
+    expect(trace.audit.map((e) => e.action)).toEqual(expect.arrayContaining(['task.created', 'spec.approved', 'git.pushed', 'task.state']));
+    expect(trace.audit.some((e) => e.action === 'pr.prepared' || e.action === 'pr.opened')).toBe(true);
+    expect(trace.integrity.ok).toBe(true);
+    expect(await h.api('GET', '/api/audit/verify')).toMatchObject({ ok: true });
     h.record('(a) one full-stack repo', d);
   });
 

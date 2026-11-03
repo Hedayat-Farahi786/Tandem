@@ -9,7 +9,14 @@ import {
   Download,
   ExternalLink,
   FileCheck2,
+  FilePlus2,
+  FileText,
   GitMerge,
+  Hammer,
+  ListChecks,
+  MessageSquareText,
+  ScanSearch,
+  SearchCheck,
   GitPullRequest,
   Pencil,
   RotateCcw,
@@ -62,8 +69,9 @@ import {
 } from "../ui/kit";
 import { ThreadPanel } from "./Chat";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
+import { TraceTab } from "./Trace";
 
-type Tab = "overview" | "spec" | "changes" | "checks" | "prs" | "chat";
+type Tab = "overview" | "spec" | "changes" | "checks" | "prs" | "trace" | "chat";
 const RUNNING = new Set([
   "READINESS",
   "SPEC_DRAFTING",
@@ -120,41 +128,70 @@ function ProgressRail({ task }: { task: Task }) {
       ? resumeState
       : task.state) as (typeof FLOW)[number],
   );
+  const cancelled = task.state === "CANCELLED";
   return (
     <ol
       aria-label="Workflow progress"
-      className="mb-8 grid grid-cols-4 gap-x-2 gap-y-3 md:grid-cols-8"
+      className="mb-8 grid grid-cols-8 rounded-2xl bg-surface px-3 pt-4 pb-3 shadow-panel"
     >
       {FLOW.map((s, i) => {
         const done = at > i || task.state === "DONE";
         const current = at === i && task.state !== "DONE";
         const stuck =
           current && (task.state === "BLOCKED" || task.state === "FAILED");
+        const failed = stuck && task.state === "FAILED";
         return (
           <li
             key={s}
-            className="flex flex-col gap-1.5"
+            className="relative flex flex-col items-center gap-2 text-center"
             aria-current={current ? "step" : undefined}
           >
+            {i > 0 && (
+              <span
+                aria-hidden
+                className={cx(
+                  "absolute top-[11px] right-1/2 left-[-50%] h-[2px] rounded-full",
+                  done || current ? "bg-ok/70" : "bg-surface-3",
+                )}
+              />
+            )}
             <span
+              aria-hidden
               className={cx(
-                "h-1 rounded-full",
+                "relative z-[1] grid size-6 place-items-center rounded-full transition-colors",
                 done
-                  ? "bg-ok"
-                  : stuck
-                    ? task.state === "FAILED"
-                      ? "bg-danger"
-                      : "bg-warn"
-                    : current
-                      ? "bg-accent"
-                      : "bg-surface-3",
+                  ? "bg-ok text-white"
+                  : failed
+                    ? "bg-danger text-white"
+                    : stuck
+                      ? "bg-warn text-white"
+                      : current
+                        ? "bg-surface shadow-[0_0_0_2px_var(--accent)]"
+                        : cancelled
+                          ? "bg-surface-2 shadow-[0_0_0_1px_var(--border-strong)]"
+                          : "bg-surface shadow-[0_0_0_1.5px_var(--border-strong)]",
               )}
-            />
+            >
+              {done ? (
+                <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 8.4 6.8 11 12 5.5" />
+                </svg>
+              ) : stuck ? (
+                <span className="text-[12px] leading-none font-bold">!</span>
+              ) : current ? (
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-40" />
+                  <span className="relative inline-flex size-2 rounded-full bg-accent" />
+                </span>
+              ) : (
+                <span className="text-[10.5px] font-medium text-faint tabular-nums">{i + 1}</span>
+              )}
+            </span>
             <span
               className={cx(
-                "text-[11.5px]",
+                "hidden px-1 text-[11.5px] leading-tight sm:block",
                 current
-                  ? "font-medium text-fg"
+                  ? "font-semibold text-fg"
                   : done
                     ? "text-muted"
                     : "text-faint",
@@ -162,6 +199,7 @@ function ProgressRail({ task }: { task: Task }) {
             >
               {STATE_LABEL[s]}
             </span>
+            {current && <span className="text-[11.5px] font-semibold sm:hidden">{STATE_LABEL[s]}</span>}
           </li>
         );
       })}
@@ -171,6 +209,21 @@ function ProgressRail({ task }: { task: Task }) {
 
 /* ------------------------------------------------------------------ overview */
 
+const TIMELINE_ICON: Partial<Record<string, typeof CheckCircle2>> = {
+  DRAFT: FilePlus2,
+  READINESS: SearchCheck,
+  SPEC_DRAFTING: FileText,
+  SPEC_REVIEW: FileCheck2,
+  BUILDING: Hammer,
+  VERIFYING: ListChecks,
+  SELF_REVIEW: ScanSearch,
+  PR_OPEN: GitPullRequest,
+  DONE: GitMerge,
+  BLOCKED: AlertTriangle,
+  FAILED: XCircle,
+  CANCELLED: Ban,
+};
+
 function Timeline({ d }: { d: TaskDetail }) {
   const items = useMemo(
     () =>
@@ -178,16 +231,18 @@ function Timeline({ d }: { d: TaskDetail }) {
         ...d.transitions.map((t) => ({
           at: t.at,
           kind: "transition" as const,
+          state: t.to as string,
           title:
             t.from === t.to
               ? STATE_LABEL[t.to]
               : `${STATE_LABEL[t.from]} → ${STATE_LABEL[t.to]}`,
           body: t.reason,
-          actor: t.actor,
+          actor: t.actor === "system" ? "Tandem" : t.actor === "agent" ? "Copilot" : t.actor === "pm" ? "PM" : "You",
         })),
         ...d.comments.map((c) => ({
           at: c.createdAt,
           kind: "comment" as const,
+          state: "",
           title: c.authorName,
           body: c.body,
           actor: c.authorName,
@@ -196,28 +251,39 @@ function Timeline({ d }: { d: TaskDetail }) {
     [d],
   );
   return (
-    <ol className="relative flex flex-col gap-5 border-l border-line pl-6">
-      {items.map((it, i) => (
-        <li key={i} className="relative">
-          <span
-            aria-hidden
-            className={cx(
-              "absolute top-1.5 -left-[29px] size-2.5 rounded-full border-2 border-bg",
-              it.kind === "comment" ? "bg-accent" : "bg-line-strong",
-            )}
-          />
-          <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-            <span className="font-medium">{it.title}</span>
-            <span className="text-[12px] text-faint">
-              {it.kind === "transition" ? `${it.actor} · ` : ""}
-              {relativeTime(it.at)}
+    <ol className="relative flex flex-col gap-1 before:absolute before:top-3 before:bottom-3 before:left-[13.5px] before:w-px before:bg-line">
+      {items.map((it, i) => {
+        const Icon = it.kind === "comment" ? MessageSquareText : (TIMELINE_ICON[it.state] ?? Circle);
+        const tone =
+          it.kind === "comment"
+            ? "bg-accent text-accent-fg"
+            : it.state === "FAILED"
+              ? "bg-danger-soft text-danger"
+              : it.state === "BLOCKED"
+                ? "bg-warn-soft text-warn"
+                : it.state === "PR_OPEN" || it.state === "DONE"
+                  ? "bg-ok-soft text-ok"
+                  : "bg-surface text-muted shadow-[0_0_0_1px_var(--border)]";
+        return (
+          <li key={i} className="relative grid grid-cols-[28px_1fr] gap-x-3 py-1.5">
+            <span aria-hidden className={cx("relative z-[1] mt-px grid size-7 place-items-center rounded-lg ring-4 ring-surface", tone)}>
+              <Icon className="size-3.5" strokeWidth={2} />
             </span>
-          </p>
-          <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-line text-muted">
-            {it.body}
-          </p>
-        </li>
-      ))}
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                <span className="font-medium">{it.title}</span>
+                <span className="text-[12px] text-faint">
+                  {it.kind === "transition" ? `${it.actor} · ` : ""}
+                  <time dateTime={it.at} title={new Date(it.at).toLocaleString()}>{relativeTime(it.at)}</time>
+                </span>
+              </p>
+              <p className="mt-0.5 text-[13px] leading-relaxed break-words whitespace-pre-line text-muted">
+                {it.body}
+              </p>
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -1690,6 +1756,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
                 }
               : {}),
           },
+          { id: "trace", label: "Trace" },
           { id: "chat", label: "Chat" },
         ]}
       />
@@ -1699,6 +1766,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
         {tab === "changes" && <ChangesTab d={d} />}
         {tab === "checks" && <ChecksTab d={d} />}
         {tab === "prs" && <PrsTab d={d} />}
+        {tab === "trace" && <TraceTab taskId={d.task.id} />}
         {tab === "chat" && <ChatTab d={d} />}
       </TabPanel>
       <Dialog

@@ -12,6 +12,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerAuditRoutes } from './routes/audit.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -85,6 +86,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   app.get('/api/health', async () => ({ ok: true, version: o.version ?? '0.0.0' }));
   registerSetupRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
+  registerAuditRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   app.all('/api/*', async () => {

@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DatabaseSync as DatabaseSyncT, SQLInputValue } from 'node:sqlite';
-import { DEFAULT_SETTINGS, Settings, type Task, type TaskTransition } from '@tandem/shared';
-import { lockedStore, redactor, type Collection, type Job, type RawRepos, type Store, type TaskScoped, type TrackerComment } from '@tandem/core';
+import { DEFAULT_SETTINGS, Settings, type AuditEntry, type Task, type TaskTransition } from '@tandem/shared';
+import { auditMatches, chainEntry, lockedStore, redactor, type Collection, type Job, type RawRepos, type Store, type TaskScoped, type TrackerComment } from '@tandem/core';
 import { MIGRATIONS } from './migrations.js';
 import { openDatabase } from './open.js';
 
@@ -185,6 +185,40 @@ class SqliteRepos implements RawRepos {
   trackerComments: Store['trackerComments'] = {
     add: (c) => this.op(() => void this.db.prepare('INSERT INTO tracker_comments (id, key, created_at, doc) VALUES (?, ?, ?, ?)').run(c.id, c.key, c.createdAt, this.encode(c))),
     list: (key) => this.op(() => this.all<TrackerComment>('SELECT doc FROM tracker_comments WHERE key = ? ORDER BY created_at, rowid', key)),
+  };
+
+  audit: Store['audit'] = {
+    append: (input) =>
+      this.op(() => {
+        // Redact first: the hash covers exactly what is stored.
+        const e = chainEntry(this.one<AuditEntry>('SELECT doc FROM audit ORDER BY seq DESC LIMIT 1'), redactor.redactDeep(input));
+        this.db.prepare('INSERT INTO audit (seq, at, task_id, action, doc) VALUES (?, ?, ?, ?, ?)').run(e.seq, e.at, e.taskId ?? null, e.action, JSON.stringify(e));
+        return e;
+      }),
+    list: (scope = {}) =>
+      this.op(() => {
+        const clauses: string[] = [];
+        const params: SQLInputValue[] = [];
+        if (scope.taskId) {
+          clauses.push('task_id = ?');
+          params.push(scope.taskId);
+        }
+        if (scope.since) {
+          clauses.push('at >= ?');
+          params.push(scope.since);
+        }
+        if (scope.until) {
+          clauses.push('at < ?');
+          params.push(scope.until);
+        }
+        if (scope.afterSeq) {
+          clauses.push('seq > ?');
+          params.push(scope.afterSeq);
+        }
+        const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+        const rows = scope.limit ? this.all<AuditEntry>(`SELECT doc FROM audit ${where} ORDER BY seq DESC LIMIT ?`, ...params, scope.limit).reverse() : this.all<AuditEntry>(`SELECT doc FROM audit ${where} ORDER BY seq`, ...params);
+        return rows.filter((e) => auditMatches(e, scope));
+      }),
   };
 }
 

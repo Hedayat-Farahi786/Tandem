@@ -87,3 +87,48 @@ export interface RepoDiff {
 }
 
 export type { CommandResult, Project, Repo, Settings, Task, ChatThread, ChatMessage, PullRequest, ReviewFinding };
+
+/* ------------------------------------------------------------------ traceability */
+
+export type ActivityKind = 'task' | 'state' | 'spec' | 'approval' | 'git' | 'pr' | 'agent' | 'checks' | 'config';
+
+export interface ActivityItem {
+  id: string;
+  at: string;
+  kind: ActivityKind;
+  action: string;
+  actor: 'system' | 'owner' | 'pm' | 'agent';
+  actorName?: string;
+  summary: string;
+  taskId?: string;
+  taskKey?: string;
+  projectId?: string;
+  repoId?: string;
+  detail?: Record<string, unknown>;
+  seq?: number;
+  hash?: string;
+}
+
+export interface AuditVerification {
+  ok: boolean;
+  count: number;
+  brokenAt?: number;
+  reason?: string;
+  head: string;
+}
+
+export interface Trace {
+  generatedAt: string;
+  task: { id: string; key: string; title: string; state: string; source: string; externalKey?: string; branch: string; createdAt: string; updatedAt: string; project: string };
+  requirement: { goal: string; userStory: string; exampleData: string; affectedAreas: string; outOfScope: string };
+  criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
+  specs: Array<{ version: number; source: string; createdAt: string; feedback?: string; status: 'approved' | 'in-review' | 'superseded'; approvals: Array<{ role: string; name: string; date: string; method: string; evidence: string }> }>;
+  agent: Array<{ kind: string; runs: number; succeeded: number; failed: number; models: string[]; prompts: number; modelCalls: number; aiCredits: number; firstAt?: string; lastAt?: string }>;
+  checks: Array<{ attempt: number; passed: boolean; at: string; results: Array<{ repo: string; kind: string; command: string; exitCode: number | null; durationMs: number; timedOut: boolean }> }>;
+  findings: Array<{ severity: string; category: string; title: string; file?: string; line?: number; status: string }>;
+  commits: Array<{ repo: string; branch: string; commit: string; at?: string; reason?: string }>;
+  pullRequests: Array<{ repo: string; url: string; status: string; manual: boolean; createdAt?: string; sync?: string }>;
+  usage: { prompts: number; modelCalls: number; aiCredits: number };
+  audit: Array<{ seq: number; at: string; actor: string; actorName?: string; action: string; summary: string; hash: string }>;
+  integrity: { ok: boolean; entries: number; head: string; reason?: string };
+}

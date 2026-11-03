@@ -1,19 +1,6 @@
-import type { TaskState } from '@tandem/shared';
+import { STATE_LABELS, type TaskState } from '@tandem/shared';
 
-export const STATE_LABEL: Record<TaskState, string> = {
-  DRAFT: 'Draft',
-  READINESS: 'Readiness check',
-  SPEC_DRAFTING: 'Drafting spec',
-  SPEC_REVIEW: 'Spec review',
-  BUILDING: 'Building',
-  VERIFYING: 'Verifying',
-  SELF_REVIEW: 'Self-review',
-  PR_OPEN: 'PR open',
-  DONE: 'Done',
-  BLOCKED: 'Blocked',
-  FAILED: 'Failed',
-  CANCELLED: 'Cancelled',
-};
+export const STATE_LABEL: Record<TaskState, string> = STATE_LABELS;
 
 export type Tone = 'neutral' | 'accent' | 'ok' | 'warn' | 'danger';
 export const STATE_TONE: Record<TaskState, Tone> = {

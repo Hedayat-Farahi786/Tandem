@@ -207,6 +207,53 @@ describe('repositories, projects and tasks', () => {
   });
 });
 
+describe('traceability', () => {
+  it('records every change in a verified audit log, without secret values', async () => {
+    const { items } = (await app.inject({ method: 'GET', url: '/api/activity?limit=500', headers: H })).json() as { items: Array<{ action: string; actorName?: string; summary: string; seq?: number; detail?: Record<string, unknown> }> };
+    const actions = items.map((i) => i.action);
+    for (const a of ['settings.updated', 'secret.saved', 'secret.removed', 'repo.added', 'project.created', 'task.created', 'task.model', 'task.state', 'project.deleted']) expect(actions).toContain(a);
+    const settings = items.find((i) => i.action === 'settings.updated')!;
+    expect(settings.detail?.changes).toEqual([{ field: 'ownerName', from: '', to: 'Sam' }]);
+    expect(items.find((i) => i.action === 'task.state')).toMatchObject({ actorName: 'Sam', summary: 'TND-1: Draft → Cancelled. Cancelled by the owner.' });
+    expect(JSON.stringify(items)).not.toContain('secret-value');
+    // Newest first.
+    const seqs = items.filter((i) => i.seq).map((i) => i.seq!);
+    expect(seqs).toEqual([...seqs].sort((a, b) => b - a));
+    const verify = (await app.inject({ method: 'GET', url: '/api/audit/verify', headers: H })).json();
+    expect(verify).toMatchObject({ ok: true, count: seqs.length });
+    expect(verify.head).toMatch(/^[0-9a-f]{64}$/);
+    const only = (await app.inject({ method: 'GET', url: '/api/activity?kinds=config', headers: H })).json();
+    expect(new Set(only.items.map((i: { kind: string }) => i.kind))).toEqual(new Set(['config']));
+    expect((await app.inject({ method: 'GET', url: '/api/activity?kinds=nope', headers: H })).statusCode).toBe(400);
+  });
+
+  it('exports the activity as CSV and JSON', async () => {
+    const csv = await app.inject({ method: 'GET', url: '/api/activity?format=csv', headers: H });
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.headers['content-disposition']).toMatch(/attachment; filename="tandem-activity-\d{4}-\d{2}-\d{2}\.csv"/);
+    expect(csv.body.split('\r\n')[0]).toBe('time,kind,action,actor,actor_name,task,summary,audit_seq,audit_hash,detail');
+    expect(csv.body).toContain('secret.saved');
+    expect(csv.body).not.toContain('secret-value');
+    const json = (await app.inject({ method: 'GET', url: '/api/activity?format=json', headers: H })).json();
+    expect(json.integrity.ok).toBe(true);
+    expect(json.items.length).toBeGreaterThan(5);
+  });
+
+  it("traces a task from its requirement to its audit entries, as JSON or Markdown", async () => {
+    const task = (await app.inject({ method: 'GET', url: '/api/tasks', headers: H })).json()[0];
+    const t = (await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/trace`, headers: H })).json();
+    expect(t.task).toMatchObject({ key: 'TND-1', state: 'CANCELLED', title: 'Health endpoint' });
+    expect(t.requirement.goal).toBe('Add GET /health');
+    expect(t.audit.map((e: { action: string }) => e.action)).toEqual(['task.created', 'task.model', 'task.state']);
+    expect(t.integrity.ok).toBe(true);
+    const md = await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/trace?format=md`, headers: H });
+    expect(md.headers['content-disposition']).toBe('attachment; filename="TND-1-trace.md"');
+    expect(md.body).toContain('# Traceability report: TND-1 Health endpoint');
+    expect(md.body).toMatch(/Audit log: verified, \d+ entries/);
+    expect((await app.inject({ method: 'GET', url: '/api/tasks/nope/trace', headers: H })).statusCode).toBe(404);
+  });
+});
+
 describe('events', () => {
   it('replays buffered events after Last-Event-ID', () => {
     const b = new EventBus(3);

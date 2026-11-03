@@ -276,6 +276,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         const text = reply.body.trim();
         if (/^approve(d)?\b/i.test(text)) {
           await deps.store.approvals.upsert({ id: deps.ids(), taskId: task.id, specVersion: latest.version, role: 'pm', name: reply.authorName, date: reply.createdAt, evidence: `Jira comment ${reply.id}${tracker.link(task.externalKey ?? task.key) ? ` on ${tracker.link(task.externalKey ?? task.key)}` : ''}`, method: 'jira', createdAt: deps.clock.iso() });
+          await deps.store.audit.append({ at: deps.clock.iso(), actor: 'pm', actorName: reply.authorName, action: 'spec.approved', summary: `${task.key}: PM approval of spec version ${latest.version} by ${reply.authorName}, from a Jira reply.`, taskId: task.id, projectId: task.projectId, detail: { role: 'pm', specVersion: latest.version, method: 'jira', commentId: reply.id, date: reply.createdAt } });
           const all = await deps.store.approvals.list(task.id);
           if (approvalState(project, latest.version, all).complete) return { kind: 'goto', state: 'BUILDING', reason: `Approved by the owner and by ${reply.authorName} (PM, in Jira) for spec version ${latest.version}.` };
           return { kind: 'idle' };
@@ -472,6 +473,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         if (r.kind === 'rejected') return { kind: 'block', reason: 'push-rejected', message: `Pushing ${task.branch} to ${repo.name} was rejected: ${r.message}`, resumeTo: { state: 'SELF_REVIEW', step: 'sync' } };
         pushed[repo.id] = r.sha;
         await ctx.saveProgress({ pushed: { ...pushed } });
+        await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.pushed', summary: `${task.key}: pushed ${task.branch} to ${repo.name} at ${r.sha.slice(0, 7)}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { branch: task.branch, commit: r.sha, ...(lease ? { replaced: lease } : {}) } });
       }
       // Waiting on review needs no dependencies: free them (checks restore them from the cache).
       for (const repo of repos) await releaseDependencies(worktreeOf(deps, task, repo)).catch(() => undefined);
@@ -505,6 +507,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           createdAt: deps.clock.iso(),
         };
         await deps.store.prs.upsert(pr);
+        await deps.store.audit.append({ at: pr.createdAt, actor: 'system', action: pr.manual ? 'pr.prepared' : 'pr.opened', summary: pr.manual ? `${task.key}: no permission to open a pull request in ${repo.name}; prepared a link to create it by hand.` : `${task.key}: opened a pull request in ${repo.name}: ${pr.url}`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { url: pr.url, from: task.branch, into: repo.defaultBranch, ...(pr.providerId ? { providerId: pr.providerId } : {}), commit: asRecord(task.progress.pushed)[repo.id] ?? null } });
         existing.push(pr);
       }
       if (existing.length > 1 && !task.progress.crossLinked) {
@@ -714,6 +717,7 @@ async function syncWithBase(deps: WorkflowDeps, ctx: StepContext): Promise<void>
     const r = await host.push(repo, { repoId: repo.id, path: wt, branch: task.branch, base: `origin/${repo.defaultBranch}` });
     if (r.kind === 'rejected') continue; // the branch moved meanwhile: the next check starts over from it
     await ctx.saveProgress({ pushed: { ...asRecord(ctx.task.progress.pushed), [repo.id]: r.sha } });
+    await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.pushed', summary: `${task.key}: merged ${repo.defaultBranch} into ${task.branch} in ${repo.name}, checks passed, pushed ${r.sha.slice(0, 7)}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { branch: task.branch, commit: r.sha, reason: 'base-merged', conflicts: files } });
     const specRepo = repos.find((x) => x.id === project.specRepoId) ?? repos[0]!;
     const all = await deps.store.prs.list(task.id);
     const others = all.filter((o) => o.id !== pr.id).map((o) => ({ repoName: names.get(o.repoId) ?? o.repoId, url: o.url }));

@@ -7,6 +7,7 @@ import { finalizeSpec, validateSpec } from '../spec/template.js';
 import { canTransition } from '../state-machine.js';
 import { NotFoundError, affectedRepos, loadProject, type WorkflowDeps } from './context.js';
 import { approvalState, currentSpecTemplate } from './steps.js';
+import { ownerOf } from '../audit.js';
 
 export class ActionError extends Error {
   override readonly name = 'ActionError';
@@ -100,6 +101,7 @@ export class TaskService {
       };
       await tx.tasks.upsert(t);
       await tx.transitions.add({ taskId: t.id, from: 'DRAFT', to: 'DRAFT', reason: `Created from ${t.source}.`, actor: 'owner', at: now });
+      await tx.audit.append({ at: now, actor: 'owner', ...ownerOf(await tx.settings.get()), action: 'task.created', summary: `Created ${t.key} "${t.title}" from ${t.source}.`, taskId: t.id, projectId: t.projectId, detail: { key: t.key, source: t.source, ...(t.externalKey ? { externalKey: t.externalKey } : {}), criteria: t.requirement.criteria.length, repos: t.affectedRepoIds } });
       return t;
     });
     this.deps.events?.emit({ type: 'task.updated', taskId: task.id, at: clock.iso() });
@@ -211,6 +213,7 @@ export class TaskService {
       await this.deps.store.transaction(async (tx) => {
         await tx.tasks.upsert(next);
         await tx.transitions.add({ taskId, from: task.state, to: task.state, reason: `Spec edited: version ${version}. Approvals reset.`, actor: 'owner', at: this.deps.clock.iso() });
+        await tx.audit.append({ at: this.deps.clock.iso(), actor: 'owner', ...ownerOf(await tx.settings.get()), action: 'spec.edited', summary: `${task.key}: spec edited, version ${version}. Earlier approvals no longer count.`, taskId, projectId: task.projectId, detail: { version } });
         if (pmRequestedAt) await scheduleJob(tx, this.deps.clock, { ...next, step: 'await-pm' });
       });
     }
@@ -252,6 +255,7 @@ export class TaskService {
     if (!check.valid) throw new ActionError(`Fix the spec first: ${check.problems.join(' ')}`);
     const approval: Approval = { id: this.deps.ids(), taskId, specVersion: latest.version, role: a.role, name: a.name.trim(), date: a.date, evidence: a.evidence.trim(), method: 'tandem', createdAt: this.deps.clock.iso() };
     await this.deps.store.approvals.upsert(approval);
+    await this.deps.store.audit.append({ at: approval.createdAt, actor: a.role === 'pm' ? 'pm' : 'owner', actorName: approval.name, action: 'spec.approved', summary: `${task.key}: ${a.role === 'pm' ? 'PM approval' : 'approval'} of spec version ${latest.version} by ${approval.name}${a.role === 'pm' ? ', recorded in Tandem' : ''}.`, taskId, projectId: task.projectId, detail: { role: a.role, specVersion: latest.version, method: 'tandem', evidence: approval.evidence, date: approval.date } });
     const state = approvalState(project, latest.version, await this.deps.store.approvals.list(taskId));
     if (state.complete) {
       const who = [state.owner?.name, state.pm ? `${state.pm.name} (PM)` : undefined].filter(Boolean).join(' and ');
@@ -275,6 +279,7 @@ export class TaskService {
     if (!pr) throw new NotFoundError(`Pull request ${prId} not found.`);
     const next = { ...pr, status: 'merged' as const, lastPolledAt: this.deps.clock.iso() };
     await this.deps.store.prs.upsert(next);
+    await this.deps.store.audit.append({ at: this.deps.clock.iso(), actor: 'owner', ...ownerOf(await this.deps.settings()), action: 'pr.marked-merged', summary: `Marked the pull request ${pr.url} as merged.`, taskId: pr.taskId, repoId: pr.repoId, detail: { url: pr.url } });
     await this.wakePoll(pr.taskId);
     return next;
   }
@@ -287,6 +292,7 @@ export class TaskService {
     const id = /\/pull-requests\/(\d+)/.exec(url)?.[1] ?? /\/pull\/(\d+)/.exec(url)?.[1];
     const next: PullRequest = { ...pr, url: url.trim(), status: 'open', ...(id ? { providerId: id } : {}) };
     await this.deps.store.prs.upsert(next);
+    await this.deps.store.audit.append({ at: this.deps.clock.iso(), actor: 'owner', ...ownerOf(await this.deps.settings()), action: 'pr.linked', summary: `Linked the pull request created by hand: ${next.url}.`, taskId: pr.taskId, repoId: pr.repoId, detail: { url: next.url } });
     await this.wakePoll(pr.taskId);
     return next;
   }

@@ -6,6 +6,7 @@ import { inspectMirror } from '@tandem/adapters';
 import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate, estimateTaskCredits, type ModelOption } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
 import { runDoctor } from '../doctor.js';
+import { auditOwner, settingsDiff } from '../audit.js';
 
 const SecretName = z.enum(['jira-token', 'github-token']);
 
@@ -57,7 +58,10 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.get('/api/settings', async () => tandem.settings());
   app.put('/api/settings', async (req) => {
     const next = Settings.parse(req.body);
+    const before = await store.settings.get();
     await store.settings.set(next);
+    const changes = settingsDiff(before, next);
+    if (changes.length) await auditOwner(store, { action: 'settings.updated', summary: `Changed ${changes.map((c) => c.field).join(', ')}.`, detail: { changes } });
     return tandem.settings();
   });
 
@@ -69,10 +73,13 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     const name = SecretName.parse((req.params as { name: string }).name);
     const { value } = z.object({ value: z.string().trim().min(8, 'That token looks too short') }).parse(req.body);
     await tandem.secrets.set(name, value);
+    await auditOwner(store, { action: 'secret.saved', summary: `Saved ${name} in the OS keychain.`, detail: { name } });
     return { saved: true };
   });
   app.delete('/api/secrets/:name', async (req) => {
-    await tandem.secrets.delete(SecretName.parse((req.params as { name: string }).name));
+    const name = SecretName.parse((req.params as { name: string }).name);
+    await tandem.secrets.delete(name);
+    await auditOwner(store, { action: 'secret.removed', summary: `Removed ${name} from the OS keychain.`, detail: { name } });
     return { deleted: true };
   });
 
@@ -107,6 +114,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     if (existing) throw new HttpError(409, `${existing.name} is already added.`);
     const repo = Repo.parse({ ...body, id: body.id ?? randomUUID(), host: detected.host, name: body.name ?? detected.name, createdAt: new Date().toISOString() });
     await store.repos.upsert(repo);
+    await auditOwner(store, { action: body.id ? 'repo.updated' : 'repo.added', summary: `${body.id ? 'Updated' : 'Added'} the repository ${repo.name}.`, repoId: repo.id, detail: { url: repo.url, defaultBranch: repo.defaultBranch, role: repo.role, commands: repo.commands } });
     return repo;
   });
 
@@ -117,6 +125,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     const body = RepoInput.partial().parse(req.body);
     const next = Repo.parse({ ...cur, ...body, commands: body.commands ? RepoCommands.parse(body.commands) : cur.commands });
     await store.repos.upsert(next);
+    await auditOwner(store, { action: 'repo.updated', summary: `Updated the repository ${next.name}: ${Object.keys(body).join(', ')}.`, repoId: next.id, detail: { fields: Object.keys(body), role: next.role, commands: next.commands, defaultBranch: next.defaultBranch } });
     return next;
   });
 
@@ -124,7 +133,9 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     const id = (req.params as { id: string }).id;
     const used = (await store.projects.list()).find((p) => p.repoIds.includes(id));
     if (used) throw new HttpError(409, `Remove it from the project "${used.name}" first.`);
+    const gone = await store.repos.get(id);
     await store.repos.delete(id);
+    if (gone) await auditOwner(store, { action: 'repo.removed', summary: `Removed the repository ${gone.name}.`, repoId: id, detail: { url: gone.url } });
     return { deleted: true };
   });
 
@@ -150,6 +161,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.post('/api/projects', async (req) => {
     const p = await toProject(ProjectInput.parse(req.body));
     await store.projects.upsert(p);
+    await auditOwner(store, { action: 'project.created', summary: `Created the project ${p.name}.`, projectId: p.id, detail: { repoIds: p.repoIds, pmGate: p.pmGate, keyPrefix: p.keyPrefix } });
     return p;
   });
   app.put('/api/projects/:id', async (req) => {
@@ -157,13 +169,17 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     if (!cur) throw new HttpError(404, 'Project not found.');
     const p = await toProject(ProjectInput.parse({ ...cur, ...(req.body as object) }), cur);
     await store.projects.upsert(p);
+    const changed = Object.keys(req.body as object).filter((k) => JSON.stringify((cur as Record<string, unknown>)[k]) !== JSON.stringify((p as Record<string, unknown>)[k]));
+    if (changed.length) await auditOwner(store, { action: 'project.updated', summary: `Updated the project ${p.name}: ${changed.join(', ')}.`, projectId: p.id, detail: { changes: changed.map((k) => ({ field: k, from: (cur as Record<string, unknown>)[k] ?? null, to: (p as Record<string, unknown>)[k] ?? null })) } });
     return p;
   });
   app.delete('/api/projects/:id', async (req) => {
     const id = (req.params as { id: string }).id;
     const active = (await store.tasks.list()).filter((t) => t.projectId === id && !['DONE', 'CANCELLED'].includes(t.state));
     if (active.length) throw new HttpError(409, `Finish or cancel its ${active.length} open task${active.length > 1 ? 's' : ''} first.`);
+    const gone = await store.projects.get(id);
     await store.projects.delete(id);
+    if (gone) await auditOwner(store, { action: 'project.deleted', summary: `Deleted the project ${gone.name}.`, projectId: id, detail: { repoIds: gone.repoIds } });
     return { deleted: true };
   });
 

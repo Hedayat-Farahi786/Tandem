@@ -26,6 +26,8 @@ import type {
   TaskTransition,
   UsageRecord,
   VerifyRun,
+  AuditEntry,
+  AuditInput,
 } from '@tandem/shared';
 
 /* ================================================================== storage */
@@ -99,6 +101,14 @@ export interface Store {
   settings: { get(): Promise<Settings>; set(s: Settings): Promise<void> };
   /** Comments for tracker-local, keyed by task key. */
   trackerComments: { add(c: TrackerComment): Promise<void>; list(key: string): Promise<TrackerComment[]> };
+  /**
+   * Append-only audit log with a hash chain (see audit.ts). `append` assigns the sequence number and
+   * hashes; there is no update or delete. `list` returns entries in sequence order, newest last.
+   */
+  audit: {
+    append(e: AuditInput): Promise<AuditEntry>;
+    list(scope?: { taskId?: string; since?: string; until?: string; afterSeq?: number; limit?: number }): Promise<AuditEntry[]>;
+  };
 }
 
 /* ================================================================== source hosts and git */

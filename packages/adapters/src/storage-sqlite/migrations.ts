@@ -40,4 +40,14 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; sql: string }> = [
       CREATE INDEX tracker_comments_key ON tracker_comments (key, created_at);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE audit (seq INTEGER PRIMARY KEY, at TEXT NOT NULL, task_id TEXT, action TEXT NOT NULL, doc TEXT NOT NULL);
+      CREATE INDEX audit_task ON audit (task_id, seq);
+      CREATE INDEX audit_at ON audit (at);
+      CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'The audit log is append-only.'); END;
+      CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'The audit log is append-only.'); END;
+    `,
+  },
 ];

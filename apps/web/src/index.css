@@ -1,65 +1,76 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/source-serif-4";
+@import "@fontsource-variable/inter/opsz.css";
 
 /*
  * Tandem design tokens: warm neutrals, a monochrome accent (#0B0B0B; inverted in dark mode), 8px grid.
  * Text/background pairs meet WCAG AA (4.5:1); large text and UI parts at least 3:1.
  */
+/*
+ * Tandem design tokens: refined neutrals, a monochrome accent (#0B0B0B; inverted in dark mode).
+ * The sidebar is the canvas; pages sit on a raised panel. Text/background pairs meet WCAG AA.
+ */
 :root {
-  --bg: #faf9f5;
-  --sidebar: #f3f1ea;
+  --bg: #fdfdfc;
+  --sidebar: #f3f3f1;
   --surface: #ffffff;
-  --surface-2: #f5f3ec;
-  --surface-3: #ece9df;
-  --border: #e6e3d9;
-  --border-strong: #d6d2c4;
-  --text: #1f1e1b;
-  --text-muted: #57544c;
-  --text-faint: #6c685f;
+  --surface-2: #f6f6f4;
+  --surface-3: #ececea;
+  --border: #e7e7e4;
+  --border-strong: #d5d5d1;
+  --text: #19191a;
+  --text-muted: #57575a;
+  --text-faint: #69696c;
   --accent: #0b0b0b;
-  --accent-hover: #2b2b2a;
-  --accent-soft: #ecebe6;
+  --accent-hover: #2a2a2b;
+  --accent-soft: #efefed;
   --accent-text: #0b0b0b;
   --accent-fg: #ffffff;
-  --ok: #2f6b3a;
-  --ok-soft: #e9f2e7;
-  --warn: #8a5a00;
-  --warn-soft: #f9f0d9;
-  --danger: #b42318;
-  --danger-soft: #fbeae8;
+  --ok: #217a45;
+  --ok-soft: #e6f4ea;
+  --warn: #8a5300;
+  --warn-soft: #fbf0dc;
+  --danger: #c0281c;
+  --danger-soft: #fdecea;
+  --info: #2459c9;
+  --info-soft: #e9effc;
   --focus: #0b0b0b;
-  --shadow-sm: 0 1px 2px rgb(31 30 27 / 0.05);
-  --shadow-md: 0 1px 2px rgb(31 30 27 / 0.04), 0 8px 24px -6px rgb(31 30 27 / 0.12);
-  --shadow-lg: 0 2px 4px rgb(31 30 27 / 0.04), 0 24px 48px -12px rgb(31 30 27 / 0.22);
+  --shadow-sm: 0 1px 2px rgb(16 16 18 / 0.05);
+  --shadow-md: 0 1px 2px rgb(16 16 18 / 0.04), 0 6px 20px -6px rgb(16 16 18 / 0.1);
+  --shadow-lg: 0 2px 4px rgb(16 16 18 / 0.04), 0 24px 56px -12px rgb(16 16 18 / 0.24);
+  --shadow-panel: 0 0 0 1px rgb(16 16 18 / 0.06), 0 1px 3px rgb(16 16 18 / 0.05);
+  --hairline-highlight: rgb(255 255 255 / 0.7);
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --bg: #1b1a17;
-  --sidebar: #171613;
-  --surface: #23221e;
-  --surface-2: #2a2924;
-  --surface-3: #33312b;
-  --border: #36342e;
-  --border-strong: #46433b;
-  --text: #eceae4;
-  --text-muted: #b5b1a6;
-  --text-faint: #9d998e;
-  --accent: #f2f1ee;
+  --bg: #161617;
+  --sidebar: #0e0e0f;
+  --surface: #1c1c1e;
+  --surface-2: #222224;
+  --surface-3: #2b2b2e;
+  --border: #29292c;
+  --border-strong: #3a3a3e;
+  --text: #ededee;
+  --text-muted: #ababb0;
+  --text-faint: #9a9aa0;
+  --accent: #f2f2f2;
   --accent-hover: #ffffff;
-  --accent-soft: #2e2d29;
-  --accent-text: #f2f1ee;
-  --accent-fg: #1b1a17;
-  --ok: #7cc489;
-  --ok-soft: #1f2d21;
-  --warn: #e3b55b;
-  --warn-soft: #2f2716;
-  --danger: #f08b80;
-  --danger-soft: #35201d;
-  --focus: #f2f1ee;
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
-  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -6px rgb(0 0 0 / 0.5);
-  --shadow-lg: 0 2px 4px rgb(0 0 0 / 0.3), 0 24px 48px -12px rgb(0 0 0 / 0.6);
+  --accent-soft: #29292c;
+  --accent-text: #f2f2f2;
+  --accent-fg: #141415;
+  --ok: #6fd08f;
+  --ok-soft: #16281d;
+  --warn: #f0b95a;
+  --warn-soft: #2d2413;
+  --danger: #ff8a7e;
+  --danger-soft: #36191a;
+  --info: #8cb2ff;
+  --info-soft: #172238;
+  --focus: #f2f2f2;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -6px rgb(0 0 0 / 0.55);
+  --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.04), 0 24px 56px -12px rgb(0 0 0 / 0.75);
+  --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 3px rgb(0 0 0 / 0.5);
+  --hairline-highlight: rgb(255 255 255 / 0.06);
   color-scheme: dark;
 }
 
@@ -85,16 +96,21 @@
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-serif: "Source Serif 4 Variable", ui-serif, Georgia, serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
+  --shadow-panel: var(--shadow-panel);
   --animate-in: fade-in 140ms ease-out;
   --animate-pop: pop-in 170ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-rise: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* Headings: Inter's display cut (optical size) with tight tracking. */
+@utility font-display { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.021em; font-optical-sizing: auto; }
 
 @keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -117,7 +133,8 @@ html, body, #root { height: 100%; }
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.55;
-    font-feature-settings: "cv11", "ss01";
+    font-feature-settings: "cv11", "ss01", "ss03";
+    font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -139,8 +156,8 @@ html, body, #root { height: 100%; }
 /* Rendered Markdown (specs, chat). */
 .prose-tandem { font-size: 14px; line-height: 1.7; color: var(--text); }
 .prose-tandem > :first-child { margin-top: 0; }
-.prose-tandem h1 { font-family: var(--font-serif); font-size: 26px; font-weight: 500; letter-spacing: -0.01em; margin: 0 0 16px; }
-.prose-tandem h2 { font-family: var(--font-serif); font-size: 18px; font-weight: 500; margin: 32px 0 8px; }
+.prose-tandem h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 16px; }
+.prose-tandem h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.012em; margin: 32px 0 8px; }
 .prose-tandem h3 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
 .prose-tandem p, .prose-tandem ul, .prose-tandem ol, .prose-tandem pre, .prose-tandem table, .prose-tandem blockquote { margin: 0 0 12px; }
 .prose-tandem ul { list-style: disc; padding-left: 20px; }

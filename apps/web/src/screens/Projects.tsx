@@ -229,7 +229,10 @@ export function ProjectsScreen() {
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
       <div className="flex items-end justify-between gap-4">
-        <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Projects</h1>
+        <div>
+          <h1 className="font-display text-[26px] leading-tight">Projects</h1>
+          <p className="mt-1 text-[13.5px] text-muted">Repositories grouped into the products you build.</p>
+        </div>
         <LinkButton to="/setup" variant="primary" icon={Plus}>
           Add repository
         </LinkButton>
@@ -244,7 +247,7 @@ export function ProjectsScreen() {
           ['Done', mine.filter((t) => t.state === 'DONE').length],
         ] as const;
         return (
-          <section key={p.id} aria-label={p.name} className="rounded-2xl border border-line bg-surface p-5 shadow-sm transition-shadow hover:shadow-md">
+          <section key={p.id} aria-label={p.name} className="rounded-2xl bg-surface p-5 shadow-panel">
             <div className="flex items-start gap-4">
               <Monogram name={p.name} size={44} />
               <div className="min-w-0 flex-1">
@@ -257,11 +260,12 @@ export function ProjectsScreen() {
                 Edit
               </Button>
             </div>
-            <dl className="mt-5 grid grid-cols-3 gap-2">
-              {stats.map(([k, v]) => (
-                <div key={k} className="rounded-xl bg-surface-2/70 px-3.5 py-2.5">
-                  <dt className="text-[12px] text-muted">{k}</dt>
-                  <dd className="font-serif text-[22px] leading-tight font-medium tabular-nums">{v}</dd>
+            <dl className="mt-5 grid grid-cols-3 divide-x divide-line rounded-xl bg-surface-2/60 py-3">
+              {stats.map(([k, v], i) => (
+                <div key={k} className="flex items-center gap-2.5 px-4">
+                  <span aria-hidden className={cx('size-2 rounded-full', i === 0 ? 'bg-info' : i === 1 ? 'bg-warn' : 'bg-ok')} />
+                  <dt className="text-[12.5px] text-muted">{k}</dt>
+                  <dd className="ml-auto font-display text-[20px] leading-none tabular-nums">{v}</dd>
                 </div>
               ))}
             </dl>
@@ -269,7 +273,7 @@ export function ProjectsScreen() {
               {list.map((r, n) => (
                 <li key={r.id}>
                   <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3 text-left">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-muted shadow-[0_0_0_1px_var(--border)]">
                       {r.host.kind === 'github' ? <GitBranch aria-hidden className="size-4" /> : <Cloud aria-hidden className="size-4" />}
                     </span>
                     <span className="min-w-0 flex-1">

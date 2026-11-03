@@ -4,6 +4,31 @@ All notable changes to Tandem. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Traceability.** An append-only audit log in which every entry is sealed
+  with a SHA-256 hash chain: state changes, approvals, spec edits, commits
+  pushed, pull requests, and every change to settings, tokens (name only),
+  repositories, projects and rules, with who made it. Changing or removing
+  an entry is detected.
+- **Activity** page: everything people, Copilot and Tandem did, by day, with
+  filters, details, audit verification, and CSV or JSON export.
+- **Task › Trace**: request → criteria and their tests → spec versions and
+  approvals → Copilot runs → checks and review → commits and pull requests
+  → audit entries, with a Markdown report to download.
+- **Search** (Ctrl K / ⌘K) for pages, tasks and projects.
+- A project switcher at the top of the sidebar and a count of tasks that
+  need you next to Tasks.
+
+### Changed
+
+- A new visual design: a neutral palette, Inter display headings, pages on
+  a raised panel, grouped settings cards, a step indicator and icon
+  timeline on tasks, richer empty states, and a "how it works" line on the
+  chat start page. Contrast still passes axe (WCAG AA) in light and dark.
+
 ## [1.0.0] - 2026-11-03
 
 The first release: from a chat request to tested, reviewed pull requests, on
