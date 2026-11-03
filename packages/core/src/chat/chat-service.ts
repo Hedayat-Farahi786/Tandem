@@ -49,13 +49,21 @@ export function extractRefs(text: string, root: string, repos: readonly Repo[]):
 }
 
 /** Chat: Ask (read-only questions), Request (clarify until ready, then create the task), task chat. */
+/** A thread title from a question: its first line, cut at a word boundary. */
+export function shortTitle(text: string, max = 60): string {
+  const line = text.trim().split('\n')[0]!.replace(/\s+/g, ' ');
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 15)).trimEnd()}…`;
+}
+
 export class ChatService {
   constructor(
     private readonly deps: WorkflowDeps,
     private readonly tasks: TaskService,
   ) {}
 
-  async createThread(input: { projectId: string; mode: Exclude<ChatMode, 'task'>; title?: string }): Promise<ChatThread> {
+  async createThread(input: { projectId: string; mode: Exclude<ChatMode, 'task'>; title?: string | undefined }): Promise<ChatThread> {
     await loadProject(this.deps, input.projectId);
     const now = this.deps.clock.iso();
     const t: ChatThread = { id: this.deps.ids(), projectId: input.projectId, mode: input.mode, title: input.title?.trim() || (input.mode === 'ask' ? 'Question' : 'New request'), createdAt: now, updatedAt: now };
@@ -130,7 +138,8 @@ export class ChatService {
     }
     thread = await this.thread(threadId);
     const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos));
-    thread = { ...thread, updatedAt: this.deps.clock.iso(), ...(thread.title === 'New request' && thread.draftTitle ? { title: thread.draftTitle } : {}) };
+    const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
+    thread = { ...thread, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
     await this.deps.store.threads.upsert(thread);
     this.deps.events?.emit({ type: 'chat.done', threadId, messageId: reply.id });
     return { message: reply, thread, ...(thread.mode === 'request' ? { readiness: checkReadiness(thread.draft ?? Requirement.parse({})) } : {}) };

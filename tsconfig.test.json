@@ -4,13 +4,34 @@
     "noEmit": true,
     "declaration": false,
     "rootDir": ".",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "@tandem/shared": ["./packages/shared/src/index.ts"],
-      "@tandem/core": ["./packages/core/src/index.ts"],
-      "@tandem/core/testing": ["./packages/core/src/testing/index.ts"],
-      "@tandem/adapters": ["./packages/adapters/src/index.ts"]
-    }
+      "@tandem/shared": [
+        "./packages/shared/src/index.ts"
+      ],
+      "@tandem/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@tandem/core/testing": [
+        "./packages/core/src/testing/index.ts"
+      ],
+      "@tandem/adapters": [
+        "./packages/adapters/src/index.ts"
+      ]
+    },
+    "lib": [
+      "ES2023",
+      "DOM"
+    ]
   },
-  "include": ["packages/*/src/**/*.test.ts", "packages/*/test/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "packages/*/src/**/*.test.ts",
+    "packages/*/test/**/*.ts",
+    "apps/server/src/**/*.test.ts",
+    "e2e/**/*.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
 }

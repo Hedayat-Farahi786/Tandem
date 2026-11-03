@@ -37,8 +37,8 @@ export default tseslint.config(
     },
   },
   {
-    // Spikes and scripts print reports.
-    files: ['spikes/src/**/*.ts', 'scripts/**/*.ts', '**/*.test.ts'],
+    // Spikes, scripts and the command line print to the terminal.
+    files: ['spikes/src/**/*.ts', 'scripts/**/*.ts', '**/*.test.ts', 'apps/server/src/cli.ts', 'e2e/**/*.{ts,mjs}'],
     rules: { 'no-console': 'off' },
   },
 );

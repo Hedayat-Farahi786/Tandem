@@ -527,3 +527,14 @@ describe('workflow: learned rules', () => {
     expect(h.agent.calls.find((c) => c.prompt.startsWith('Implement'))!.opts.instructions).toContain('Always validate query parameters.');
   });
 });
+
+describe('service: partial requirement updates', () => {
+  it('never resets fields that were not given', async () => {
+    const h = harness();
+    await h.ready;
+    const t = await h.service.create({ projectId: 'p1', title: 'T', requirement: { goal: 'Keep me', exampleData: undefined } });
+    expect(t.requirement.goal).toBe('Keep me');
+    const u = await h.service.update(t.id, { requirement: { outOfScope: 'Auth', goal: undefined } });
+    expect(u.requirement).toMatchObject({ goal: 'Keep me', outOfScope: 'Auth' });
+  });
+});

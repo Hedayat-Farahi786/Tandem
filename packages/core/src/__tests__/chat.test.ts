@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ChatService, extractRefs } from '../chat/chat-service.js';
+import { ChatService, extractRefs, shortTitle } from '../chat/chat-service.js';
 import { GOOD_REQUIREMENT, SINGLE_SPEC, harness } from './harness.js';
 
 function chat(h: ReturnType<typeof harness>) {
@@ -33,12 +33,24 @@ describe('chat: Ask', () => {
     ]);
     expect(h.agent.calls[0]!.prompt).toContain('Question: Where is the greeting route?');
     expect(h.agent.calls[0]!.opts.workspace).toBe(h.deps.paths.referenceRoot('p1'));
+    expect((await h.store.threads.get(t.id))!.title).toBe('Where is the greeting route?');
     await c.send(t.id, 'And the tests?');
+    expect((await h.store.threads.get(t.id))!.title).toBe('Where is the greeting route?');
     expect(h.agent.calls[1]!.opts.resumeId).toBe((await h.store.threads.get(t.id))!.sessionId);
     expect((await c.messages(t.id)).map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
     expect(await h.store.usage.prompts({})).toBe(2);
     expect(h.events.events.some((e) => e.type === 'chat.done')).toBe(true);
     await expect(c.send(t.id, '   ')).rejects.toThrow(/Write a message/);
+  });
+});
+
+describe('shortTitle', () => {
+  it('keeps short first lines and cuts long ones at a word boundary', () => {
+    expect(shortTitle('  Where is X?\nmore detail')).toBe('Where is X?');
+    const t = shortTitle('How does the checkout service decide which payment provider to call when the primary one is down?');
+    expect(t.length).toBeLessThanOrEqual(61);
+    expect(t.endsWith('…')).toBe(true);
+    expect(t).toBe('How does the checkout service decide which payment provider…');
   });
 });
 

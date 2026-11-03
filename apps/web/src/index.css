@@ -1,0 +1,150 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/source-serif-4";
+
+/*
+ * Tandem design tokens: warm neutrals, one clay accent, 8px grid.
+ * Text/background pairs meet WCAG AA (4.5:1); large text and UI parts at least 3:1.
+ */
+:root {
+  --bg: #faf9f5;
+  --sidebar: #f3f1ea;
+  --surface: #ffffff;
+  --surface-2: #f5f3ec;
+  --surface-3: #ece9df;
+  --border: #e6e3d9;
+  --border-strong: #d6d2c4;
+  --text: #1f1e1b;
+  --text-muted: #57544c;
+  --text-faint: #6c685f;
+  --accent: #b4532f;
+  --accent-hover: #9c4527;
+  --accent-soft: #f8ebe4;
+  --accent-text: #9c4527;
+  --accent-fg: #ffffff;
+  --ok: #2f6b3a;
+  --ok-soft: #e9f2e7;
+  --warn: #8a5a00;
+  --warn-soft: #f9f0d9;
+  --danger: #b42318;
+  --danger-soft: #fbeae8;
+  --focus: #b4532f;
+  --shadow-sm: 0 1px 2px rgb(31 30 27 / 0.05);
+  --shadow-md: 0 1px 2px rgb(31 30 27 / 0.04), 0 8px 24px -6px rgb(31 30 27 / 0.12);
+  --shadow-lg: 0 2px 4px rgb(31 30 27 / 0.04), 0 24px 48px -12px rgb(31 30 27 / 0.22);
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  --bg: #1b1a17;
+  --sidebar: #171613;
+  --surface: #23221e;
+  --surface-2: #2a2924;
+  --surface-3: #33312b;
+  --border: #36342e;
+  --border-strong: #46433b;
+  --text: #eceae4;
+  --text-muted: #b5b1a6;
+  --text-faint: #9d998e;
+  --accent: #d97757;
+  --accent-hover: #e48a6c;
+  --accent-soft: #3a2a22;
+  --accent-text: #e8957a;
+  --accent-fg: #1b1a17;
+  --ok: #7cc489;
+  --ok-soft: #1f2d21;
+  --warn: #e3b55b;
+  --warn-soft: #2f2716;
+  --danger: #f08b80;
+  --danger-soft: #35201d;
+  --focus: #e48a6c;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -6px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / 0.3), 0 24px 48px -12px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-accent-fg: var(--accent-fg);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4 Variable", ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --animate-in: fade-in 140ms ease-out;
+  --animate-pop: pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+@layer base {
+html, body, #root { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
+  ::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  ::placeholder { color: var(--text-faint); opacity: 1; }
+  
+  /* Quiet scrollbars everywhere. */
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--text-faint); }
+}
+
+/* Rendered Markdown (specs, chat). */
+.prose-tandem { font-size: 14px; line-height: 1.7; color: var(--text); }
+.prose-tandem > :first-child { margin-top: 0; }
+.prose-tandem h1 { font-family: var(--font-serif); font-size: 26px; font-weight: 500; letter-spacing: -0.01em; margin: 0 0 16px; }
+.prose-tandem h2 { font-family: var(--font-serif); font-size: 18px; font-weight: 500; margin: 32px 0 8px; }
+.prose-tandem h3 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+.prose-tandem p, .prose-tandem ul, .prose-tandem ol, .prose-tandem pre, .prose-tandem table, .prose-tandem blockquote { margin: 0 0 12px; }
+.prose-tandem ul { list-style: disc; padding-left: 20px; }
+.prose-tandem ol { list-style: decimal; padding-left: 20px; }
+.prose-tandem li { margin: 2px 0; }
+.prose-tandem li::marker { color: var(--text-faint); }
+.prose-tandem code { font-family: var(--font-mono); font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--border); padding: 0 5px; border-radius: 5px; }
+.prose-tandem pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; }
+.prose-tandem pre code { background: none; border: 0; padding: 0; }
+.prose-tandem table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.prose-tandem th, .prose-tandem td { border-bottom: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+.prose-tandem tr:last-child td { border-bottom: 0; }
+.prose-tandem th { background: var(--surface-2); font-weight: 600; font-size: 12px; color: var(--text-muted); }
+.prose-tandem a { color: var(--accent-text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
+.prose-tandem blockquote { border-left: 2px solid var(--border-strong); padding-left: 12px; color: var(--text-muted); }
+.prose-tandem hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

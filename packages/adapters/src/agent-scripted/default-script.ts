@@ -1,0 +1,268 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Script, ScriptCall, ScriptReply } from '@tandem/core/testing';
+
+/**
+ * The scripted agent's default behaviour (TANDEM_AGENT=scripted): deterministic answers and real,
+ * check-passing edits for the sandbox apps in spikes/sandbox (backend, frontend, fullstack). Used by
+ * the Playwright smoke tests and the scripted end-to-end runs; never by real users.
+ */
+
+function section(prompt: string, heading: string): string {
+  const m = new RegExp(`## ${heading}\\n\\n([\\s\\S]*?)(?:\\n\\n## |$)`).exec(prompt);
+  return m?.[1] ?? '';
+}
+
+function specFrom(prompt: string): string {
+  const req = section(prompt, 'Requirement');
+  const title = /^# (.+)$/m.exec(req)?.[1] ?? 'Task';
+  const criteria = [...req.matchAll(/^\d+\. (Given .+)$/gm)].map((m) => m[1]!);
+  const repos = /Affected repos: ([^\n]+)\./.exec(prompt)?.[1] ?? 'app';
+  const multi = /"API contract" section is mandatory/.test(prompt);
+  const feedback = section(prompt, 'Requested changes \\(apply these\\)').trim();
+  return `# ${title}
+
+| Task | Version | Status |
+| --- | --- | --- |
+| KEY | 1 | In review |
+
+## Problem and goal
+
+${/\*\*Goal:\*\* (.+)/.exec(req)?.[1] ?? title}
+
+## User story
+
+${/\*\*User story:\*\* (.+)/.exec(req)?.[1] ?? 'As a user I want this change.'}
+
+## Acceptance criteria
+
+${(criteria.length ? criteria : ['Given the service runs, when GET /health is called, then it returns 200 {"status":"ok"}.', 'Given the main page loads, when health is ok, then it shows "Status: ok".']).map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+## In scope
+
+- What the criteria describe.${feedback ? `\n- ${feedback}` : ''}
+
+## Out of scope
+
+- ${/\*\*Out of scope:\*\* (.+)/.exec(req)?.[1] ?? 'Anything else.'}
+
+## Affected repos and changes
+
+- ${repos}
+
+## API contract
+
+${multi ? 'Request:\n\n```http\nGET /health\n```\n\nResponse (200):\n\n```json\n{ "status": "ok" }\n```\n\nError (503):\n\n```json\n{ "status": "error" }\n```' : 'None.'}
+
+## Data and database changes
+
+None.
+
+## UI changes and states
+
+Loading shows "Checking status…"; error shows "Status unavailable".
+
+## Edge cases and errors
+
+The backend is down: the page shows the error state.
+
+## Security and permissions
+
+Public endpoint; no data exposed.
+
+## Tests to add
+
+- One test per criterion (criteria ${criteria.map((_, i) => i + 1).join(', ') || '1, 2'}).
+
+## Rollout notes
+
+No flags needed.
+
+## Open questions
+
+None.
+
+## Approvals
+`;
+}
+
+const read = (p: string) => (existsSync(p) ? readFileSync(p, 'utf8') : undefined);
+
+const BACKEND_TEST = (rel: string) => `import { describe, expect, it } from 'vitest';
+import { buildApp } from '${rel}';
+
+describe('GET /health', () => {
+  it('returns ok', async () => {
+    const app = buildApp();
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: 'ok' });
+    await app.close();
+  });
+});
+`;
+
+const HEALTH_COMPONENT = `import { useEffect, useState } from 'react';
+
+export async function fetchHealth(fetchImpl: typeof fetch = fetch): Promise<string> {
+  const res = await fetchImpl('/health');
+  if (!res.ok) throw new Error(\`Health request failed with \${res.status}\`);
+  return ((await res.json()) as { status: string }).status;
+}
+
+export function HealthStatus({ load = fetchHealth }: { load?: () => Promise<string> }) {
+  const [status, setStatus] = useState<string>('Checking status…');
+  useEffect(() => {
+    let active = true;
+    load()
+      .then((s) => active && setStatus(\`Status: \${s}\`))
+      .catch(() => active && setStatus('Status unavailable'));
+    return () => {
+      active = false;
+    };
+  }, [load]);
+  return <p data-testid="health">{status}</p>;
+}
+`;
+
+const HEALTH_TEST = (rel: string) => `import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { HealthStatus } from '${rel}';
+
+afterEach(cleanup);
+
+describe('HealthStatus', () => {
+  it('shows the status from the API', async () => {
+    render(<HealthStatus load={() => Promise.resolve('ok')} />);
+    expect(await screen.findByText('Status: ok')).toBeTruthy();
+  });
+
+  it('shows an error state when the API fails', async () => {
+    render(<HealthStatus load={() => Promise.reject(new Error('down'))} />);
+    expect(await screen.findByText('Status unavailable')).toBeTruthy();
+  });
+});
+`;
+
+function implement(call: ScriptCall): ScriptReply {
+  const repo = /in the `([^`]+)` repo/.exec(call.prompt)?.[1] ?? 'app';
+  const root = join(call.opts.workspace, repo);
+  const edits: ScriptReply['edits'] = [];
+  const tests: Array<{ criterion: number; file: string; name: string }> = [];
+  const addRoute = (file: string) => {
+    const src = read(join(root, file));
+    if (src && !src.includes("'/health'")) edits.push({ path: `${repo}/${file}`, content: src.replace(/\n(\s*)return app;/, "\n$1app.get('/health', async () => ({ status: 'ok' as const }));\n\n$1return app;") });
+  };
+  const addUi = (dir: string, testDir: string, rel: string) => {
+    edits.push({ path: `${repo}/${dir}/HealthStatus.tsx`, content: HEALTH_COMPONENT });
+    edits.push({ path: `${repo}/${testDir}/HealthStatus.test.tsx`, content: `${testDir.includes('web') ? '// @vitest-environment jsdom\n' : ''}${HEALTH_TEST(rel)}` });
+    const main = read(join(root, dir, 'main.tsx'));
+    if (main && !main.includes('HealthStatus')) {
+      edits.push({ path: `${repo}/${dir}/main.tsx`, content: main.replace("import { App } from './App';", "import { App } from './App';\nimport { HealthStatus } from './HealthStatus';").replace('<App />', '<App />\n    <HealthStatus />') });
+    }
+    tests.push({ criterion: 2, file: `${testDir}/HealthStatus.test.tsx`, name: 'shows the status from the API' });
+  };
+  if (existsSync(join(root, 'src', 'server', 'app.ts'))) {
+    addRoute('src/server/app.ts');
+    edits.push({ path: `${repo}/test/server/health.test.ts`, content: BACKEND_TEST('../../src/server/app.js') });
+    tests.push({ criterion: 1, file: 'test/server/health.test.ts', name: 'returns ok' });
+    addUi('src/web', 'test/web', '../../src/web/HealthStatus');
+  } else if (existsSync(join(root, 'src', 'app.ts'))) {
+    addRoute('src/app.ts');
+    edits.push({ path: `${repo}/test/health.test.ts`, content: BACKEND_TEST('../src/app.js') });
+    tests.push({ criterion: 1, file: 'test/health.test.ts', name: 'returns ok' }, { criterion: 2, file: 'test/health.test.ts', name: 'returns ok' });
+  } else if (existsSync(join(root, 'src', 'App.tsx'))) {
+    addUi('src', 'test', '../src/HealthStatus');
+    tests.push({ criterion: 1, file: 'test/HealthStatus.test.tsx', name: 'shows the status from the API' });
+  } else {
+    edits.push({ path: `${repo}/HEALTH.md`, content: 'GET /health returns {"status":"ok"}.\n' });
+  }
+  return { text: `Implemented ${repo}: ${edits.map((e) => e.path).join(', ')}.`, edits, tools: tests.map((t) => ({ name: 'tandem_record_test', args: { ...t, repo } })) };
+}
+
+function resolveConflicts(call: ScriptCall): ScriptReply {
+  const files = /hit conflicts in: ([^\n]+)\./.exec(call.prompt)?.[1]?.split(', ') ?? [];
+  const repo = /^Rebasing (\S+) onto/.exec(call.prompt)?.[1] ?? 'app';
+  const edits = files
+    .map((f) => ({ f, src: read(join(call.opts.workspace, repo, f)) }))
+    .filter((x): x is { f: string; src: string } => Boolean(x.src))
+    .map(({ f, src }) => ({ path: `${repo}/${f}`, content: src.replace(/^<<<<<<< [^\n]*\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> [^\n]*\n/gm, '$1$2') }));
+  return { text: `Kept both sides in ${files.join(', ')}.`, edits };
+}
+
+function chatReply(call: ScriptCall): ScriptReply {
+  const p = call.prompt;
+  const owner = /Owner: ([\s\S]*)$/.exec(p)?.[1]?.trim() ?? '';
+  if (/^Question: /m.test(p)) {
+    const repo = /Repos in the workspace: ([\w.-]+)\//.exec(p)?.[1] ?? 'app';
+    return { text: `The request handlers are in ${repo}/src/app.ts:16 (buildApp), and their tests in ${repo}/test/app.test.ts:5.` };
+  }
+  if (p.includes('Draft so far:')) {
+    const repos = [...p.matchAll(/([\w.-]+)\/ \(/g)].map((m) => m[1]!);
+    const draft = /Draft so far:\n([\s\S]*?)\n\n(?:Still missing|The draft meets)/.exec(p)?.[1] ?? '';
+    if (/Still missing/.test(p) && !/^1\. Given/m.test(draft)) {
+      return {
+        text: 'Thanks. Two questions: what should the page show while the status loads or if the backend is down? And is anything out of scope, such as authentication?',
+        tools: [{ name: 'tandem_update_draft', args: { title: 'Add a GET /health endpoint', goal: owner.slice(0, 300) || 'Expose service health', criteria: [{ given: 'the backend is running', when: 'GET /health is called', then: 'it returns 200 {"status":"ok"}' }] } }],
+      };
+    }
+    return {
+      text: 'That covers everything: the draft meets the Definition of Ready. Review the checklist and create the task.',
+      tools: [
+        {
+          name: 'tandem_update_draft',
+          args: {
+            userStory: 'As an operator I want to see whether the service is up',
+            criteria: [
+              { given: 'the backend is running', when: 'GET /health is called', then: 'it returns 200 {"status":"ok"}' },
+              { given: 'the main page loads', when: 'the health call succeeds', then: 'the page shows "Status: ok"' },
+            ],
+            exampleData: 'GET /health -> 200 {"status":"ok"}',
+            affectedAreas: 'Backend routes; main page',
+            outOfScope: 'Authentication, metrics',
+            openQuestions: [],
+            affectedRepos: repos,
+            size: { estimatedLines: 90, perRepo: [], features: ['health status'], proposedSplit: [], rationale: 'One endpoint and one status line.' },
+          },
+        },
+      ],
+    };
+  }
+  if (/\b(change|also|instead|add)\b/i.test(owner)) {
+    return { text: 'I proposed that change to the spec; confirm it to redraft.', tools: [{ name: 'tandem_request_spec_change', args: { kind: 'redraft', summary: owner.slice(0, 80), feedback: owner } }] };
+  }
+  return { text: `This task is described in the spec. ${owner ? 'Ask me about the build, the diff or failing checks.' : ''}`.trim() };
+}
+
+export const defaultScript: Script = (call) => {
+  const p = call.prompt;
+  if (p.startsWith('Estimate the size')) return { value: { estimatedLines: 90, perRepo: [], features: ['health status'], proposedSplit: [], rationale: 'One endpoint and one status line.' } };
+  if (p.startsWith('Turn this ticket')) {
+    return {
+      value: {
+        title: 'Imported task',
+        goal: 'Do what the ticket asks',
+        userStory: 'As a user I want the ticket done',
+        criteria: [
+          { given: 'the ticket', when: 'it is implemented', then: 'its first outcome holds' },
+          { given: 'the ticket', when: 'it is tested', then: 'its second outcome holds' },
+        ],
+        exampleData: 'See the ticket',
+        affectedAreas: 'See the ticket',
+        outOfScope: 'Anything not in the ticket',
+        openQuestions: [],
+        affectedRepos: [],
+        size: { estimatedLines: 60, perRepo: [], features: ['ticket'], proposedSplit: [], rationale: 'small' },
+      },
+    };
+  }
+  if (p.startsWith('Write the implementation spec')) return { text: specFrom(p) };
+  if (p.startsWith('Review this change')) return { value: { findings: [] } };
+  if (p.startsWith('Implement the approved spec')) return implement(call);
+  if (p.startsWith('Verification failed')) return { text: 'Looked at the failures; no change.' };
+  if (p.startsWith('These acceptance criteria have no recorded test')) return { text: 'Covered by existing tests.' };
+  if (p.startsWith('A separate reviewer')) return { text: 'Nothing to fix.' };
+  if (p.startsWith('Rebasing')) return resolveConflicts(call);
+  if (p.startsWith('Repos in the workspace')) return chatReply(call);
+  return { text: 'OK.' };
+};

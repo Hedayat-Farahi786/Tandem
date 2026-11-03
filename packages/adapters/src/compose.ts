@@ -50,6 +50,7 @@ export interface Tandem {
   codecommit: CodeCommitHost;
   github: GitHubHost;
   secrets: SecretStore;
+  agent: AgentRuntime;
   localTracker: LocalTracker;
   hostFor(repo: Repo): CodeCommitHost | GitHubHost;
   close(): Promise<void>;
@@ -125,6 +126,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     codecommit: hosts.codecommit,
     github: hosts.github,
     secrets,
+    agent,
     localTracker,
     hostFor,
     close: async () => {

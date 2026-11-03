@@ -87,7 +87,8 @@ account names are masked in them.
 `tandem-sandbox-frontend`, tagged `purpose=tandem-sandbox`, seeded from
 `spikes/sandbox/*` on `main`.
 
-## Waiting on the owner
-
-- Open the console link for `agent/console-link-check` and confirm the
-  "Create pull request" page shows main ← agent/console-link-check.
+13. **Console-link fallback confirmed.** The owner opened the prefilled link for
+    `agent/console-link-check` and created PR 7 from it (source
+    `refs/heads/agent/console-link-check`, destination `refs/heads/main`, title
+    prefilled from the commit). Format:
+    `https://{region}.console.aws.amazon.com/codesuite/codecommit/repositories/{repo}/pull-requests/new/refs/heads/{dest}/.../refs/heads/{source}?region={region}`.

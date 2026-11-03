@@ -12,11 +12,19 @@ export class ActionError extends Error {
   override readonly name = 'ActionError';
 }
 
+/** Optional fields as they arrive from forms and APIs (undefined means "not given"). */
+export type RequirementPatch = { [K in keyof Requirement]?: Requirement[K] | undefined };
+
+/** Drops undefined entries so a patch never resets a field to its default. */
+export function defined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
 export interface NewTaskInput {
   projectId: string;
   title: string;
   description?: string;
-  requirement?: Partial<Requirement>;
+  requirement?: RequirementPatch;
   affectedRepoIds?: string[];
   source?: Task['source'];
   externalKey?: string;
@@ -60,7 +68,7 @@ export class TaskService {
         source: input.source ?? 'form',
         ...(input.externalKey ? { externalKey: input.externalKey } : {}),
         ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-        requirement: Requirement.parse(input.requirement ?? {}),
+        requirement: Requirement.parse(defined(input.requirement ?? {})),
         description: input.description ?? '',
         affectedRepoIds: repoIds.length ? repoIds : project.repoIds,
         state: 'DRAFT',
@@ -82,7 +90,7 @@ export class TaskService {
   }
 
   /** Edits the requirement while the task is a draft or blocked on readiness/size. */
-  async update(taskId: string, patch: { title?: string; description?: string; requirement?: Partial<Requirement>; affectedRepoIds?: string[] }): Promise<Task> {
+  async update(taskId: string, patch: { title?: string | undefined; description?: string | undefined; requirement?: RequirementPatch | undefined; affectedRepoIds?: string[] | undefined }): Promise<Task> {
     const task = await this.task(taskId);
     if (!(task.state === 'DRAFT' || (task.state === 'BLOCKED' && (task.blockedReason === 'readiness-missing' || task.blockedReason === 'split-proposed')))) {
       throw new ActionError(`The requirement of ${task.key} can only change while it is a draft or blocked on readiness. Use the spec for later changes.`);
@@ -91,7 +99,7 @@ export class TaskService {
       ...task,
       ...(patch.title?.trim() ? { title: patch.title.trim() } : {}),
       ...(patch.description !== undefined ? { description: patch.description } : {}),
-      ...(patch.requirement ? { requirement: Requirement.parse({ ...task.requirement, ...patch.requirement }) } : {}),
+      ...(patch.requirement ? { requirement: Requirement.parse({ ...task.requirement, ...defined(patch.requirement) }) } : {}),
       ...(patch.affectedRepoIds?.length ? { affectedRepoIds: patch.affectedRepoIds } : {}),
       // A changed requirement needs a fresh size estimate.
       ...(patch.requirement ? { sizeEstimate: undefined, progress: { ...task.progress, extracted: true } } : {}),
@@ -276,8 +284,8 @@ export class TaskService {
   }
 
   /** Readiness preview for a requirement (used by chat Request mode and the New task form). */
-  readiness(requirement: Partial<Requirement>) {
-    return checkReadiness(Requirement.parse(requirement));
+  readiness(requirement: RequirementPatch) {
+    return checkReadiness(Requirement.parse(defined(requirement)));
   }
 
   private async wakePoll(taskId: string): Promise<void> {
