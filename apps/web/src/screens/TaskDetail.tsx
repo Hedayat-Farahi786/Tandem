@@ -1400,9 +1400,11 @@ function StatusBanner({
           ? "Not ready yet"
           : t.blockedReason === "budget-reached"
             ? "Copilot limit reached"
-            : t.blockedReason === "rebase-conflict"
-              ? "Rebase conflict"
-              : "Waiting for you";
+            : t.blockedReason === "disk-low"
+              ? "Low disk space"
+              : t.blockedReason === "rebase-conflict"
+                ? "Rebase conflict"
+                : "Waiting for you";
     return (
       <Callout
         tone={t.state === "FAILED" ? "danger" : "warn"}

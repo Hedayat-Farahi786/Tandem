@@ -31,6 +31,7 @@ export const BlockedReason = z.enum([
   'pm-changes-requested',
   'budget-reached',
   'agent-unavailable',
+  'disk-low',
 ]);
 export type BlockedReason = z.infer<typeof BlockedReason>;
 

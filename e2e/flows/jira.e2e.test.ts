@@ -51,6 +51,7 @@ describe.skipIf(!ON)('Jira flows (real Jira, scripted agent)', () => {
   afterAll(async () => {
     await h.api('DELETE', '/api/secrets/jira-token').catch(() => undefined);
     await h.stop();
+    h.cleanup();
   });
 
   it('imports an issue, posts the spec to it, and builds after the PM replies "approve"', async () => {

@@ -26,6 +26,7 @@ import { specFileName } from '../naming.js';
 import { affectedRepos, loadProject, openSession, refreshReferences, repoCommands, repoContext, worktreeOf, type GatedSession, type WorkflowDeps } from './context.js';
 import * as P from './prompts.js';
 import { failureNotes, failuresOf, verifyAll } from './verify.js';
+import { assertDiskSpace, installKey, releaseDependencies, restoreDependencies } from './deps.js';
 
 const asStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 const asRecord = (v: unknown): Record<string, string> => (v && typeof v === 'object' ? (v as Record<string, string>) : {});
@@ -288,12 +289,19 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const task = ctx.task;
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
+      await assertDiskSpace(deps);
       await mkdir(deps.paths.taskDir(task.id), { recursive: true });
       for (const repo of repos) {
         const host = deps.hosts(repo);
         await host.mirror(repo);
         // Always through the host: it reuses a sound worktree and remakes one a crash left broken.
-        await host.createWorktree(repo, { path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` });
+        const path = worktreeOf(deps, task, repo);
+        await host.createWorktree(repo, { path, branch: task.branch, base: `origin/${repo.defaultBranch}` });
+        // Dependencies already installed for this lockfile appear at once, so the agent can run tests
+        // without installing; on a cache miss the first verification installs them.
+        const install = repo.commands.install;
+        const key = install ? await installKey(path, install).catch(() => undefined) : undefined;
+        if (key) await restoreDependencies(deps, repo, path, key).catch(() => false);
       }
       if (!task.progress.rulesApplied) {
         for (const repo of repos) {
@@ -463,6 +471,8 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         pushed[repo.id] = r.sha;
         await ctx.saveProgress({ pushed: { ...pushed } });
       }
+      // Waiting on review needs no dependencies: free them (checks restore them from the cache).
+      for (const repo of repos) await releaseDependencies(worktreeOf(deps, task, repo)).catch(() => undefined);
       return { kind: 'goto', state: 'PR_OPEN', reason: `Pushed ${task.branch} to ${repos.map((r) => r.name).join(' and ')}.` };
     },
 

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { CommandKind, CommandResult, CriterionTest, Project, Repo, Task, VerifyRun } from '@tandem/shared';
 import { redactor } from '../policies/redact.js';
 import { worktreeOf, type WorkflowDeps } from './context.js';
+import { assertDiskSpace, detachDependencies, installKey, restoreDependencies, saveDependencies } from './deps.js';
 
 const ORDER: ReadonlyArray<[CommandKind, keyof Repo['commands']]> = [
   ['install', 'install'],
@@ -56,6 +57,25 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
   };
 
   const ok = (r: CommandResult) => r.exitCode === 0 && !r.timedOut;
+  /** Install from the dependency cache when the lockfile matches; else install for real and cache it. */
+  const install = async (repo: Repo, cmd: string, cwd: string): Promise<CommandResult> => {
+    const key = await installKey(cwd, cmd).catch(() => undefined);
+    const started = deps.clock.now();
+    if (key && (await restoreDependencies(deps, repo, cwd, key).catch(() => false))) {
+      const note = `Reused the dependencies installed for an identical lockfile (shared hard links: no download, no extra disk space). Same result as \`${cmd}\`.`;
+      const logPath = join(logDir, `${attempt}-${repo.name}-install-${results.length}.log`);
+      await writeFile(logPath, `$ ${cmd}\n${note}\n`);
+      deps.events?.emit({ type: 'verify.output', taskId: task.id, repoId: repo.id, kind: 'install', line: note });
+      const res: CommandResult = { repoId: repo.id, kind: 'install', command: cmd, exitCode: 0, timedOut: false, durationMs: Math.max(0, deps.clock.now() - started), outputTail: note, logPath };
+      results.push(res);
+      return res;
+    }
+    await assertDiskSpace(deps);
+    await detachDependencies(cwd);
+    const r = await exec(repo, 'install', cmd, cwd);
+    if (ok(r) && key) await saveDependencies(deps, repo, cwd, key, cmd);
+    return r;
+  };
   const suitePassed = new Map<string, boolean>();
   for (const repo of repos) {
     const cwd = worktreeOf(deps, task, repo);
@@ -63,7 +83,7 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
     for (const [kind, key] of ORDER) {
       const cmd = repo.commands[key];
       if (!cmd) continue;
-      const r = await exec(repo, kind, cmd, cwd);
+      const r = kind === 'install' ? await install(repo, cmd, cwd) : await exec(repo, kind, cmd, cwd);
       if (!ok(r) && kind === 'install') {
         healthy = false;
         break; // nothing else can run without dependencies

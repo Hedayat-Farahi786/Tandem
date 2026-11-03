@@ -28,8 +28,10 @@ export const Settings = z.object({
       commandTimeoutMin: z.number().int().min(1).default(15),
       maxFixAttempts: z.number().int().min(0).max(5).default(2),
       sizeLineLimit: z.number().int().min(50).default(400),
+      /** A task waits instead of installing dependencies when less disk space than this is free. */
+      minFreeDiskGb: z.number().min(0.5).default(2),
     })
-    .default({ maxConcurrentBuilds: 1, maxConcurrentReadOnly: 2, chatTimeoutMin: 5, readOnlyTimeoutMin: 15, buildTimeoutMin: 60, commandTimeoutMin: 15, maxFixAttempts: 2, sizeLineLimit: 400 }),
+    .default({ maxConcurrentBuilds: 1, maxConcurrentReadOnly: 2, chatTimeoutMin: 5, readOnlyTimeoutMin: 15, buildTimeoutMin: 60, commandTimeoutMin: 15, maxFixAttempts: 2, sizeLineLimit: 400, minFreeDiskGb: 2 }),
   budget: z
     .object({
       perTaskPrompts: z.number().int().min(1).default(15),

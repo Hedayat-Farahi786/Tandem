@@ -13,6 +13,7 @@ const alias = {
 export default defineConfig({
   resolve: { alias },
   test: {
+    globalSetup: ['./vitest.tmp-cleanup.ts'],
     projects: [
       {
         resolve: { alias },

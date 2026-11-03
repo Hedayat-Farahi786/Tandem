@@ -43,4 +43,8 @@ const child = spawn(process.execPath, [join(repoRoot, 'apps', 'server', 'dist', 
 const stop = () => child.kill('SIGTERM');
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-child.on('exit', (code) => process.exit(code ?? 0));
+child.on('exit', (code) => {
+  // A workspace this script made for itself goes away with it (sandbox installs are ~600 MB).
+  if (!process.env.TANDEM_E2E_DIR) rmSync(work, { recursive: true, force: true, maxRetries: 3 });
+  process.exit(code ?? 0);
+});

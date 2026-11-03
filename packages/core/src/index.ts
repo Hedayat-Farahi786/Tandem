@@ -16,6 +16,7 @@ export * from './runner/transition.js';
 export * from './workflow/context.js';
 export * from './workflow/prompts.js';
 export * from './workflow/verify.js';
+export * from './workflow/deps.js';
 export * from './workflow/steps.js';
 export * from './workflow/service.js';
 export * from './store-lock.js';

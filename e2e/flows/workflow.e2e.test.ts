@@ -65,6 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await h.stop();
+  h.cleanup();
   console.warn(`Flows (${REAL ? `real CodeCommit, base ${h.base}` : 'local remotes'}): results in ${join(h.work, 'results.json')}, server log ${h.logFile}`);
 });
 

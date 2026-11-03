@@ -278,6 +278,12 @@ export class Harness {
     this.kill();
   }
 
+  /** Removes a workspace the harness made for itself (keep it with TANDEM_E2E_DIR or TANDEM_E2E_KEEP=1). */
+  cleanup(): void {
+    if (process.env.TANDEM_E2E_DIR || process.env.TANDEM_E2E_KEEP === '1') return;
+    rmSync(this.work, { recursive: true, force: true, maxRetries: 3 });
+  }
+
   logTail(lines = 40): string {
     return existsSync(this.logFile) ? readFileSync(this.logFile, 'utf8').split('\n').slice(-lines).join('\n') : '';
   }

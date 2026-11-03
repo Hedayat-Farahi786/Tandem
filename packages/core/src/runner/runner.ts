@@ -1,5 +1,6 @@
 import type { BlockedReason, Task, TaskState } from '@tandem/shared';
 import { BudgetError } from '../budget.js';
+import { DiskSpaceError } from '../workflow/deps.js';
 import { RetryableError, type Clock, type EventSink, type Job, type Logger, type Store } from '../ports.js';
 import { RUNNABLE_STATES, TransitionError, firstStep, isStep, laneOf, nextStep, type Lane } from '../state-machine.js';
 import { applyTransition, scheduleJob } from './transition.js';
@@ -235,6 +236,10 @@ export class Runner {
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof BudgetError) {
       await this.applyOutcome(task, job, { kind: 'block', reason: 'budget-reached', message, resumeTo: { state: job.state, step: job.step } });
+      return;
+    }
+    if (err instanceof DiskSpaceError) {
+      await this.applyOutcome(task, job, { kind: 'block', reason: 'disk-low', message, resumeTo: { state: job.state, step: job.step } });
       return;
     }
     const retryable = err instanceof RetryableError || (this.o.isRetryable?.(err) ?? false);

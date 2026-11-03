@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CopilotRuntime, JiraTracker, type Tandem } from '@tandem/adapters';
-import type { AgentRuntime, PreflightCheck } from '@tandem/core';
+import { cacheSummary, type AgentRuntime, type PreflightCheck } from '@tandem/core';
 
 const pexec = promisify(execFile);
 
@@ -68,8 +68,20 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
   // Machine
   try {
     const s = await statfs(t.paths.home);
-    const freeGb = (s.bavail * s.bsize) / 1024 ** 3;
-    add({ id: 'disk', group: 'Machine', label: 'Disk space', status: freeGb < 1 ? 'fail' : freeGb < 5 ? 'warn' : 'pass', message: `${freeGb.toFixed(1)} GB free under ${t.paths.home}.`, ...(freeGb < 5 ? { fix: 'Free some space: each task needs a copy of its repos and their dependencies.' } : {}) });
+    const freeGb = (s.bavail * s.bsize) / 1e9;
+    const min = settings.limits.minFreeDiskGb;
+    const cache = await cacheSummary(t.paths.home);
+    const shared = cache.entries ? ` ${cache.entries} dependency install${cache.entries > 1 ? 's' : ''} shared by tasks.` : '';
+    add({
+      id: 'disk',
+      group: 'Machine',
+      label: 'Disk space',
+      status: freeGb < min ? 'fail' : freeGb < min + 3 ? 'warn' : 'pass',
+      message: `${freeGb.toFixed(1)} GB free under ${t.paths.home}.${shared}`,
+      ...(freeGb < min + 3
+        ? { fix: `Tasks pause before installing dependencies when less than ${min} GB is free. Tasks share each repo's git history, and dependencies for the same lockfile, so only a first install of a new lockfile needs its full size (often a few hundred MB per repo).` }
+        : {}),
+    });
   } catch (err) {
     add({ id: 'disk', group: 'Machine', label: 'Disk space', status: 'warn', message: `Could not check: ${String(err)}` });
   }

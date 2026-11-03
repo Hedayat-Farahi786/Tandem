@@ -7,7 +7,7 @@ export const settings: Settings = {
   ownerName: 'Sam',
   copilot: { host: '', buildModel: '', lightModel: '', cliPath: '' },
   aws: { profile: '', region: '' },
-  limits: { maxConcurrentBuilds: 1, maxConcurrentReadOnly: 2, chatTimeoutMin: 5, readOnlyTimeoutMin: 15, buildTimeoutMin: 60, commandTimeoutMin: 15, maxFixAttempts: 2, sizeLineLimit: 400 },
+  limits: { maxConcurrentBuilds: 1, maxConcurrentReadOnly: 2, chatTimeoutMin: 5, readOnlyTimeoutMin: 15, buildTimeoutMin: 60, commandTimeoutMin: 15, maxFixAttempts: 2, sizeLineLimit: 400, minFreeDiskGb: 2 },
   budget: { perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60, perTaskCredits: 25, perDayCredits: 75 },
   jira: { baseUrl: '', email: '', readyJql: 'status = "Ready for AI"', inReviewStatus: 'In Review', pollIntervalMin: 5 },
   github: { apiBase: 'https://api.github.com' },

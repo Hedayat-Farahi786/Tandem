@@ -32,7 +32,8 @@ Suite: `e2e/flows/workflow.e2e.test.ts` (harness: `e2e/flows/harness.ts`), Jira:
 | cancel | ✅ cancelled during verification: the task folder is removed, nothing is pushed, no PR | pending | – |
 | Jira flows | written, skipped without `TANDEM_E2E_JIRA=1` | skipped | – |
 
-Local run: 8/8 passed in 6.1 minutes (Ubuntu 20.04, Node 22.23.1, git 2.25.1).
+Local run: 8/8 passed in 6.1 minutes (Ubuntu 20.04, Node 22.23.1, git 2.25.1). Again after the
+dependency cache (problem 10): 8/8 in 4.2 minutes; (a) 34 s, (b) 42 s.
 
 ## Live Copilot
 
@@ -102,3 +103,19 @@ Found by the live Copilot run (the scripted agent could not show these):
 8. **A failed agent run was recorded as succeeded** once its session closed. Failed runs stay failed.
 9. The local-remote test switch (`TANDEM_TEST_REMOTE_ROOT`) only worked with the scripted agent;
    it now works with either, and the start banner and log say when it is on.
+
+Found by looking at disk use (the owner asked whether every task copies everything):
+
+10. **Every task kept its own installed dependencies.** The git side was already shared (one mirror
+    per repo; a task's checkout is 0.2 to 0.7 MB of files), but `node_modules` is 150 to 230 MB per
+    sandbox repo, about 99.6% of a task, and stayed until the task finished. Now installs are cached
+    per repo and lockfile, the way pnpm does it: after a clean install Tandem keeps the dependency
+    folders once, and every later task or retry with the same lockfile gets them as hard links (no
+    download, no extra space, about a second). Tool caches inside `node_modules` are never shared,
+    a real install first removes shared links so it can never write into the cache, and each repo
+    keeps its three most recent installs (none older than two weeks). A task waiting on review drops
+    its links; checks restore them. Below `limits.minFreeDiskGb` (2 GB) a task waits with "Low disk
+    space" instead of failing mid-install. Measured on the local suite: task folders 4.1 MB in total
+    for 13 tasks (about 1.3 GB before), one shared install per repo (575 MB), reused 6 times.
+11. Tests left their temporary folders behind (1,467 folders, 2.4 GB on this machine, now removed).
+    Test runs now delete what they create.

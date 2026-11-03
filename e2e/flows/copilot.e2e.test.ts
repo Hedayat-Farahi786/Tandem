@@ -51,6 +51,7 @@ describe.skipIf(!ON)('live Copilot (real agent; costs AI credits)', () => {
     const usage = await h.api<{ credits: { today: number } }>('GET', '/api/usage').catch(() => undefined);
     writeFileSync(join(h.work, 'copilot-summary.json'), JSON.stringify({ model: MODEL, mode: REAL ? 'real' : 'local', creditsToday: usage?.credits.today, scenarios: summary }, null, 2));
     await h.stop();
+    h.cleanup();
   });
 
   /** Chat until the draft is ready (at most two nudges), then create the task. */
