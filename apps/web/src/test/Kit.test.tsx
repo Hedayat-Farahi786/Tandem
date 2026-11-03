@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Select, Tabs } from '../ui/kit';
-import { parseDiff } from '../ui/diff';
+import { DiffView, parseDiff } from '../ui/diff';
 
 function Pick({ onChange }: { onChange: (v: string) => void }) {
   const [v, setV] = useState('b');
@@ -109,5 +109,17 @@ describe('parseDiff', () => {
     expect(lines[3]).toEqual({ kind: 'add', text: 'next()', newNo: 2 });
     expect(lines[5]).toEqual({ kind: 'ctx', text: 'end', oldNo: 3, newNo: 4 });
     expect(files[2]!.lines).toEqual([{ kind: 'hunk', text: 'Binary file changed' }]);
+  });
+});
+
+describe('DiffView', () => {
+  it('shows code first and the spec copy last, collapsed', () => {
+    const file = (path: string, line: string) => [`diff --git a/${path} b/${path}`, 'new file mode 100644', '--- /dev/null', `+++ b/${path}`, '@@ -0,0 +1 @@', `+${line}`];
+    render(<DiffView diff={[...file('specs/TND-1-health.md', '# Spec'), ...file('src/app.ts', 'code()')].join('\n')} />);
+    const toggles = screen.getAllByRole('button');
+    expect(toggles.map((b) => b.textContent?.includes('src/app.ts') ? 'code' : 'spec')).toEqual(['code', 'spec']);
+    expect(toggles.map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'false']);
+    expect(screen.getByText('code()')).toBeTruthy();
+    expect(screen.queryByText('# Spec')).toBeNull();
   });
 });

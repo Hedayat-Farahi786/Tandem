@@ -1,9 +1,10 @@
 import { CopilotClient, RuntimeConnection, ToolSet, defineTool } from '@github/copilot-sdk';
 import { dirname, join } from 'node:path';
 import type { ZodType } from 'zod';
-import { RetryableError, allowedBuiltins, type AgentEvent, type AgentRuntime, type AgentSession, type AgentSessionOptions, type AgentUsage, type Logger } from '@tandem/core';
-import type { Settings } from '@tandem/shared';
+import { BudgetError, RetryableError, allowedBuiltins, type AgentEvent, type AgentRuntime, type AgentSession, type AgentSessionOptions, type AgentUsage, type Logger } from '@tandem/core';
+import { vendorOf, type ModelOption, type Settings } from '@tandem/shared';
 import { copilotRuntimeEnv, enforcement } from './enforce.js';
+import { strictResponseSchema, type ResponseSchemaLike } from './strict-schema.js';
 
 /* Structural views of the SDK objects Tandem uses (lets tests drive the adapter with a fake). */
 export interface SessionEventLike {
@@ -14,15 +15,18 @@ export interface SessionLike {
   readonly sessionId: string;
   on(handler: (e: SessionEventLike) => void): () => void;
   sendAndWait(options: { prompt: string }, timeout?: number): Promise<{ data: { content?: string } } | undefined>;
-  sendAndWait(prompt: string, schema: ZodType<unknown>, timeout?: number): Promise<unknown>;
+  sendAndWait(prompt: string, schema: ResponseSchemaLike<unknown>, timeout?: number): Promise<unknown>;
   abort(): Promise<void>;
   disconnect(): Promise<void>;
   rpc?: { tools?: { execute(params: { name: string; arguments: unknown }): Promise<{ resultType?: string; textResultForLlm?: string }> } };
 }
 export interface ModelLike {
   id: string;
+  name?: string;
   policy?: { state: string };
-  billing?: { multiplier?: number; tokenPrices?: { inputPrice?: number; outputPrice?: number } };
+  billing?: { multiplier?: number; discountPercent?: number; tokenPrices?: { inputPrice?: number; outputPrice?: number; cacheReadPrice?: number; cachePrice?: number; batchSize?: number } };
+  capabilities?: { supports?: { vision?: boolean }; limits?: { max_context_window_tokens?: number; max_output_tokens?: number } };
+  supportedReasoningEfforts?: string[];
 }
 export interface ClientLike {
   start(): Promise<void>;
@@ -30,6 +34,7 @@ export interface ClientLike {
   getStatus(): Promise<{ version: string; protocolVersion: number }>;
   getAuthStatus(): Promise<{ isAuthenticated: boolean; authType?: string; host?: string; login?: string; statusMessage?: string }>;
   listModels(): Promise<ModelLike[]>;
+  rpc?: { models?: { listTokenPriceUnits?(params?: Record<string, unknown>): Promise<{ units: Array<{ modelId: string; unit: string }> }> } };
   createSession(config: Record<string, unknown>): Promise<SessionLike>;
   resumeSession(id: string, config: Record<string, unknown>): Promise<SessionLike>;
 }
@@ -42,13 +47,40 @@ export interface CopilotRuntimeOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const RETRYABLE = /(rate.?limit|429|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|5\d\d|overloaded|temporarily unavailable|stream (closed|ended))/i;
+const RETRYABLE = /(rate.?limit|\b429\b|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|\b5\d\d\b|overloaded|temporarily unavailable|stream (closed|ended))/i;
+/** Request IDs are hex and can contain "520"; they say nothing about whether to retry. */
+const withoutIds = (msg: string) => msg.replace(/\(?request id:?\s*[\w-]+\)?/gi, '');
 
 /** Cheapest enabled model: by request multiplier (legacy billing) or token prices (AI credits). */
 export function cheapestModel(models: readonly ModelLike[]): string | undefined {
   const enabled = models.filter((m) => m.policy?.state !== 'disabled' && m.id !== 'auto');
   const score = (m: ModelLike) => m.billing?.multiplier ?? (m.billing?.tokenPrices ? (m.billing.tokenPrices.inputPrice ?? 0) + 4 * (m.billing.tokenPrices.outputPrice ?? 0) : Number.POSITIVE_INFINITY);
   return [...enabled].sort((a, b) => score(a) - score(b))[0]?.id;
+}
+
+/**
+ * A model as Tandem shows it. Copilot quotes token prices per batch (batchSize tokens) in AI credits
+ * or nano-AIU; this converts them to AI credits per million tokens.
+ */
+export function toModelOption(m: ModelLike, unit: string | undefined): ModelOption {
+  const tp = m.billing?.tokenPrices;
+  const scale = (1_000_000 / (tp?.batchSize || 1_000_000)) * (unit === 'nano_aiu' ? 1e-9 : 1);
+  const per = (n: number | undefined) => (n === undefined ? undefined : Math.round(n * scale * 1000) / 1000);
+  const cached = per(tp?.cacheReadPrice ?? tp?.cachePrice);
+  const ctx = m.capabilities?.limits?.max_context_window_tokens;
+  const out = m.capabilities?.limits?.max_output_tokens;
+  return {
+    id: m.id,
+    name: m.name || m.id,
+    vendor: m.id === 'auto' ? 'Copilot' : vendorOf(m.id),
+    ...(tp?.inputPrice !== undefined && tp.outputPrice !== undefined ? { price: { input: per(tp.inputPrice)!, output: per(tp.outputPrice)!, ...(cached !== undefined ? { cachedInput: cached } : {}) } } : {}),
+    ...(m.billing?.multiplier !== undefined ? { multiplier: m.billing.multiplier } : {}),
+    ...(m.billing?.discountPercent ? { discountPercent: m.billing.discountPercent } : {}),
+    ...(ctx ? { contextWindow: ctx } : {}),
+    ...(out ? { maxOutput: out } : {}),
+    vision: Boolean(m.capabilities?.supports?.vision),
+    reasoning: m.supportedReasoningEfforts ?? [],
+  };
 }
 
 /**
@@ -61,7 +93,8 @@ export class CopilotRuntime implements AgentRuntime {
   private client: ClientLike | undefined;
   private clientKey = '';
   private starting: Promise<ClientLike> | undefined;
-  private models: { at: number; list: ModelLike[] } | undefined;
+  private modelCache: { at: number; list: ModelLike[] } | undefined;
+  private priceUnits: { at: number; units: Map<string, string> } | undefined;
 
   constructor(private readonly o: CopilotRuntimeOptions) {}
 
@@ -73,7 +106,8 @@ export class CopilotRuntime implements AgentRuntime {
     if (this.client) await this.client.stop().catch(() => undefined);
     this.client = undefined;
     this.clientKey = key;
-    this.models = undefined;
+    this.modelCache = undefined;
+    this.priceUnits = undefined;
     const env = copilotRuntimeEnv(this.o.env ?? process.env, s.copilot.host || undefined);
     const cliPath = s.copilot.cliPath || undefined;
     this.starting = (async () => {
@@ -110,10 +144,27 @@ export class CopilotRuntime implements AgentRuntime {
   }
 
   async listModels(): Promise<ModelLike[]> {
-    if (this.models && Date.now() - this.models.at < 10 * 60_000) return this.models.list;
+    if (this.modelCache && Date.now() - this.modelCache.at < 10 * 60_000) return this.modelCache.list;
     const list = await (await this.ensureClient()).listModels();
-    this.models = { at: Date.now(), list };
+    this.modelCache = { at: Date.now(), list };
     return list;
+  }
+
+  /** Models this account may use, with prices in AI credits per million tokens (no model call). */
+  async models(): Promise<ModelOption[]> {
+    const list = (await this.listModels()).filter((m) => m.policy?.state !== 'disabled');
+    if (!this.priceUnits || Date.now() - this.priceUnits.at > 10 * 60_000) {
+      const client = await this.ensureClient();
+      const units = await client.rpc?.models?.listTokenPriceUnits?.({}).catch(() => undefined);
+      this.priceUnits = { at: Date.now(), units: new Map((units?.units ?? []).map((u) => [u.modelId, u.unit])) };
+    }
+    const units = this.priceUnits.units;
+    return list.map((m) => toModelOption(m, units.get(m.id)));
+  }
+
+  async defaultModel(tier: 'light' | 'build'): Promise<string | undefined> {
+    if (tier === 'build') return undefined;
+    return cheapestModel(await this.listModels().catch(() => []));
   }
 
   private async resolveModel(opts: AgentSessionOptions): Promise<string | undefined> {
@@ -179,6 +230,7 @@ export class CopilotRuntime implements AgentRuntime {
     let nanoAiu = 0;
     let lastModel = model ?? 'default';
     let overBudget = false;
+    let overCredits = false;
     const off = s.on((e) => {
       if (e.type === 'assistant.message_delta' && typeof e.data.deltaContent === 'string') emit({ type: 'delta', text: e.data.deltaContent });
       if (e.type === 'assistant.usage') {
@@ -189,6 +241,10 @@ export class CopilotRuntime implements AgentRuntime {
         emit({ type: 'usage', model: lastModel, nanoAiu: usage?.totalNanoAiu ?? 0 });
         if (modelCalls >= opts.maxModelCalls && !overBudget) {
           overBudget = true;
+          void s.abort().catch(() => undefined);
+        }
+        if (opts.maxNanoAiu !== undefined && nanoAiu >= opts.maxNanoAiu && !overCredits) {
+          overCredits = true;
           void s.abort().catch(() => undefined);
         }
       }
@@ -205,12 +261,19 @@ export class CopilotRuntime implements AgentRuntime {
           reject(new Error(`The agent did not finish within ${Math.round(opts.timeoutMs / 60_000)} minutes, so Tandem stopped it.`));
         }, opts.timeoutMs);
       });
+      const used = (): AgentUsage => ({ model: lastModel, modelCalls: modelCalls - before.modelCalls, nanoAiu: nanoAiu - before.nanoAiu });
       try {
-        const value = await Promise.race([run(), timeout]);
+        const value = await Promise.race([run(), timeout]).catch((err: unknown) => {
+          // An abort Tandem asked for: report why below, not the runtime's "aborted".
+          if (overCredits || overBudget) return undefined as T;
+          throw err;
+        });
+        if (overCredits) throw new BudgetError(`The run reached its Copilot credit limit after ${modelCalls} model calls.`);
         if (overBudget) throw new Error(`The agent used ${modelCalls} model calls in one run (limit ${opts.maxModelCalls}), so Tandem stopped it. Raise "model calls per run" in Settings if this task needs more.`);
-        return { value, usage: { model: lastModel, modelCalls: modelCalls - before.modelCalls, nanoAiu: nanoAiu - before.nanoAiu } };
+        return { value, usage: used() };
       } catch (err) {
-        throw classify(err);
+        // A stopped turn still cost something; the caller records it.
+        throw Object.assign(classify(err), { usage: used() });
       } finally {
         if (timer) clearTimeout(timer);
       }
@@ -223,7 +286,8 @@ export class CopilotRuntime implements AgentRuntime {
         return { text: r.value?.data.content ?? '', usage: r.usage };
       },
       sendStructured: async <T>(prompt: string, schema: ZodType<T>) => {
-        const r = await turn(() => s.sendAndWait(prompt, schema as ZodType<unknown>, opts.timeoutMs + 5_000) as Promise<T>);
+        // Strict-mode schema: every field required, optional ones nullable (OpenAI models insist).
+        const r = await turn(() => s.sendAndWait(prompt, strictResponseSchema(schema) as ResponseSchemaLike<unknown>, opts.timeoutMs + 5_000) as Promise<T>);
         return { value: schema.parse(r.value), usage: r.usage };
       },
       stop: async () => {
@@ -275,10 +339,10 @@ export class CopilotRuntime implements AgentRuntime {
 }
 
 function classify(err: unknown): Error {
-  if (err instanceof RetryableError) return err;
+  if (err instanceof RetryableError || err instanceof BudgetError) return err;
   const msg = String((err as Error)?.message ?? err);
   if (/did not finish within|model calls in one run/.test(msg)) return err as Error;
-  if (RETRYABLE.test(msg)) return new RetryableError(`Copilot: ${msg.slice(0, 300)}`);
+  if (RETRYABLE.test(withoutIds(msg)) && !/\b4(0[0-9]|1[0-9]|2[0-8])\b/.test(withoutIds(msg))) return new RetryableError(`Copilot: ${msg.slice(0, 300)}`);
   if (/403|not authorized|unauthorized|policy/i.test(msg)) return new Error(`Copilot refused the request (${msg.slice(0, 200)}). Check the Copilot host in Settings and that your organization allows Copilot CLI.`);
   return err instanceof Error ? err : new Error(msg);
 }

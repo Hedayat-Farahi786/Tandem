@@ -30,6 +30,22 @@ export interface NewTaskInput {
   externalKey?: string;
   parentTaskId?: string;
   sizeOverride?: string;
+  /** Copilot model for every step of the task ('' or absent = the defaults in Settings). */
+  model?: string;
+}
+
+/** Checks a picked model against the account's models. '' clears the pick. */
+export async function checkModel(deps: Pick<WorkflowDeps, 'agent'>, model: string): Promise<string> {
+  const id = model.trim();
+  if (!id || id === 'auto' || !deps.agent.models) return id;
+  let models: Awaited<ReturnType<NonNullable<WorkflowDeps['agent']['models']>>>;
+  try {
+    models = await deps.agent.models();
+  } catch {
+    return id; // Copilot unreachable right now: keep the pick, the run reports a bad model clearly.
+  }
+  if (!models.some((m) => m.id === id)) throw new ActionError(`${id} is not available to this Copilot account. Pick another model.`);
+  return id;
 }
 
 /** Human actions on tasks. Each is validated against the state machine and stored in one transaction. */
@@ -75,6 +91,7 @@ export class TaskService {
         needsAttention: false,
         attentionNotes: [],
         ...(input.sizeOverride ? { sizeOverride: input.sizeOverride } : {}),
+        ...(input.model ? { model: input.model } : {}),
         progress: {},
         slug,
         branch: branchName(key, slug),
@@ -87,6 +104,19 @@ export class TaskService {
     });
     this.deps.events?.emit({ type: 'task.updated', taskId: task.id, at: clock.iso() });
     return task;
+  }
+
+  /** Picks the Copilot model for the task's next agent steps ('' = the defaults in Settings). */
+  async setModel(taskId: string, model: string): Promise<Task> {
+    const task = await this.task(taskId);
+    if (task.state === 'DONE' || task.state === 'CANCELLED') throw new ActionError(`${task.key} is ${task.state.toLowerCase()}; its model can't change.`);
+    const id = await checkModel(this.deps, model);
+    const next: Task = { ...task, updatedAt: this.deps.clock.iso() };
+    if (id) next.model = id;
+    else delete next.model;
+    await this.deps.store.tasks.upsert(next);
+    this.deps.events?.emit({ type: 'task.updated', taskId, at: this.deps.clock.iso() });
+    return next;
   }
 
   /** Edits the requirement while the task is a draft or blocked on readiness/size. */

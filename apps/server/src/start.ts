@@ -25,9 +25,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig 
 }
 
 /**
- * Test mode only (TANDEM_AGENT=scripted and TANDEM_TEST_REMOTE_ROOT set): CodeCommit repos are
- * served from local bare repos named <repo>.git, and the PR API answers "access denied", so the
- * console-link fallback is used. Never active for real use.
+ * Test mode only (TANDEM_TEST_REMOTE_ROOT set, with either agent): CodeCommit repos are served from
+ * local bare repos named <repo>.git, and the PR API answers "access denied", so the console-link
+ * fallback is used. Never set for real use; the start banner says when it is on.
  */
 function testSeams(): Partial<TandemOptions> {
   const root = process.env.TANDEM_TEST_REMOTE_ROOT;
@@ -62,10 +62,12 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   const tandem = await createTandem({
     home: config.home,
     overrides: config.overrides,
-    ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript), ...testSeams() } : {}),
+    ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript) } : {}),
+    ...testSeams(),
     events: bus,
     logger,
   });
+  if (process.env.TANDEM_TEST_REMOTE_ROOT) logger.warn('test mode: CodeCommit repos are served from local copies', { root: process.env.TANDEM_TEST_REMOTE_ROOT });
   const recovered = await tandem.runner.recover();
   const chat = new ChatService(tandem.deps, tandem.service);
   const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };

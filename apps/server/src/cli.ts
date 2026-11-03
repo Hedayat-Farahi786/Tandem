@@ -44,7 +44,7 @@ async function start(open: boolean): Promise<void> {
   const config = readConfig();
   const r = await startServer(config);
   console.log(`Tandem ${VERSION} is running at ${r.url}`);
-  console.log(`Data: ${config.home} · Agent: ${r.tandem.agent.name} · Stop with Ctrl+C`);
+  console.log(`Data: ${config.home} · Agent: ${r.tandem.agent.name}${process.env.TANDEM_TEST_REMOTE_ROOT ? " · Test mode: local copies of CodeCommit repos" : ""} · Stop with Ctrl+C`);
   if (r.firstDoctor) {
     console.log('\nFirst launch: running doctor…');
     const report = await r.firstDoctor.catch(() => undefined);

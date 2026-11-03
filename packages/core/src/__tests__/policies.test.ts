@@ -46,8 +46,13 @@ describe('readiness', () => {
 
 describe('size', () => {
   it('flags too many lines and several features', () => {
-    expect(decideSize({ estimatedLines: 120, perRepo: [], features: ['health'], proposedSplit: [], rationale: '' }, 400).tooBig).toBe(false);
-    const big = decideSize({ estimatedLines: 900, perRepo: [], features: ['a', 'b'], proposedSplit: [], rationale: '' }, 400);
+    const est = (estimatedLines: number, features: string[], split = 0) => ({ estimatedLines, perRepo: [], features, proposedSplit: Array.from({ length: split }, (_, i) => ({ title: `part ${i + 1}`, criteria: [] })), rationale: '' });
+    expect(decideSize(est(120, ['health']), 400).tooBig).toBe(false);
+    // An endpoint and the page that shows it: two sides of one change (seen with live Copilot).
+    expect(decideSize(est(40, ['Health endpoint', 'Main-page health status']), 400).tooBig).toBe(false);
+    expect(decideSize(est(150, ['Export', 'Import'], 2), 400).reasons).toEqual(['2 independent features: Export; Import.']);
+    expect(decideSize(est(150, ['a', 'b', 'c']), 400).tooBig).toBe(true);
+    const big = decideSize(est(900, ['a', 'b', 'c']), 400);
     expect(big.tooBig).toBe(true);
     expect(big.reasons).toHaveLength(2);
   });

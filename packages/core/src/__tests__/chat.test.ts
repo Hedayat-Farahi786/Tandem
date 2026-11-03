@@ -140,3 +140,33 @@ describe('extractRefs', () => {
     expect(refs).toEqual([{ path: 'src/x.ts', line: 4, repoId: 'r-app' }]);
   });
 });
+
+describe('chat: model', () => {
+  it('keeps a picked model per chat, passes it to the task, and lets a task chat change the task model', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    await expect(c.createThread({ projectId: 'p1', mode: 'ask', model: 'gpt-nope' })).rejects.toThrow(/not available/);
+    const ask = await c.createThread({ projectId: 'p1', mode: 'ask', model: 'scripted-steady' });
+    expect(await c.modelOf(ask)).toBe('scripted-steady');
+    await c.send(ask.id, 'Where is the greeting route?');
+    expect(h.agent.calls.at(-1)!.opts.model).toBe('scripted-steady');
+    const cleared = await c.setModel(ask.id, '');
+    expect(cleared.model).toBeUndefined();
+    await c.send(ask.id, 'And the tests?');
+    expect(h.agent.calls.at(-1)!.opts.model).toBeUndefined();
+
+    const req = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await c.setModel(req.id, 'scripted-swift');
+    await h.store.threads.upsert({ ...(await h.store.threads.get(req.id))!, draft: GOOD_REQUIREMENT, draftTitle: 'Health' });
+    const task = await c.createTask(req.id);
+    expect(task.model).toBe('scripted-swift');
+    await expect(c.setModel(req.id, 'scripted-steady')).rejects.toThrow(/already became a task/);
+
+    const tc = await c.taskThread(task.id);
+    expect(await c.modelOf(tc)).toBe('scripted-swift');
+    await c.setModel(tc.id, 'scripted-steady');
+    expect((await h.store.tasks.get(task.id))!.model).toBe('scripted-steady');
+    expect(await c.modelOf(tc)).toBe('scripted-steady');
+  });
+});

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Save } from 'lucide-react';
 import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
+import type { ModelCatalog } from '../lib/types';
+import { formatCredits } from '../ui/model-picker';
 import { Button, Callout, Card, ErrorState, Input, Loading, PageHeader, Pill, Select, useToast } from '../ui/kit';
 
 interface Secrets {
@@ -14,6 +16,7 @@ interface Usage {
   today: number;
   perDay: number;
   perTask: number;
+  credits: { today: number; perDay: number; perTask: number };
   last30Days: { prompts: number; modelCalls: number; aiCredits: number };
 }
 
@@ -97,7 +100,7 @@ export function SettingsScreen() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => api<Settings>('/api/settings') });
   const secrets = useQuery({ queryKey: ['secrets'], queryFn: () => api<Secrets>('/api/secrets') });
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<Usage>('/api/usage') });
-  const models = useQuery({ queryKey: ['models'], queryFn: () => api<Array<{ id: string; cost: string }>>('/api/copilot/models'), retry: false });
+  const models = useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), retry: false });
   const [s, setS] = useState<Settings | null>(null);
   useEffect(() => {
     if (settings.data && !s) setS(settings.data);
@@ -115,7 +118,14 @@ export function SettingsScreen() {
   if (settings.isLoading || !s) return settings.isError ? <ErrorState error={settings.error} retry={() => void settings.refetch()} /> : <Loading />;
   const dirty = JSON.stringify(s) !== JSON.stringify(settings.data);
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
-  const modelOptions = (empty: string) => [{ value: '', label: empty }, ...(models.data ?? []).map((m) => ({ value: m.id, label: m.id, ...(m.cost ? { description: m.cost } : {}) }))];
+  const modelOptions = (empty: string) => [
+    { value: '', label: empty },
+    ...(models.data?.models ?? []).map((m) => ({
+      value: m.id,
+      label: m.name,
+      description: [m.estimate !== undefined ? `≈ ${formatCredits(m.estimate)} credits per task` : null, m.price ? `in ${m.price.input} · out ${m.price.output} per 1M tokens` : m.multiplier !== undefined ? `${m.multiplier}× premium requests` : null].filter(Boolean).join(' · '),
+    })),
+  ];
   const kcOk = secrets.data?.keychain.ok ?? false;
 
   return (
@@ -130,8 +140,8 @@ export function SettingsScreen() {
         <div className="grid gap-4 md:grid-cols-2">
           <Input label="Copilot host" value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" help="For GitHub Enterprise with data residency, enter your company host (company.ghe.com)." />
           <div />
-          <Select label="Model for builds" value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions('Runtime default')} help="Writes and fixes code." />
-          <Select label="Model for chat, specs and reviews" value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} help="Light, read-only steps." />
+          <Select label="Default model for code" value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} help="Builds and fixes, when a task's model is Auto." />
+          <Select label="Default model for chat, specs and reviews" value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} help="Read-only steps, when the model is Auto." />
         </div>
         {models.isError && (
           <div className="mt-4">
@@ -142,13 +152,13 @@ export function SettingsScreen() {
         )}
       </Card>
 
-      <Card title="Copilot budget" description="Copilot plans are often shared. Tandem stops and asks before going over these limits.">
+      <Card title="Copilot budget" description="Copilot plans are often shared. A run that reaches a limit stops at once, and the task waits until you raise the limit and resume.">
         {usage.data && (
           <div className="mb-5 grid gap-3 md:grid-cols-3">
             {[
+              ['AI credits today', `${formatCredits(usage.data.credits.today)} of ${usage.data.credits.perDay}`],
               ['Prompts today', `${usage.data.today} of ${usage.data.perDay}`],
-              ['Last 30 days', `${usage.data.last30Days.prompts} prompts · ${usage.data.last30Days.modelCalls} model calls`],
-              ['AI credits, 30 days', usage.data.last30Days.aiCredits.toFixed(2)],
+              ['Last 30 days', `${formatCredits(usage.data.last30Days.aiCredits)} credits · ${usage.data.last30Days.prompts} prompts`],
             ].map(([k, v]) => (
               <div key={k} className="rounded-xl bg-surface-2 px-4 py-3">
                 <p className="text-[12px] text-muted">{k}</p>
@@ -158,9 +168,11 @@ export function SettingsScreen() {
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-3">
+          <Num label="AI credits per task" value={s.budget.perTaskCredits} onChange={(n) => set('budget', { ...s.budget, perTaskCredits: n })} help="The model picker warns when a model is likely to need more." />
+          <Num label="AI credits per day" value={s.budget.perDayCredits} onChange={(n) => set('budget', { ...s.budget, perDayCredits: n })} help="For all of Tandem together." />
+          <Num label="Model calls per run" min={5} value={s.budget.perRunModelCalls} onChange={(n) => set('budget', { ...s.budget, perRunModelCalls: n })} help="Stops a runaway agent loop." />
           <Num label="Prompts per task" value={s.budget.perTaskPrompts} onChange={(n) => set('budget', { ...s.budget, perTaskPrompts: n })} />
           <Num label="Prompts per day" value={s.budget.perDayPrompts} onChange={(n) => set('budget', { ...s.budget, perDayPrompts: n })} />
-          <Num label="Model calls per run" min={5} value={s.budget.perRunModelCalls} onChange={(n) => set('budget', { ...s.budget, perRunModelCalls: n })} help="Stops a runaway agent loop." />
         </div>
       </Card>
 

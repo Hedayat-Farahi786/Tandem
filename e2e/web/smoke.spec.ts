@@ -63,6 +63,18 @@ test('setup: project, connections and check', async () => {
 test('chat: a request becomes a ready task', async () => {
   await expect(page.getByRole('heading', { name: 'What should we build?' })).toBeVisible();
   await checkScreen(page, '06-chat-start');
+  // Pick the model: prices and details, keyboard first.
+  const picker = page.getByRole('combobox', { name: 'Model: Auto' });
+  await picker.focus();
+  await page.keyboard.press('ArrowDown');
+  const list = page.getByRole('listbox', { name: 'Copilot model' });
+  await expect(list).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByText('AI credits per million tokens')).toBeVisible();
+  await checkScreen(page, '06b-chat-model');
+  await page.keyboard.press('Enter');
+  await expect(list).toBeHidden();
+  await expect(page.getByRole('combobox', { name: 'Model: Scripted Swift' })).toBeFocused();
   await page.getByLabel('Describe your request').fill('Add a GET /health endpoint returning {status: "ok"} and show the status on the main page.');
   await page.keyboard.press('Enter');
   await expect(page.getByText('Two questions')).toBeVisible({ timeout: 60_000 });
@@ -109,6 +121,9 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
   await expect(page.getByText(/\d+ files changed/)).toBeVisible({ timeout: 30_000 });
   await checkScreen(page, '13-task-changes');
   await page.getByRole('tab', { name: 'Overview' }).click();
+  // The task kept the model picked in chat, and shows its credits.
+  await expect(page.getByRole('combobox', { name: 'Model: Scripted Swift' })).toBeVisible();
+  await expect(page.getByRole('meter', { name: 'AI credits used by this task' })).toBeVisible();
   await checkScreen(page, '14-task-overview', { fullPage: true });
   await page.getByRole('tab', { name: 'Chat' }).click();
   await expect(page.getByLabel('Message')).toBeVisible();

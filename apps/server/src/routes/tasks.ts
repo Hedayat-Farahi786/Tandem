@@ -102,6 +102,8 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
     return service.update(id(req), { ...body, requirement: sentOnly(body.requirement, (req.body as { requirement?: unknown }).requirement) });
   });
 
+  /** Picks the Copilot model for the task's next agent steps ('' = Auto). */
+  app.put('/api/tasks/:id/model', async (req) => service.setModel(id(req), z.object({ model: z.string() }).parse(req.body).model));
   app.post('/api/tasks/:id/submit', async (req) => service.submit(id(req)));
   app.post('/api/tasks/:id/resume', async (req) => service.resume(id(req)));
   app.post('/api/tasks/:id/cancel', async (req) => service.cancel(id(req)));

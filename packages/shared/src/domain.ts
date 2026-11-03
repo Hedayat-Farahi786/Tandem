@@ -124,6 +124,8 @@ export const Task = z.object({
   pmRequestedAt: Iso.optional(),
   /** Step-local progress that must survive a restart (fix attempts, repos implemented, pushed shas). */
   progress: z.record(z.string(), z.unknown()).default({}),
+  /** Copilot model for every agent step of this task. Absent = the defaults in Settings. */
+  model: z.string().optional(),
   slug: z.string(),
   branch: z.string(),
   createdAt: Iso,
@@ -274,6 +276,8 @@ export const ChatThread = z.object({
   mode: ChatMode,
   title: z.string(),
   sessionId: z.string().optional(),
+  /** Copilot model for this chat (ask and request). A task chat uses its task's model. */
+  model: z.string().optional(),
   /** Request mode: the requirement gathered so far. */
   draft: Requirement.optional(),
   draftTitle: z.string().optional(),

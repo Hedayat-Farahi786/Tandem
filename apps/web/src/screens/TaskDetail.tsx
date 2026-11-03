@@ -27,6 +27,7 @@ import type {
   Task,
 } from "@tandem/shared";
 import { api, fetchText, patch, post, put } from "../lib/api";
+import { ModelPicker } from "../ui/model-picker";
 import {
   STATE_LABEL,
   STATE_TONE,
@@ -319,6 +320,91 @@ function RequirementDialog({
   );
 }
 
+function CopilotCard({ d }: { d: TaskDetail }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const setModel = useMutation({
+    mutationFn: (model: string) => put(`/api/tasks/${d.task.id}/model`, { model }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["task", d.task.id] });
+      void qc.invalidateQueries({ queryKey: ["thread"] });
+    },
+    onError: (err) =>
+      toast(err instanceof Error ? err.message : String(err), "danger"),
+  });
+  const credits = d.usage.aiCredits;
+  const limit = d.usage.budget.credits.perTask;
+  const share = Math.min(100, (credits / limit) * 100);
+  const closed = d.task.state === "DONE" || d.task.state === "CANCELLED";
+  return (
+    <Card title="Copilot">
+      <div className="flex flex-col gap-4 text-[13px]">
+        <div>
+          <p className="mb-1.5 text-[12px] text-muted">Model</p>
+          <ModelPicker
+            variant="field"
+            placement="bottom"
+            align="end"
+            value={setModel.isPending ? (setModel.variables ?? "") : (d.task.model ?? "")}
+            onChange={(m) => setModel.mutate(m)}
+            busy={setModel.isPending}
+            disabled={closed}
+          />
+          {!closed && (
+            <p className="mt-1.5 text-[11.5px] text-faint">
+              Applies from the next step.
+            </p>
+          )}
+        </div>
+        <div>
+          <div className="flex items-baseline justify-between">
+            <p className="text-[12px] text-muted">AI credits</p>
+            <p className="tabular-nums">
+              <span className="text-[15px] font-medium">
+                {credits < 10 ? credits.toFixed(2) : credits.toFixed(1)}
+              </span>{" "}
+              <span className="text-[12px] text-faint">of {limit}</span>
+            </p>
+          </div>
+          <div
+            className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2"
+            role="meter"
+            aria-label="AI credits used by this task"
+            aria-valuemin={0}
+            aria-valuemax={limit}
+            aria-valuenow={Math.round(credits * 100) / 100}
+          >
+            <div
+              className={cx(
+                "h-full rounded-full transition-[width]",
+                share >= 90 ? "bg-warn" : "bg-accent",
+              )}
+              style={{ width: `${share}%` }}
+            />
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-3">
+          <div>
+            <dt className="text-[12px] text-muted">Prompts</dt>
+            <dd className="text-[15px] font-medium tabular-nums">
+              {d.usage.prompts}{" "}
+              <span className="text-[12px] font-normal text-faint">
+                of {d.usage.budget.perTask}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[12px] text-muted">Model calls</dt>
+            <dd className="text-[15px] font-medium tabular-nums">
+              {d.usage.modelCalls}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </Card>
+  );
+}
+
 function Overview({ d }: { d: TaskDetail }) {
   const [editing, setEditing] = useState(false);
   const r = d.task.requirement;
@@ -411,31 +497,7 @@ function Overview({ d }: { d: TaskDetail }) {
         <Card title="Definition of Ready">
           <ReadinessChecklist readiness={d.readiness} />
         </Card>
-        <Card title="Copilot usage">
-          <dl className="grid grid-cols-2 gap-3 text-[13px]">
-            <div>
-              <dt className="text-[12px] text-muted">Prompts</dt>
-              <dd className="text-[15px] font-medium tabular-nums">
-                {d.usage.prompts}{" "}
-                <span className="text-[12px] font-normal text-faint">
-                  of {d.usage.budget.perTask}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[12px] text-muted">Model calls</dt>
-              <dd className="text-[15px] font-medium tabular-nums">
-                {d.usage.modelCalls}
-              </dd>
-            </div>
-            <div className="col-span-2">
-              <dt className="text-[12px] text-muted">AI credits</dt>
-              <dd className="text-[15px] font-medium tabular-nums">
-                {d.usage.aiCredits.toFixed(2)}
-              </dd>
-            </div>
-          </dl>
-        </Card>
+        <CopilotCard d={d} />
         <Card
           title="Branch"
           actions={
@@ -1338,20 +1400,27 @@ function StatusBanner({
         title={title}
         actions={
           t.blockedReason !== "readiness-missing" && (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={RotateCcw}
-              busy={act.isPending}
-              onClick={() =>
-                act.mutate({
-                  path: `/api/tasks/${t.id}/resume`,
-                  done: "Retrying.",
-                })
-              }
-            >
-              {t.state === "FAILED" ? "Retry" : "Resume"}
-            </Button>
+            <>
+              {t.blockedReason === "budget-reached" && (
+                <LinkButton size="sm" to="/settings">
+                  Open Settings
+                </LinkButton>
+              )}
+              <Button
+                size="sm"
+                variant="primary"
+                icon={RotateCcw}
+                busy={act.isPending}
+                onClick={() =>
+                  act.mutate({
+                    path: `/api/tasks/${t.id}/resume`,
+                    done: "Retrying.",
+                  })
+                }
+              >
+                {t.state === "FAILED" ? "Retry" : "Resume"}
+              </Button>
+            </>
           )
         }
       >

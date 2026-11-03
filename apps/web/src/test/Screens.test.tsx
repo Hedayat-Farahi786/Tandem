@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { boot, detail, settings, task } from './fixtures';
+import { boot, catalog, detail, settings, task } from './fixtures';
 import { mockApi, renderApp } from './helpers';
 
 const report = (statuses: Array<'pass' | 'warn' | 'fail' | 'skipped'>) => ({
@@ -72,8 +72,8 @@ describe('Settings', () => {
     'GET /api/bootstrap': boot(),
     'GET /api/settings': settings,
     'GET /api/secrets': { keychain: { ok: true }, jiraToken: false, githubToken: false },
-    'GET /api/usage': { today: 3, perDay: 40, perTask: 15, last30Days: { prompts: 9, modelCalls: 20, aiCredits: 1.25 } },
-    'GET /api/copilot/models': [{ id: 'gpt-5-mini', cost: '0x' }],
+    'GET /api/usage': { today: 3, perDay: 40, perTask: 15, credits: { today: 0.5, perDay: 75, perTask: 25 }, last30Days: { prompts: 9, modelCalls: 20, aiCredits: 1.25 } },
+    'GET /api/copilot/models': catalog,
     ...over,
   });
 

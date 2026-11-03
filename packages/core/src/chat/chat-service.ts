@@ -4,7 +4,7 @@ import { DraftUpdateArgs, Requirement, SpecChangeArgs, type ChatMessage, type Ch
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
-import { ActionError, type TaskService } from '../workflow/service.js';
+import { ActionError, checkModel, type TaskService } from '../workflow/service.js';
 import { NotFoundError, affectedRepos, loadProject, openSession, refreshReferences, type WorkflowDeps } from '../workflow/context.js';
 import { READ_ONLY_RULES } from '../workflow/prompts.js';
 import { failuresOf } from '../workflow/verify.js';
@@ -21,7 +21,7 @@ You answer questions about the code in the workspace (one folder per repo). Be c
 const REQUEST_RULES = `${READ_ONLY_RULES}
 You help the owner turn a request into a task that meets Tandem's Definition of Ready: a clear goal, a user story, at least 2 acceptance criteria written as Given/When/Then, example data, affected areas, what is out of scope, and no open questions.
 Read the code to ground your questions and to name real files and endpoints. Ask at most 3 short, specific questions per reply.
-Every time you learn something, call tandem_update_draft with the fields you can now fill (only send what changed). Estimate size too: changed lines across repos including tests, and the independent features.
+Every time you learn something, call tandem_update_draft with the fields you can now fill (only send what changed). Estimate size too: changed lines across repos including tests, and the independent features (useful shipped on their own; an endpoint and the page that shows it are one feature).
 Do not invent requirements; ask. Never write code.`;
 
 const TASK_RULES = `${READ_ONLY_RULES}
@@ -63,12 +63,35 @@ export class ChatService {
     private readonly tasks: TaskService,
   ) {}
 
-  async createThread(input: { projectId: string; mode: Exclude<ChatMode, 'task'>; title?: string | undefined }): Promise<ChatThread> {
+  async createThread(input: { projectId: string; mode: Exclude<ChatMode, 'task'>; title?: string | undefined; model?: string | undefined }): Promise<ChatThread> {
     await loadProject(this.deps, input.projectId);
+    const model = await checkModel(this.deps, input.model ?? '');
     const now = this.deps.clock.iso();
-    const t: ChatThread = { id: this.deps.ids(), projectId: input.projectId, mode: input.mode, title: input.title?.trim() || (input.mode === 'ask' ? 'Question' : 'New request'), createdAt: now, updatedAt: now };
+    const t: ChatThread = { id: this.deps.ids(), projectId: input.projectId, mode: input.mode, title: input.title?.trim() || (input.mode === 'ask' ? 'Question' : 'New request'), ...(model ? { model } : {}), createdAt: now, updatedAt: now };
     await this.deps.store.threads.upsert(t);
     return t;
+  }
+
+  /** The model this chat uses: its own pick, or its task's for a task chat ('' = defaults). */
+  async modelOf(thread: ChatThread): Promise<string> {
+    if (thread.mode === 'task' && thread.taskId) return (await this.deps.store.tasks.get(thread.taskId))?.model ?? '';
+    return thread.model ?? '';
+  }
+
+  /** Picks the model for the chat's next replies. A task chat picks it for the whole task. */
+  async setModel(threadId: string, model: string): Promise<ChatThread> {
+    const t = await this.thread(threadId);
+    if (t.mode === 'task' && t.taskId) {
+      await this.tasks.setModel(t.taskId, model);
+      return t;
+    }
+    if (t.createdTaskId) throw new ActionError('This request already became a task. Pick the model in the task.');
+    const id = await checkModel(this.deps, model);
+    const next: ChatThread = { ...t, updatedAt: this.deps.clock.iso() };
+    if (id) next.model = id;
+    else delete next.model;
+    await this.deps.store.threads.upsert(next);
+    return next;
   }
 
   /** The one chat thread of a task (created on first use). */
@@ -225,6 +248,7 @@ export class ChatService {
       ...(t.draftRepoIds?.length ? { affectedRepoIds: t.draftRepoIds } : {}),
       source: 'chat',
       description: (await this.messages(threadId)).filter((m) => m.role === 'user').map((m) => m.content).join('\n\n'),
+      ...(t.model ? { model: t.model } : {}),
     });
     if (t.draftSize) await this.deps.store.tasks.upsert({ ...task, sizeEstimate: t.draftSize });
     await this.deps.store.threads.upsert({ ...t, createdTaskId: task.id, updatedAt: this.deps.clock.iso() });

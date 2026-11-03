@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
 import type { ChatMessage, ChatThread } from '@tandem/shared';
-import { api, post } from '../lib/api';
+import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
 import { relativeTime } from '../lib/format';
 import { useRouter } from '../lib/router';
 import type { Bootstrap, ThreadView } from '../lib/types';
 import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Pill, Select, Spinner, cx, useToast } from '../ui/kit';
+import { ModelPicker, useModels } from '../ui/model-picker';
 import { ReadinessChecklist } from './Tasks';
 
 function Message({ m, repoName }: { m: ChatMessage; repoName: (id?: string) => string }) {
@@ -75,6 +76,14 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
       void qc.invalidateQueries({ queryKey: ['tasks'] });
       onTaskCreated?.(t.id);
     },
+  });
+  const setModel = useMutation({
+    mutationFn: (model: string) => put(`/api/threads/${threadId}/model`, { model }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['thread', threadId] });
+      void qc.invalidateQueries({ queryKey: ['task'] });
+    },
+    onError: (err) => toast(err instanceof Error ? err.message : 'Could not change the model.', 'danger'),
   });
   const applyChange = useMutation({
     mutationFn: (apply: boolean) => post(`/api/threads/${threadId}/spec-change/${apply ? 'apply' : 'dismiss'}`),
@@ -157,7 +166,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             submit();
           }}
         >
-          <div className={cx('flex items-end gap-2 rounded-2xl border border-line-strong bg-surface p-2 pl-4 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]', done && 'opacity-60')}>
+          <div className={cx('rounded-2xl border border-line-strong bg-surface p-2 shadow-md transition-shadow focus-within:border-[color-mix(in_srgb,var(--accent)_45%,var(--border-strong))] focus-within:shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_9%,transparent)]', done && 'opacity-60')}>
             <label htmlFor={`composer-${threadId}`} className="sr-only">
               Message
             </label>
@@ -179,11 +188,14 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
                   submit();
                 }
               }}
-              className="max-h-[220px] min-h-[36px] flex-1 resize-none bg-transparent py-2 text-[14.5px] leading-relaxed focus:outline-none focus-visible:outline-none"
+              className="block max-h-[220px] min-h-[40px] w-full resize-none bg-transparent px-2.5 pt-1.5 text-[14.5px] leading-relaxed focus:outline-none focus-visible:outline-none"
             />
-            <Button type="submit" variant="primary" aria-label="Send" className="size-9 rounded-xl px-0" disabled={!text.trim() || send.isPending || done}>
-              {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
-            </Button>
+            <div className="flex items-center justify-end gap-1.5">
+              <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} />
+              <Button type="submit" variant="primary" aria-label="Send" className="size-8 rounded-[10px] px-0" disabled={!text.trim() || send.isPending || done}>
+                {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
+              </Button>
+            </div>
           </div>
           <p className="mt-1.5 px-2 text-[11.5px] text-faint">Enter to send · Shift+Enter for a new line · Chat never changes code.</p>
         </form>
@@ -212,10 +224,31 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
 
 type Mode = 'request' | 'ask';
 
-function StartComposer({ projectName, busy, error, onStart }: { projectName: string; busy: boolean; error: unknown; onStart: (mode: Mode, text: string) => void }) {
+const MODEL_KEY = 'tandem.model';
+const rememberedModel = () => {
+  try {
+    return localStorage.getItem(MODEL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+
+function StartComposer({ projectName, busy, error, onStart }: { projectName: string; busy: boolean; error: unknown; onStart: (mode: Mode, text: string, model: string) => void }) {
   const [mode, setMode] = useState<Mode>('request');
   const [text, setText] = useState('');
-  const submit = () => text.trim() && !busy && onStart(mode, text.trim());
+  const [model, setModel] = useState(rememberedModel);
+  const catalog = useModels(Boolean(model));
+  // A remembered model this account no longer offers falls back to Auto.
+  const usable = !model || !catalog.data || catalog.data.models.some((m) => m.id === model) ? model : '';
+  const submit = () => text.trim() && !busy && onStart(mode, text.trim(), usable);
+  const pick = (m: string) => {
+    setModel(m);
+    try {
+      localStorage.setItem(MODEL_KEY, m);
+    } catch {
+      // Private window or blocked storage: the pick still applies to this chat.
+    }
+  };
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center pt-[9vh] text-center">
       <h1 className="font-serif text-[34px] leading-tight font-medium tracking-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
@@ -260,9 +293,12 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
                 </button>
               ))}
             </div>
-            <Button type="submit" variant="primary" aria-label="Start" className="size-9 rounded-xl px-0" disabled={!text.trim() || busy}>
-              {busy ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <ModelPicker value={usable} onChange={pick} placement="bottom" />
+              <Button type="submit" variant="primary" aria-label="Start" className="size-9 rounded-xl px-0" disabled={!text.trim() || busy}>
+                {busy ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
+              </Button>
+            </div>
           </div>
         </div>
       </form>
@@ -285,7 +321,7 @@ export function ChatScreen() {
   const [firstMessage, setFirstMessage] = useState<{ threadId: string; text: string } | null>(null);
   const threads = useQuery({ queryKey: ['threads', projectId], queryFn: () => api<ChatThread[]>(`/api/projects/${projectId}/threads`), enabled: Boolean(projectId) });
   const start = useMutation({
-    mutationFn: ({ mode }: { mode: Mode; text: string }) => post<ChatThread>('/api/threads', { projectId, mode }),
+    mutationFn: ({ mode, model }: { mode: Mode; text: string; model: string }) => post<ChatThread>('/api/threads', { projectId, mode, ...(model ? { model } : {}) }),
     onSuccess: (t, v) => {
       setFirstMessage({ threadId: t.id, text: v.text });
       void qc.invalidateQueries({ queryKey: ['threads', projectId] });
@@ -354,7 +390,7 @@ export function ChatScreen() {
         ) : threadId && threads.isLoading ? (
           <Loading />
         ) : (
-          <StartComposer projectName={project?.name ?? 'your code'} busy={start.isPending} error={start.error} onStart={(mode, text) => start.mutate({ mode, text })} />
+          <StartComposer projectName={project?.name ?? 'your code'} busy={start.isPending} error={start.error} onStart={(mode, text, model) => start.mutate({ mode, text, model })} />
         )}
       </section>
     </div>

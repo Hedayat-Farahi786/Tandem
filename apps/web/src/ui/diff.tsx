@@ -101,8 +101,14 @@ function FileDiff({ file, defaultOpen }: { file: DiffFile; defaultOpen: boolean 
   );
 }
 
+/** Tandem's copy of the approved spec: already reviewed, so it goes last and starts collapsed. */
+const isSpecCopy = (path: string) => /^specs\/[^/]+\.md$/.test(path);
+
 export function DiffView({ diff }: { diff: string }) {
-  const files = useMemo(() => parseDiff(diff), [diff]);
+  const files = useMemo(() => {
+    const all = parseDiff(diff);
+    return [...all.filter((f) => !isSpecCopy(f.path)), ...all.filter((f) => isSpecCopy(f.path))];
+  }, [diff]);
   if (!files.length) return <p className="text-[13px] text-muted">No changes yet.</p>;
   const add = files.reduce((n, f) => n + f.additions, 0);
   const del = files.reduce((n, f) => n + f.deletions, 0);
@@ -112,7 +118,7 @@ export function DiffView({ diff }: { diff: string }) {
         {files.length} file{files.length > 1 ? 's' : ''} changed · <span className="text-ok">+{add}</span> · <span className="text-danger">−{del}</span>
       </p>
       {files.map((f, i) => (
-        <FileDiff key={f.path} file={f} defaultOpen={i < 8 && f.lines.length < 400} />
+        <FileDiff key={f.path} file={f} defaultOpen={!isSpecCopy(f.path) && i < 8 && f.lines.length < 400} />
       ))}
     </div>
   );

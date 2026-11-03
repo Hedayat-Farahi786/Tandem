@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { Budget } from '@tandem/core';
 import { inspectMirror } from '@tandem/adapters';
-import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate } from '@tandem/shared';
+import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate, estimateTaskCredits, type ModelOption } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
 import { runDoctor } from '../doctor.js';
 
@@ -174,15 +174,34 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     return { imported: tasks.map((t) => ({ id: t.id, key: t.key })) };
   });
 
-  /** Models this Copilot account can use, with their cost (no model call). */
+  /**
+   * Models this Copilot account can use, with prices in AI credits per million tokens and an
+   * estimate for a typical task (no model call). "Auto" is Tandem's defaults from Settings.
+   */
   app.get('/api/copilot/models', async () => {
-    const agent = tandem.agent as { listModels?: () => Promise<Array<{ id: string; policy?: { state: string }; billing?: { multiplier?: number; tokenPrices?: { inputPrice?: number; outputPrice?: number } } }>> };
-    if (!agent.listModels) return [];
+    const agent = tandem.agent;
+    const settings = await tandem.settings();
+    const budget = await new Budget(store, tandem.deps.clock, tandem.settings).summary();
+    const credits = { today: budget.credits.today, perDay: budget.credits.perDay, perTask: budget.credits.perTask };
+    if (!agent.models) return { models: [], auto: { light: settings.copilot.lightModel || null, build: settings.copilot.buildModel || null }, credits };
+    let list: ModelOption[];
     try {
-      return (await agent.listModels()).filter((m) => m.policy?.state !== 'disabled').map((m) => ({ id: m.id, cost: m.billing?.multiplier !== undefined ? `${m.billing.multiplier}×` : m.billing?.tokenPrices ? `in ${m.billing.tokenPrices.inputPrice ?? '?'} · out ${m.billing.tokenPrices.outputPrice ?? '?'}` : '' }));
+      list = await agent.models();
     } catch (err) {
       throw new HttpError(502, `Could not list Copilot models: ${String((err as Error).message ?? err).slice(0, 200)}. Check the Copilot host and run Doctor.`);
     }
+    const order = ['Anthropic', 'OpenAI', 'Google', 'Microsoft', 'xAI'];
+    const rank = (v: string) => (order.indexOf(v) + 1 || order.length + 1);
+    const models = list
+      .filter((m) => m.id !== 'auto')
+      .map((m) => {
+        const estimate = estimateTaskCredits(m);
+        return { ...m, ...(estimate !== undefined ? { estimate: Math.round(estimate * 10) / 10 } : {}) };
+      })
+      .sort((a, b) => rank(a.vendor) - rank(b.vendor) || (a.estimate ?? Infinity) - (b.estimate ?? Infinity) || a.name.localeCompare(b.name));
+    const light = settings.copilot.lightModel || (await agent.defaultModel?.('light').catch(() => undefined)) || null;
+    const build = settings.copilot.buildModel || (await agent.defaultModel?.('build').catch(() => undefined)) || null;
+    return { models, auto: { light, build }, credits };
   });
 
   /* ------------------------------------------------------------------ doctor and usage */

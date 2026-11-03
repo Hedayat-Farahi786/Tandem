@@ -8,7 +8,7 @@ export const settings: Settings = {
   copilot: { host: '', buildModel: '', lightModel: '', cliPath: '' },
   aws: { profile: '', region: '' },
   limits: { maxConcurrentBuilds: 1, maxConcurrentReadOnly: 2, chatTimeoutMin: 5, readOnlyTimeoutMin: 15, buildTimeoutMin: 60, commandTimeoutMin: 15, maxFixAttempts: 2, sizeLineLimit: 400 },
-  budget: { perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60 },
+  budget: { perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60, perTaskCredits: 25, perDayCredits: 75 },
   jira: { baseUrl: '', email: '', readyJql: 'status = "Ready for AI"', inReviewStatus: 'In Review', pollIntervalMin: 5 },
   github: { apiBase: 'https://api.github.com' },
   polling: { prPollIntervalMin: 5 },
@@ -56,8 +56,18 @@ export function detail(over: Partial<TaskDetail> = {}, t: Partial<Task> = {}): T
     prs: [],
     comments: [],
     runs: [],
-    usage: { prompts: 2, modelCalls: 5, aiCredits: 0.5, budget: { today: 2, perDay: 40, perTask: 15 } },
+    usage: { prompts: 2, modelCalls: 5, aiCredits: 0.5, budget: { today: 2, perDay: 40, perTask: 15, credits: { today: 0.5, perDay: 75, task: 0.5, perTask: 25 } } },
     running: false,
     ...over,
   };
 }
+
+/** The model catalog as the server sends it (prices in AI credits per million tokens). */
+export const catalog = {
+  models: [
+    { id: 'claude-sonnet-5.5', name: 'Claude Sonnet 5.5', vendor: 'Anthropic', price: { input: 200, output: 1000, cachedInput: 10 }, contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: ['low', 'medium', 'high', 'max'], estimate: 48 },
+    { id: 'gpt-6-luna', name: 'GPT-6 Luna', vendor: 'OpenAI', price: { input: 10, output: 50, cachedInput: 1 }, contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: ['none', 'max'], estimate: 3 },
+  ],
+  auto: { light: 'gpt-6-luna', build: null },
+  credits: { today: 0.5, perDay: 75, perTask: 25 },
+};

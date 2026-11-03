@@ -13,15 +13,16 @@ TANDEM_E2E_REAL=1 TANDEM_AWS_PROFILE=<profile> pnpm test:flows   # real CodeComm
 ```
 
 Suite: `e2e/flows/workflow.e2e.test.ts` (harness: `e2e/flows/harness.ts`), Jira:
-`e2e/flows/jira.e2e.test.ts`.
+`e2e/flows/jira.e2e.test.ts`, live Copilot: `e2e/flows/copilot.e2e.test.ts` (skipped unless
+`TANDEM_E2E_COPILOT=1`; it spends AI credits, so it runs only with the owner's go-ahead).
 
 ## Results
 
 | Scenario | Scripted agent, local remotes | Scripted agent, real CodeCommit | Live Copilot |
 | --- | --- | --- | --- |
-| (a) one full-stack repo | ✅ 42 s | pending: AWS sign-in expired | pending: asks first |
-| (b) separate frontend + backend repos | ✅ 56 s, two cross-linked PRs | pending | pending |
-| request that needs clarifying questions | ✅ in every scenario: a question, "not ready" refused, the answer, then ready | pending | part of (a)/(b) |
+| (a) one full-stack repo | ✅ 42 s | pending: AWS sign-in expired | ✅ 2.9 min, 0.94 credits (+0.17 chat) |
+| (b) separate frontend + backend repos | ✅ 56 s, two cross-linked PRs | pending | ✅ 3.7 min, 1.15 credits (+0.21 chat), two cross-linked PRs |
+| request that needs clarifying questions | ✅ in every scenario: a question, "not ready" refused, the answer, then ready | pending | the live requests were complete, so the agent marked them ready on the first reply |
 | too-big task → split | ✅ 880 lines → 4 parts accepted (parent cancelled, each part drafts its spec); and overridden with a reason | pending | – |
 | request changes → redraft from task chat | ✅ task chat proposes the change, owner confirms, spec v2 | pending | – |
 | spec edit resets approvals | ✅ owner approval of v2 stops counting after the edit to v3; the build starts only after both keys on v3 | pending | – |
@@ -32,6 +33,33 @@ Suite: `e2e/flows/workflow.e2e.test.ts` (harness: `e2e/flows/harness.ts`), Jira:
 | Jira flows | written, skipped without `TANDEM_E2E_JIRA=1` | skipped | – |
 
 Local run: 8/8 passed in 6.1 minutes (Ubuntu 20.04, Node 22.23.1, git 2.25.1).
+
+## Live Copilot
+
+Run on 2026-11-03 with the owner's go-ahead, on `gpt-6-luna` (picked in chat with the new model
+picker), against local copies of the sandbox repos (the AWS sign-in had expired; the Copilot part is
+the same either way, only the last step is a prefilled console link instead of a created PR). Hard
+limits for the run: 15 AI credits per task, 40 per day, 60 model calls per run.
+
+| | (a) one full-stack repo | (b) frontend + backend |
+| --- | --- | --- |
+| Path | chat → readiness → spec → review → build → checks → self-review → PR | same, backend first, then frontend |
+| Chat turns to ready | 1 | 1 |
+| Checks | passed on the first run, no fix attempts | passed on the first run |
+| Criteria with a passing test | 3 of 3 | 2 of 2 (criterion 2 tested in both repos) |
+| Self-review findings | none | none |
+| Needs attention | no | no |
+| Task credits / model calls | 0.94 / 13 | 1.15 / 19 |
+| Time | 2.9 min | 3.7 min |
+
+Copilot spend today: 2.47 credits for this run (40 model calls: request chat 0.39, specs 0.45,
+builds 1.42, reviews 0.22), 1.53 for a first attempt stopped on purpose after it failed (problem 6
+below), and 0.05 for one structured-output check after the fix: about 4.1 credits in total.
+
+The picker's "credits per task" estimate is calibrated on these runs (1.3 on `gpt-6-luna`).
+
+Screenshots (real model list of the account, light and dark): `phase-4/picker-*.jpg`,
+`phase-4/live-task-overview-*.jpg`, `phase-4/live-task-changes-*.jpg`.
 
 With local remotes, the PR API answers "access denied", so every PR is the prefilled console link
 (checked to point at the right repository, base branch and agent branch). On real CodeCommit
@@ -56,3 +84,21 @@ with a profile that may create PRs, Tandem opens them itself.
    the sandbox repos' `main` stays untouched.
 4. The scripted agent's size estimate now grows with the number of features a request lists (three
    or more is too big, with a split proposal), so the split path runs end to end.
+
+Found by the live Copilot run (the scripted agent could not show these):
+
+5. **Every real full-stack task was blocked as "too big".** The model estimated 40 lines but listed
+   "Health endpoint" and "Main-page health status" as two features, and any two features blocked.
+   Now a split needs more lines than the limit, three or more features, or two that the estimate
+   itself proposes to split; the prompts define an independent feature as one that is useful
+   shipped on its own (an endpoint and the page that shows it are one).
+6. **Self-review failed with a 400 on OpenAI models.** Structured output is sent as strict JSON
+   Schema, where every property must be required; the review's optional `repo`/`file`/`line` were
+   not. The Copilot adapter now sends a strict form of every schema (all fields required, optional
+   ones nullable, no extra keys) and maps nulls back before validating. Checked live with one
+   capped prompt (0.05 credits), then the full run.
+7. **That 400 was retried three times.** The "retry on 5xx" pattern matched `520` inside the request
+   ID. Request IDs are ignored now, and 4xx answers (other than 429) are never retried.
+8. **A failed agent run was recorded as succeeded** once its session closed. Failed runs stay failed.
+9. The local-remote test switch (`TANDEM_TEST_REMOTE_ROOT`) only worked with the scripted agent;
+   it now works with either, and the start banner and log say when it is on.

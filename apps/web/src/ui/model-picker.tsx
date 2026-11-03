@@ -1,0 +1,300 @@
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Check, ChevronDown, RotateCw } from 'lucide-react';
+import { api } from '../lib/api';
+import { useRouter } from '../lib/router';
+import type { ModelCatalog, ModelChoice } from '../lib/types';
+import { Spinner, controlBase, cx } from './kit';
+
+export function useModels(enabled = true) {
+  return useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), staleTime: 5 * 60_000, retry: false, enabled });
+}
+
+const trimNum = (n: number) => String(Math.round(n * 10) / 10);
+export const formatTokens = (n: number) => (n >= 1_000_000 ? `${trimNum(n / 1_000_000)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n));
+export const formatCredits = (n: number) => (n > 0 && n < 0.1 ? '< 0.1' : n < 10 ? trimNum(n) : String(Math.round(n)));
+
+/** The name to show for a model id ('' = Auto). */
+export function modelLabel(catalog: ModelCatalog | undefined, id: string): string {
+  if (!id) return 'Auto';
+  return catalog?.models.find((m) => m.id === id)?.name ?? id;
+}
+
+type Item = { kind: 'auto' } | { kind: 'model'; m: ModelChoice };
+const itemId = (i: Item) => (i.kind === 'auto' ? '' : i.m.id);
+
+function Stat({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div className="rounded-lg bg-surface px-2.5 py-1.5 ring-1 ring-line">
+      <p className="text-[11px] text-muted">{label}</p>
+      <p className="text-[14px] font-medium tabular-nums">{value === undefined ? '–' : value}</p>
+    </div>
+  );
+}
+
+function Details({ item, catalog }: { item: Item; catalog: ModelCatalog }) {
+  if (item.kind === 'auto') {
+    const light = modelLabel(catalog, catalog.auto.light ?? '');
+    const build = catalog.auto.build ? modelLabel(catalog, catalog.auto.build) : null;
+    return (
+      <div className="text-[12.5px] leading-relaxed text-muted">
+        <p className="mb-1 text-[13px] font-medium text-fg">Auto</p>
+        Tandem picks per step: <span className="text-fg">{catalog.auto.light ? light : 'the cheapest model'}</span> for chat, specs and reviews, and <span className="text-fg">{build ?? "Copilot's own choice"}</span> for writing code. Change these defaults in Settings.
+      </div>
+    );
+  }
+  const m = item.m;
+  const over = m.estimate !== undefined && m.estimate > catalog.credits.perTask;
+  const reasoning = m.reasoning.length ? (m.reasoning.length > 1 ? `${m.reasoning[0]}–${m.reasoning[m.reasoning.length - 1]}` : m.reasoning[0]) : null;
+  const chips = [m.contextWindow ? `${formatTokens(m.contextWindow)} context` : null, m.maxOutput ? `${formatTokens(m.maxOutput)} output` : null, m.vision ? 'Images' : null, reasoning ? `Reasoning ${reasoning}` : null].filter((c): c is string => Boolean(c));
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate text-[13px] font-medium">{m.name}</p>
+        <p className="shrink-0 text-[11.5px] text-faint">{m.vendor}</p>
+      </div>
+      {m.price ? (
+        <>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            <Stat label="Input" value={m.price.input} />
+            <Stat label="Cached input" value={m.price.cachedInput} />
+            <Stat label="Output" value={m.price.output} />
+          </div>
+          <p className="mt-1 text-[11px] text-faint">AI credits per million tokens</p>
+        </>
+      ) : m.multiplier !== undefined ? (
+        <p className="mt-2 text-[12.5px] text-muted">{m.multiplier}× premium requests per prompt</p>
+      ) : (
+        <p className="mt-2 text-[12.5px] text-muted">Copilot publishes no price for this model.</p>
+      )}
+      {chips.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1">
+          {chips.map((c) => (
+            <span key={c} className="rounded-md bg-surface px-1.5 py-0.5 text-[11.5px] text-muted ring-1 ring-line">
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+      {m.estimate !== undefined && (
+        <p className={cx('mt-2.5 flex items-start gap-1.5 text-[12.5px]', over ? 'text-warn' : 'text-muted')}>
+          {over && <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />}
+          <span>
+            About <span className="font-medium tabular-nums">{formatCredits(m.estimate)}</span> credits for a typical task.
+            {over && ` That is above the ${catalog.credits.perTask}-credit task limit, so a task may stop and wait for you.`}
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Picks the Copilot model for a chat or task. A combobox with a listbox (APG select-only pattern):
+ * models grouped by vendor with an estimate per task, and details of the highlighted model.
+ */
+export function ModelPicker({ value, onChange, disabled, busy, placement = 'top', align = 'end', variant = 'composer', className }: { value: string; onChange: (id: string) => void; disabled?: boolean; busy?: boolean; placement?: 'top' | 'bottom'; align?: 'start' | 'end'; variant?: 'composer' | 'field'; className?: string }) {
+  const uid = useId();
+  const { navigate } = useRouter();
+  const [open, setOpen] = useState(false);
+  // Opens toward the side with room, and fits the list to it (header, details and footer take ~320px).
+  const [fit, setFit] = useState<{ side: 'top' | 'bottom'; list: number }>({ side: placement, list: 300 });
+  const catalog = useModels(open || Boolean(value));
+  const items = useMemo<Item[]>(() => [{ kind: 'auto' }, ...(catalog.data?.models ?? []).map((m): Item => ({ kind: 'model', m }))], [catalog.data]);
+  const selectedIndex = Math.max(0, items.findIndex((i) => itemId(i) === value));
+  const [active, setActive] = useState(selectedIndex);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const typed = useRef({ text: '', at: 0 });
+  const optId = (i: number) => `${uid}-opt-${i}`;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !button.current) return;
+    const r = button.current.getBoundingClientRect();
+    const room = { top: r.top - 16, bottom: window.innerHeight - r.bottom - 16 };
+    const other = placement === 'top' ? 'bottom' : 'top';
+    const side = room[placement] >= 560 || room[placement] >= room[other] ? placement : other;
+    setFit({ side, list: Math.max(120, Math.min(300, room[side] - 320)) });
+  }, [open, placement]);
+  useEffect(() => {
+    if (open) setActive(selectedIndex);
+    // Only when opening or when the list arrives.
+  }, [open, items.length]);
+  useEffect(() => {
+    // Block body on purpose: newer browsers return a Promise from scrollIntoView.
+    if (open) void document.getElementById(optId(active))?.scrollIntoView?.({ block: 'nearest' });
+  }, [active, open]);
+
+  const choose = (i: number) => {
+    const item = items[i];
+    if (!item) return;
+    setOpen(false);
+    button.current?.focus();
+    if (itemId(item) !== value) onChange(itemId(item));
+  };
+  const label = modelLabel(catalog.data, value);
+  const groups = useMemo(() => {
+    const out: Array<{ vendor: string; entries: Array<{ m: ModelChoice; index: number }> }> = [];
+    items.forEach((item, index) => {
+      if (item.kind !== 'model') return;
+      const last = out[out.length - 1];
+      if (last?.vendor === item.m.vendor) last.entries.push({ m: item.m, index });
+      else out.push({ vendor: item.m.vendor, entries: [{ m: item.m, index }] });
+    });
+    return out;
+  }, [items]);
+  const perTask = catalog.data?.credits.perTask ?? Infinity;
+
+  const option = (index: number, name: string, right: ReactNode, sub?: string) => {
+    const selected = index === selectedIndex;
+    return (
+      <div
+        key={index}
+        id={optId(index)}
+        role="option"
+        aria-selected={selected}
+        onMouseEnter={() => setActive(index)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => choose(index)}
+        className={cx('flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px]', index === active && 'bg-surface-2')}
+      >
+        <Check aria-hidden className={cx('size-3.5 shrink-0 text-accent', !selected && 'invisible')} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{name}</span>
+          {sub && <span className="block truncate text-[11.5px] text-faint">{sub}</span>}
+        </span>
+        {right}
+      </div>
+    );
+  };
+
+  return (
+    <div ref={root} className={cx('relative', variant === 'field' && 'w-full', className)}>
+      <button
+        ref={button}
+        type="button"
+        role="combobox"
+        disabled={disabled}
+        aria-label={`Model: ${label}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${uid}-list`}
+        aria-activedescendant={open && catalog.data ? optId(active) : undefined}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            setOpen(true);
+            return;
+          }
+          if (!open) return;
+          const n = items.length;
+          const keys: Record<string, () => void> = {
+            ArrowDown: () => setActive((a) => Math.min(n - 1, a + 1)),
+            ArrowUp: () => setActive((a) => Math.max(0, a - 1)),
+            Home: () => setActive(0),
+            End: () => setActive(n - 1),
+            PageDown: () => setActive((a) => Math.min(n - 1, a + 6)),
+            PageUp: () => setActive((a) => Math.max(0, a - 6)),
+            Enter: () => choose(active),
+            ' ': () => choose(active),
+          };
+          const act = keys[e.key];
+          if (act) {
+            e.preventDefault();
+            act();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+          } else if (e.key === 'Tab') setOpen(false);
+          else if (e.key.length === 1) {
+            const now = Date.now();
+            typed.current = { text: (now - typed.current.at < 600 ? typed.current.text : '') + e.key.toLowerCase(), at: now };
+            const i = items.findIndex((it) => (it.kind === 'auto' ? 'auto' : it.m.name.toLowerCase()).startsWith(typed.current.text));
+            if (i >= 0) setActive(i);
+          }
+        }}
+        className={cx(
+          'flex items-center gap-1 transition-colors disabled:pointer-events-none disabled:opacity-50',
+          variant === 'composer'
+            ? 'h-8 max-w-[220px] rounded-lg px-2.5 text-[12.5px] text-muted hover:bg-surface-2 hover:text-fg aria-expanded:bg-surface-2 aria-expanded:text-fg'
+            : cx(controlBase, 'h-9 justify-between px-3 text-left'),
+        )}
+      >
+        <span className="truncate">{label}</span>
+        {busy ? <Spinner className="size-3.5" /> : <ChevronDown aria-hidden className={cx('size-3.5 shrink-0 text-faint transition-transform', open && 'rotate-180')} />}
+      </button>
+      {open && (
+        <div
+          className={cx(
+            'absolute z-50 flex w-[min(380px,calc(100vw-32px))] animate-pop flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-lg',
+            fit.side === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
+            align === 'end' ? 'right-0' : 'left-0',
+          )}
+        >
+          <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
+            <p id={`${uid}-title`} className="text-[12.5px] font-semibold">
+              Copilot model
+            </p>
+            <p className="text-[11.5px] text-faint">≈ credits per task</p>
+          </div>
+          {catalog.isLoading ? (
+            <p className="flex items-center gap-2 px-3.5 pt-1 pb-4 text-[12.5px] text-muted">
+              <Spinner /> Loading models…
+            </p>
+          ) : catalog.isError || !catalog.data ? (
+            <div className="px-3.5 pt-1 pb-4 text-[12.5px] text-muted">
+              <p>{catalog.error instanceof Error ? catalog.error.message : 'Could not load the models.'}</p>
+              <button type="button" onClick={() => void catalog.refetch()} className="mt-2 inline-flex items-center gap-1.5 rounded-md text-[12.5px] font-medium text-accent-text hover:underline">
+                <RotateCw aria-hidden className="size-3.5" /> Try again
+              </button>
+            </div>
+          ) : (
+            <>
+              <div id={`${uid}-list`} role="listbox" aria-labelledby={`${uid}-title`} tabIndex={-1} style={{ maxHeight: fit.list }} className="overflow-y-auto px-1.5 pb-1.5">
+                {option(0, 'Auto', null, 'Tandem picks per step')}
+                {groups.map((g) => (
+                    <div key={g.vendor} role="group" aria-labelledby={`${uid}-g-${g.vendor}`}>
+                      <div id={`${uid}-g-${g.vendor}`} role="presentation" className="px-2.5 pt-2.5 pb-1 text-[10.5px] font-semibold tracking-wider text-faint uppercase">
+                        {g.vendor}
+                      </div>
+                      {g.entries.map(({ m, index }) =>
+                        option(
+                          index,
+                          m.name,
+                          <span className={cx('shrink-0 text-[12px] tabular-nums', m.estimate !== undefined && m.estimate > perTask ? 'text-warn' : 'text-muted')}>{m.estimate !== undefined ? `≈ ${formatCredits(m.estimate)}` : m.multiplier !== undefined ? `${m.multiplier}×` : '–'}</span>,
+                        ),
+                      )}
+                    </div>
+                ))}
+              </div>
+              <div className="border-t border-line bg-surface-2/60 px-3.5 py-3">{items[active] && <Details item={items[active]} catalog={catalog.data} />}</div>
+              <div className="flex items-center justify-between border-t border-line px-3.5 py-2 text-[11.5px] text-faint">
+                <span className="tabular-nums">
+                  Today {formatCredits(catalog.data.credits.today)} of {catalog.data.credits.perDay} credits
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate('/settings');
+                  }}
+                  className="rounded-md font-medium text-accent-text hover:underline"
+                >
+                  Limits
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

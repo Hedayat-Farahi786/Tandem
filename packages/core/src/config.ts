@@ -10,6 +10,12 @@ const int = (v: string | undefined, name: string): number | undefined => {
   if (!Number.isInteger(n)) throw new ConfigError(`${name} must be a whole number (got "${v}").`);
   return n;
 };
+const num = (v: string | undefined, name: string): number | undefined => {
+  if (v === undefined || v.trim() === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) throw new ConfigError(`${name} must be a positive number (got "${v}").`);
+  return n;
+};
 const str = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
 
 /**
@@ -33,6 +39,8 @@ export function loadConfig(env: Record<string, string | undefined>, homedir: str
   set('limits.buildTimeoutMin', int(env.TANDEM_BUILD_TIMEOUT_MIN, 'TANDEM_BUILD_TIMEOUT_MIN'));
   set('budget.perTaskPrompts', int(env.TANDEM_BUDGET_PER_TASK, 'TANDEM_BUDGET_PER_TASK'));
   set('budget.perDayPrompts', int(env.TANDEM_BUDGET_PER_DAY, 'TANDEM_BUDGET_PER_DAY'));
+  set('budget.perTaskCredits', num(env.TANDEM_CREDITS_PER_TASK, 'TANDEM_CREDITS_PER_TASK'));
+  set('budget.perDayCredits', num(env.TANDEM_CREDITS_PER_DAY, 'TANDEM_CREDITS_PER_DAY'));
   const agent = str(env.TANDEM_AGENT) ?? 'copilot';
   const parsed = RuntimeConfig.safeParse({
     home: str(env.TANDEM_HOME) ?? joinPath(homedir, '.tandem'),

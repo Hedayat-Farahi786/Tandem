@@ -2,13 +2,14 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentRun, AgentRunKind, Project, Repo, Settings, Task } from '@tandem/shared';
-import { Budget } from '../budget.js';
+import { Budget, BudgetError } from '../budget.js';
 import type {
   AgentEvent,
   AgentMode,
   AgentRuntime,
   AgentSession,
   AgentTool,
+  AgentUsage,
   Clock,
   EventSink,
   GitOps,
@@ -122,6 +123,13 @@ export interface SessionRequest {
 
 const LIGHT_KINDS: readonly AgentRunKind[] = ['ask', 'request', 'task-chat', 'extract', 'size', 'spec', 'review'];
 
+/** The model picked for this task or chat ('' = none, use the defaults in Settings). */
+export async function pickedModel(deps: Pick<WorkflowDeps, 'store'>, scope: { taskId?: string | undefined; threadId?: string | undefined }): Promise<string> {
+  if (scope.taskId) return (await deps.store.tasks.get(scope.taskId))?.model ?? '';
+  if (scope.threadId) return (await deps.store.threads.get(scope.threadId))?.model ?? '';
+  return '';
+}
+
 /**
  * Every agent session goes through here: budget check before each prompt, usage recorded after,
  * events forwarded (redacted), an AgentRun row per session, and abort on cancel.
@@ -130,7 +138,9 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
   const settings = await deps.settings();
   const budget = new Budget(deps.store, deps.clock, deps.settings);
   const light = LIGHT_KINDS.includes(req.kind);
-  const model = light ? settings.copilot.lightModel : settings.copilot.buildModel;
+  const model = (await pickedModel(deps, req)) || (light ? settings.copilot.lightModel : settings.copilot.buildModel);
+  await budget.assertCanSend(req.taskId);
+  const maxNanoAiu = await budget.remainingNanoAiu(req.taskId);
   const timeoutMin = req.kind === 'ask' || req.kind === 'request' || req.kind === 'task-chat' ? settings.limits.chatTimeoutMin : req.mode === 'build' ? settings.limits.buildTimeoutMin : settings.limits.readOnlyTimeoutMin;
   const run: AgentRun = {
     id: deps.ids(),
@@ -161,6 +171,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
       ...(req.resumeId ? { resumeId: req.resumeId } : {}),
       timeoutMs: timeoutMin * 60_000,
       maxModelCalls: settings.budget.perRunModelCalls,
+      maxNanoAiu,
       onEvent: emit,
     });
   } catch (err) {
@@ -192,6 +203,16 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
   const finish = async (status: AgentRun['status'], error?: string) => {
     await deps.store.runs.upsert({ ...run, status, endedAt: deps.clock.iso(), ...(error ? { error: redactor.redact(error) } : {}) });
   };
+  let failure: string | undefined;
+  /** A stopped turn still cost something: record what it used, and explain a credit stop. */
+  const failed = async (err: unknown): Promise<unknown> => {
+    const partial = (err as { usage?: AgentUsage } | undefined)?.usage;
+    if (partial && (partial.modelCalls > 0 || partial.nanoAiu > 0)) await record(partial);
+    const out = err instanceof BudgetError ? new BudgetError(await budget.limitMessage(req.taskId)) : err;
+    failure = String(out);
+    await finish('failed', failure);
+    return out;
+  };
   return {
     id: session.id,
     runId: run.id,
@@ -202,8 +223,7 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
         await record(turn.usage);
         return turn.text;
       } catch (err) {
-        await finish('failed', String(err));
-        throw err;
+        throw await failed(err);
       }
     },
     structured: async (prompt, schema) => {
@@ -213,14 +233,15 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
         await record(r.usage);
         return r.value;
       } catch (err) {
-        await finish('failed', String(err));
-        throw err;
+        throw await failed(err);
       }
     },
     stop: async () => {
       req.signal?.removeEventListener('abort', onAbort);
       await session.stop();
-      await finish(req.signal?.aborted ? 'aborted' : 'succeeded');
+      // A failed run stays failed; closing its session is not a success.
+      if (req.signal?.aborted) await finish('aborted', failure);
+      else if (!failure) await finish('succeeded');
     },
   };
 }

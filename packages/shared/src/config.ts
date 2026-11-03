@@ -36,8 +36,12 @@ export const Settings = z.object({
       perDayPrompts: z.number().int().min(1).default(40),
       /** Abort a single agent run after this many model calls (agent loop runaway guard). */
       perRunModelCalls: z.number().int().min(5).default(60),
+      /** AI credits one task may use; a run that reaches it stops at once and the task waits. */
+      perTaskCredits: z.number().min(1).default(25),
+      /** AI credits all of Tandem may use per day. */
+      perDayCredits: z.number().min(1).default(75),
     })
-    .default({ perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60 }),
+    .default({ perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60, perTaskCredits: 25, perDayCredits: 75 }),
   jira: z
     .object({
       baseUrl: z.string().default(''),

@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { DEFAULT_SETTINGS, type Settings } from '@tandem/shared';
-import { RetryableError, type AgentEvent, type AgentSessionOptions } from '@tandem/core';
-import { CopilotRuntime, cheapestModel, type ClientLike, type ModelLike, type SessionEventLike, type SessionLike } from './copilot-runtime.js';
+import { BudgetError, RetryableError, type AgentEvent, type AgentSessionOptions } from '@tandem/core';
+import { CopilotRuntime, cheapestModel, toModelOption, type ClientLike, type ModelLike, type SessionEventLike, type SessionLike } from './copilot-runtime.js';
 import { copilotRuntimeEnv, enforcement } from './enforce.js';
 
 type Reply = (s: FakeSession, prompt: string, schema?: unknown) => Promise<unknown>;
@@ -167,6 +167,38 @@ describe('CopilotRuntime', () => {
     expect(sessions[0]!.aborted).toBe(true);
   });
 
+  it('stops a run at its credit limit with a BudgetError that carries what it used', async () => {
+    const { rt, sessions } = runtime(async (s) => {
+      for (let i = 0; i < 5; i++) usage(s, 400);
+      return { data: { content: 'x' } };
+    });
+    const session = await rt.startSession(baseOpts({ maxNanoAiu: 1000 }));
+    const err = await session.send('spend').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BudgetError);
+    expect((err as Error).message).toMatch(/credit limit after 5 model calls/);
+    expect((err as { usage: unknown }).usage).toEqual({ model: 'gpt-6-luna', modelCalls: 5, nanoAiu: 2000 });
+    expect(sessions[0]!.aborted).toBe(true);
+  });
+
+  it('lists models with prices in credits per million tokens', async () => {
+    const opt = toModelOption(
+      { id: 'claude-sonnet-5.5', name: 'Claude Sonnet 5.5', billing: { tokenPrices: { inputPrice: 200, outputPrice: 1000, cacheReadPrice: 10, batchSize: 1_000_000 } }, capabilities: { supports: { vision: true }, limits: { max_context_window_tokens: 1_000_000, max_output_tokens: 128_000 } }, supportedReasoningEfforts: ['low', 'max'] },
+      'ai_credits',
+    );
+    expect(opt).toEqual({ id: 'claude-sonnet-5.5', name: 'Claude Sonnet 5.5', vendor: 'Anthropic', price: { input: 200, output: 1000, cachedInput: 10 }, contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: ['low', 'max'] });
+    // nano-AIU per 1,000-token batch: 2e5 nano per 1K tokens = 0.2 credits per 1M tokens.
+    expect(toModelOption({ id: 'gpt-x', billing: { tokenPrices: { inputPrice: 2e5, outputPrice: 1e6, batchSize: 1000 } } }, 'nano_aiu').price).toEqual({ input: 0.2, output: 1 });
+    expect(toModelOption({ id: 'old', billing: { multiplier: 0.33 } }, undefined)).toMatchObject({ multiplier: 0.33, vendor: 'Other' });
+    expect(toModelOption({ id: 'auto', billing: { discountPercent: 10 } }, undefined)).toMatchObject({ vendor: 'Copilot', discountPercent: 10 });
+
+    const { rt } = runtime(async () => ({ data: { content: '' } }));
+    const list = await rt.models();
+    expect(list.map((m) => m.id)).toEqual(['auto', 'claude-sonnet-5.5', 'gpt-6-luna']);
+    expect(list.find((m) => m.id === 'gpt-6-luna')!.price).toEqual({ input: 10, output: 50 });
+    expect(await rt.defaultModel('light')).toBe('gpt-6-luna');
+    expect(await rt.defaultModel('build')).toBeUndefined();
+  });
+
   it('times out and aborts a stuck turn', async () => {
     const { rt, sessions } = runtime(() => new Promise(() => undefined));
     const session = await rt.startSession(baseOpts({ timeoutMs: 30 }));
@@ -185,6 +217,33 @@ describe('CopilotRuntime', () => {
     await expect(session.send('b')).rejects.toThrow(/Check the Copilot host in Settings/);
     fail = 'something odd';
     await expect(session.send('c')).rejects.toThrow('something odd');
+    // Seen live: a 400 whose request ID contains "520" is not a server error.
+    fail = "Execution failed: 400 Invalid schema for response_format 'response'. (Request ID: d0693b40-24ea-9b75-965b-2d8a4ef11520)";
+    const bad = await session.send('d').catch((e: unknown) => e);
+    expect(bad).not.toBeInstanceOf(RetryableError);
+    fail = 'upstream returned 503 Service Unavailable';
+    await expect(session.send('e')).rejects.toBeInstanceOf(RetryableError);
+  });
+
+  it('sends structured output as a strict schema and maps nulls back to absent fields', async () => {
+    const Review = z.object({ findings: z.array(z.object({ title: z.string(), repo: z.string().optional(), line: z.number().int().positive().optional() })), notes: z.array(z.string()).default([]) });
+    let sent: { toJSONSchema(): unknown } | undefined;
+    // Like the SDK: JSON from the model goes through the schema's parse().
+    const { rt } = runtime(async (_s, _p, schema) => {
+      sent = schema as { toJSONSchema(): unknown };
+      return (schema as { parse(v: unknown): unknown }).parse({ findings: [{ title: 'x', repo: null, line: null }], notes: null });
+    });
+    const session = await rt.startSession(baseOpts());
+    expect((await session.sendStructured('review', Review)).value).toEqual({ findings: [{ title: 'x' }], notes: [] });
+    const json = sent!.toJSONSchema() as { required: string[]; additionalProperties: boolean; properties: { findings: { items: { required: string[]; additionalProperties: boolean; properties: Record<string, { type: unknown }> } } } };
+    expect(json.required).toEqual(['findings', 'notes']);
+    expect(json.additionalProperties).toBe(false);
+    const item = json.properties.findings.items;
+    expect(item.required).toEqual(['title', 'repo', 'line']);
+    expect(item.additionalProperties).toBe(false);
+    expect(item.properties.repo!.type).toEqual(['string', 'null']);
+    expect(item.properties.line!.type).toEqual(['integer', 'null']);
+    expect(JSON.stringify(json)).not.toContain('"default"');
   });
 
   it('validates structured output and custom tool arguments', async () => {

@@ -118,7 +118,7 @@ export function Tooltip({ label, children, side = 'top' }: { label: string; chil
 
 /* ================================================================== fields */
 
-const controlBase =
+export const controlBase =
   'w-full rounded-[10px] border border-line-strong bg-surface text-sm text-fg shadow-[inset_0_1px_1px_rgb(0_0_0/0.03)] transition-[border-color,box-shadow] duration-100 hover:border-faint focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)] focus-visible:outline-none aria-[invalid=true]:border-danger';
 
 export function Field({ label, help, error, children, htmlFor, optional, hideLabel }: { label?: string; help?: ReactNode; error?: string | undefined; children: ReactNode; htmlFor: string; optional?: boolean; hideLabel?: boolean }) {

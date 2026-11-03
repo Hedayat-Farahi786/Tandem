@@ -515,6 +515,51 @@ describe('workflow: resilience', () => {
   });
 });
 
+describe('workflow: model and credits', () => {
+  it('runs every step of a task on its picked model, and Auto falls back to Settings', async () => {
+    const h = harness({ settings: { copilot: { host: '', buildModel: 'build-default', lightModel: 'light-default', cliPath: '' } } });
+    await h.ready;
+    const t = await h.start();
+    const before = h.agent.calls.length;
+    await h.service.setModel(t.id, 'scripted-steady');
+    await h.approveAll(t.id);
+    // From the next step on, every step (light and build) uses the picked model.
+    expect(new Set(h.agent.calls.slice(before).map((c) => c.opts.model))).toEqual(new Set(['scripted-steady']));
+    expect(h.agent.calls.slice(before).some((c) => c.opts.tier === 'build')).toBe(true);
+    await expect(h.service.setModel(t.id, 'no-such-model')).rejects.toThrow(/not available to this Copilot account/);
+
+    const h2 = harness({ settings: { copilot: { host: '', buildModel: 'build-default', lightModel: 'light-default', cliPath: '' } } });
+    await h2.ready;
+    await h2.approveAll((await h2.start()).id);
+    const byKind = (kind: string) => new Set(h2.agent.calls.filter((c) => c.opts.tier === kind).map((c) => c.opts.model));
+    expect(byKind('light')).toEqual(new Set(['light-default']));
+    expect(byKind('build')).toEqual(new Set(['build-default']));
+  });
+
+  it('stops a run the moment it reaches the credit limit, records what it used, and resumes after the limit is raised', async () => {
+    const h = harness();
+    await h.ready;
+    const s = await h.store.settings.get();
+    await h.store.settings.set({ ...s, budget: { ...s.budget, perTaskCredits: 2 } });
+    h.overrides.implement = () => ({ text: 'Expensive.', nanoAiu: 3e9 });
+    let t = await h.approveAll((await h.start()).id);
+    expect(t.state).toBe('BLOCKED');
+    expect(t.blockedReason).toBe('budget-reached');
+    expect(t.blockedMessage).toMatch(/this task reached its Copilot credit limit \(3 of 2\)/);
+    const usage = await h.store.usage.list({ taskId: t.id });
+    expect(usage.reduce((n, u) => n + u.nanoAiu, 0)).toBe(3e9);
+    const run = (await h.store.runs.listFor({ taskId: t.id })).find((r) => r.kind === 'build');
+    expect(run?.status).toBe('failed');
+
+    delete h.overrides.implement;
+    await h.store.settings.set({ ...s, budget: { ...s.budget, perTaskCredits: 25 } });
+    await h.service.resume(t.id);
+    await h.runner.runUntilIdle();
+    t = await h.get(t.id);
+    expect(t.state).toBe('PR_OPEN');
+  });
+});
+
 describe('workflow: learned rules', () => {
   it('appends pending rules to docs/agent-rules.md on the next task branch', async () => {
     const h = harness();

@@ -21,7 +21,7 @@ export function extractPrompt(task: Task, repos: readonly Repo[]): string {
     'Turn this ticket into a structured requirement. Read the code in the workspace to judge size and affected areas, but do not invent requirements the ticket does not state.',
     'Put anything unclear or missing into openQuestions instead of guessing.',
     `Repos in the workspace: ${repos.map((r) => `${r.name} (${r.role})`).join(', ')}. Use these names in affectedRepos and size.perRepo.`,
-    'Size: estimate changed lines across all repos (including tests), list independent features (things that could ship separately), and if it is more than one reviewable change, propose a split as smaller tasks with the criterion numbers each would own.',
+    'Size: estimate changed lines across all repos (including tests), list independent features (a feature is independent only if it is useful shipped on its own; an endpoint and the page that shows it are one feature), and if it is more than one reviewable change, propose a split as smaller tasks with the criterion numbers each would own.',
     `Ticket title: ${task.title}`,
     fence(task.description || requirementMarkdown(task.title, task.requirement), 'markdown'),
   ].join('\n\n');
@@ -31,7 +31,7 @@ export function sizePrompt(task: Task, repos: readonly Repo[]): string {
   return [
     'Estimate the size of this change by reading the code in the workspace. Do not change anything.',
     `Repos: ${repos.map((r) => `${r.name} (${r.role})`).join(', ')}.`,
-    'Return estimatedLines (changed lines across all repos, including tests), perRepo, features (independent features that could ship separately; one entry if it is a single feature), proposedSplit (only if it should be split; each part lists the criterion numbers it would own) and a one-sentence rationale.',
+    'Return estimatedLines (changed lines across all repos, including tests), perRepo, features (independent features that are useful shipped on their own; an endpoint and the page that shows it are one feature; one entry if it is a single feature), proposedSplit (only if it should be split; each part lists the criterion numbers it would own) and a one-sentence rationale.',
     fence(requirementMarkdown(task.title, task.requirement), 'markdown'),
   ].join('\n\n');
 }

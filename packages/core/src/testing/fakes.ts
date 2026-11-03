@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
-import type { HostKind, PullRequest, PullRequestStatus, Repo, TandemEvent } from '@tandem/shared';
+import type { HostKind, ModelOption, PullRequest, PullRequestStatus, Repo, TandemEvent } from '@tandem/shared';
+import { BudgetError } from '../budget.js';
 import type {
   AgentRuntime,
   AgentSession,
@@ -228,7 +229,15 @@ export interface ScriptReply {
   tools?: Array<{ name: string; args: unknown }>;
   /** Throw this instead of answering (to test retries and failures). */
   error?: Error;
+  /** What this turn costs (nano-AIU); the scripted agent is free otherwise. */
+  nanoAiu?: number;
 }
+
+/** Models the scripted agent offers (prices in AI credits per million tokens). Test data only. */
+export const SCRIPTED_MODELS: ModelOption[] = [
+  { id: 'scripted-swift', name: 'Scripted Swift', vendor: 'Tandem', price: { input: 10, output: 50, cachedInput: 1 }, contextWindow: 272_000, maxOutput: 128_000, vision: false, reasoning: ['low', 'medium', 'high'] },
+  { id: 'scripted-steady', name: 'Scripted Steady', vendor: 'Tandem', price: { input: 200, output: 1000, cachedInput: 10 }, contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: ['low', 'medium', 'high', 'max'] },
+];
 
 export type Script = (call: ScriptCall) => ScriptReply | Promise<ScriptReply>;
 
@@ -240,16 +249,35 @@ export class ScriptedAgent implements AgentRuntime {
   readonly name = 'scripted';
   readonly calls: ScriptCall[] = [];
   private sessions = 0;
-  constructor(private readonly script: Script) {}
+  constructor(
+    private readonly script: Script,
+    private readonly catalog: ModelOption[] = SCRIPTED_MODELS,
+  ) {}
+
+  async models(): Promise<ModelOption[]> {
+    return this.catalog;
+  }
+
+  async defaultModel(tier: 'light' | 'build'): Promise<string | undefined> {
+    return tier === 'light' ? this.catalog[0]?.id : undefined;
+  }
 
   async startSession(opts: AgentSessionOptions): Promise<AgentSession> {
     const id = opts.resumeId ?? `scripted-${++this.sessions}`;
     let turn = 0;
-    const usage = (): AgentUsage => ({ model: opts.model ?? 'scripted', modelCalls: 1, nanoAiu: 0 });
+    let spent = 0;
+    let cost = 0;
+    const usage = (): AgentUsage => ({ model: opts.model ?? 'scripted', modelCalls: 1, nanoAiu: cost });
     const act = async (prompt: string, structured: boolean): Promise<ScriptReply> => {
       const call: ScriptCall = { prompt, opts, structured, turn: turn++ };
       this.calls.push(call);
       const reply = await this.script(call);
+      cost = reply.nanoAiu ?? 0;
+      spent += cost;
+      if (opts.maxNanoAiu !== undefined && spent >= opts.maxNanoAiu && cost > 0) {
+        opts.onEvent?.({ type: 'usage', model: opts.model ?? 'scripted', nanoAiu: cost });
+        throw Object.assign(new BudgetError('The run reached its credit limit.'), { usage: usage() });
+      }
       if (reply.error) throw reply.error;
       for (const e of reply.edits ?? []) {
         if (opts.mode !== 'build') throw new Error('scripted agent tried to edit in a read-only session');

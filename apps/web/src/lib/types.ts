@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, ChatMessage, ChatThread, CommandResult, CriterionTest, Project, PullRequest, Repo, ReviewFinding, Settings, SpecVersion, Task, TaskTransition, VerifyRun } from '@tandem/shared';
+import type { AgentRun, Approval, ChatMessage, ChatThread, CommandResult, CriterionTest, ModelOption, Project, PullRequest, Repo, ReviewFinding, Settings, SpecVersion, Task, TaskTransition, VerifyRun } from '@tandem/shared';
 
 export interface ReadinessItem {
   id: string;
@@ -56,14 +56,25 @@ export interface TaskDetail {
   prs: PullRequest[];
   comments: Array<{ id: string; authorName: string; body: string; createdAt: string }>;
   runs: AgentRun[];
-  usage: { prompts: number; modelCalls: number; aiCredits: number; budget: { today: number; perDay: number; task?: number; perTask: number } };
+  usage: { prompts: number; modelCalls: number; aiCredits: number; budget: { today: number; perDay: number; task?: number; perTask: number; credits: { today: number; perDay: number; task?: number; perTask: number } } };
   running: boolean;
 }
 
 export interface ThreadView {
   thread: ChatThread;
+  /** The model this chat uses ('' = Auto). A task chat shows its task's model. */
+  model: string;
   messages: ChatMessage[];
   readiness: Readiness | null;
+}
+
+/** A model in the picker: prices in AI credits per million tokens, estimate for a typical task. */
+export type ModelChoice = ModelOption & { estimate?: number };
+export interface ModelCatalog {
+  models: ModelChoice[];
+  /** What "Auto" uses: Settings, else the cheapest model for light steps and Copilot's choice for builds. */
+  auto: { light: string | null; build: string | null };
+  credits: { today: number; perDay: number; perTask: number };
 }
 
 export interface RepoDiff {

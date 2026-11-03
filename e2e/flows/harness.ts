@@ -54,6 +54,7 @@ export interface Detail {
     blockedMessage?: string;
     needsAttention: boolean;
     attentionNotes: string[];
+    model?: string;
     sizeEstimate?: { estimatedLines: number; proposedSplit: Array<{ title: string }> };
   };
   spec: { version: number; markdown: string } | null;
@@ -66,6 +67,8 @@ export interface Detail {
   prs: Pr[];
   repos: Array<{ id: string; name: string }>;
   runs: Array<{ kind: string; status: string }>;
+  findings: Array<{ severity: string; title: string; status: string }>;
+  usage: { prompts: number; modelCalls: number; aiCredits: number };
 }
 export interface TandemEvent {
   type: string;
@@ -76,7 +79,15 @@ export interface TandemEvent {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export interface HarnessOptions {
+  /** 'copilot' runs the real agent and costs AI credits: only with the owner's go-ahead. */
+  agent?: 'scripted' | 'copilot';
+  /** Extra environment for the server (limits, model defaults). */
+  env?: Record<string, string>;
+}
+
 export class Harness {
+  constructor(private readonly o: HarnessOptions = {}) {}
   readonly runId = `${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 7)}`;
   readonly work = process.env.TANDEM_E2E_DIR ?? mkdtempSync(join(tmpdir(), 'tandem-flows-'));
   readonly home = join(this.work, 'home');
@@ -87,7 +98,7 @@ export class Harness {
   readonly events: TandemEvent[] = [];
   readonly logFile = join(this.work, 'server.log');
   /** PRs opened during the run, for the evidence file. */
-  readonly results: Array<{ scenario: string; task: string; state: string; prs: Array<{ repo: string; url: string; status: string }> }> = [];
+  readonly results: Array<{ scenario: string; task: string; state: string; prs: Array<{ repo: string; url: string; status: string }> } & Record<string, unknown>> = [];
   private proc: ChildProcess | undefined;
   private token = '';
   private sse: AbortController | undefined;
@@ -182,16 +193,17 @@ export class Harness {
   async start(): Promise<void> {
     if (!existsSync(join(ROOT, 'apps', 'web', 'dist', 'index.html'))) throw new Error('Build first: pnpm build');
     const log = openSync(this.logFile, 'a');
+    const copilot = this.o.agent === 'copilot';
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      TANDEM_AGENT: 'scripted',
+      TANDEM_AGENT: copilot ? 'copilot' : 'scripted',
       TANDEM_HOME: this.home,
       TANDEM_PORT: String(this.port),
       TANDEM_LOG_LEVEL: 'info',
       // The scripted agent counts against the prompt budget like Copilot; this suite needs more than a day's default.
-      TANDEM_BUDGET_PER_DAY: '5000',
-      TANDEM_BUDGET_PER_TASK: '200',
+      ...(copilot ? {} : { TANDEM_BUDGET_PER_DAY: '5000', TANDEM_BUDGET_PER_TASK: '200' }),
       ...(REAL ? { TANDEM_AWS_REGION: REGION, ...(PROFILE ? { TANDEM_AWS_PROFILE: PROFILE } : {}) } : { TANDEM_TEST_REMOTE_ROOT: this.remotes }),
+      ...this.o.env,
     };
     if (REAL) delete env.TANDEM_TEST_REMOTE_ROOT;
     this.proc = spawn(process.execPath, [CLI, 'start', '--no-open'], { env, stdio: ['ignore', log, log], detached: process.platform !== 'win32' });
@@ -298,8 +310,8 @@ export class Harness {
   }
 
   /** Request mode: sends each message in turn; returns the replies and whether the draft was ready after each. */
-  async request(projectId: string, messages: string[], threadId?: string): Promise<{ threadId: string; replies: string[]; ready: boolean[] }> {
-    const id = threadId ?? (await this.api<{ id: string }>('POST', '/api/threads', { projectId, mode: 'request' })).id;
+  async request(projectId: string, messages: string[], threadId?: string, model?: string): Promise<{ threadId: string; replies: string[]; ready: boolean[] }> {
+    const id = threadId ?? (await this.api<{ id: string }>('POST', '/api/threads', { projectId, mode: 'request', ...(model ? { model } : {}) })).id;
     const replies: string[] = [];
     const ready: boolean[] = [];
     for (const text of messages) {
@@ -339,8 +351,8 @@ export class Harness {
     await this.api('POST', `/api/tasks/${taskId}/pm-approval`, { name: 'Pat Lee', date: new Date().toISOString(), evidence: 'Approved in the planning channel' });
   }
 
-  record(scenario: string, d: Detail): void {
-    this.results.push({ scenario, task: d.task.key, state: d.task.state, prs: d.prs.map((p) => ({ repo: d.repos.find((r) => r.id === p.repoId)?.name ?? p.repoId, url: p.url, status: p.status })) });
+  record(scenario: string, d: Detail, extra: Record<string, unknown> = {}): void {
+    this.results.push({ scenario, task: d.task.key, state: d.task.state, prs: d.prs.map((p) => ({ repo: d.repos.find((r) => r.id === p.repoId)?.name ?? p.repoId, url: p.url, status: p.status })), ...extra });
     writeFileSync(join(this.work, 'results.json'), JSON.stringify({ mode: REAL ? 'real' : 'local', base: this.base, results: this.results }, null, 2));
   }
 }

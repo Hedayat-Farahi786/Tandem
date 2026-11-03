@@ -11,6 +11,7 @@ import type {
   CriterionTest,
   HostKind,
   HostRef,
+  ModelOption,
   Project,
   PullRequest,
   PullRequestStatus,
@@ -229,6 +230,8 @@ export interface AgentSessionOptions {
   timeoutMs: number;
   /** The run is aborted after this many model calls. */
   maxModelCalls: number;
+  /** The run is aborted (with BudgetError) once it has used this many nano-AIU. */
+  maxNanoAiu?: number;
   onEvent?: (e: AgentEvent) => void;
 }
 
@@ -253,6 +256,10 @@ export interface AgentSession {
 export interface AgentRuntime {
   readonly name: string;
   startSession(opts: AgentSessionOptions): Promise<AgentSession>;
+  /** Models this account may use, with prices (no model call). */
+  models?(): Promise<ModelOption[]>;
+  /** The model a tier uses when none is picked (light = cheapest, build = runtime default). */
+  defaultModel?(tier: 'light' | 'build'): Promise<string | undefined>;
 }
 
 /** Thrown by adapters for errors worth retrying (rate limits, transient network). */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SPEC_MD, boot, detail } from './fixtures';
+import { SPEC_MD, boot, catalog, detail } from './fixtures';
 import { mockApi, renderApp } from './helpers';
 import type { TaskDetail } from '../lib/types';
 
@@ -11,7 +11,7 @@ function setup(d: TaskDetail, extra: Parameters<typeof mockApi>[0] = {}) {
     'GET /api/tasks/task1': () => d,
     'GET /api/tasks/task1/spec/1': SPEC_MD,
     'GET /api/tasks/task1/thread': { id: 'th1' },
-    'GET /api/threads/th1': { thread: { id: 'th1', projectId: 'p1', mode: 'task', taskId: 'task1', title: 'TND-1 chat', createdAt: '', updatedAt: '' }, messages: [], readiness: null },
+    'GET /api/threads/th1': { thread: { id: 'th1', projectId: 'p1', mode: 'task', taskId: 'task1', title: 'TND-1 chat', createdAt: '', updatedAt: '' }, model: '', messages: [], readiness: null },
     'GET /api/tasks/task1/diff': [],
     'POST /api/*': { ok: true },
     'PUT /api/*': { ok: true },
@@ -24,6 +24,24 @@ function setup(d: TaskDetail, extra: Parameters<typeof mockApi>[0] = {}) {
 const posted = (api: ReturnType<typeof mockApi>, path: string) => api.calls.filter((c) => c.method !== 'GET' && c.path === path);
 
 describe('Task detail', () => {
+  it('shows credits against the task limit and changes the task model', async () => {
+    const { api, user } = setup(detail(), { 'GET /api/copilot/models': catalog });
+    await user.click(await screen.findByRole('tab', { name: /Overview/ }));
+    expect(screen.getByRole('meter', { name: 'AI credits used by this task' }).getAttribute('aria-valuenow')).toBe('0.5');
+    expect(screen.getByText('of 25')).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: 'Model: Auto' }));
+    await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /GPT-6 Luna/ }));
+    await waitFor(() => expect(posted(api, '/api/tasks/task1/model')[0]?.body).toEqual({ model: 'gpt-6-luna' }));
+  });
+
+  it('a task stopped at its credit limit links to Settings and resumes', async () => {
+    const { api, user } = setup(detail({}, { state: 'BLOCKED', blockedReason: 'budget-reached', blockedMessage: 'Stopped: this task reached its Copilot credit limit (25.3 of 25). Raise the limit in Settings, then resume.', resumeTo: { state: 'BUILDING' } }));
+    expect(await screen.findByText('Copilot limit reached')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Settings' }).getAttribute('href')).toBe('/settings');
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(posted(api, '/api/tasks/task1/resume')).toHaveLength(1));
+  });
+
   it('opens a task in review on its spec, and records both approvals', async () => {
     const { api, user } = setup(detail());
     expect(await screen.findByRole('heading', { name: 'Health endpoint', level: 1 })).toBeTruthy();

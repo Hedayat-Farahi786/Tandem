@@ -165,6 +165,29 @@ describe('repositories, projects and tasks', () => {
     expect(list[0].prCount).toBe(0);
   });
 
+  it('lists models with prices and keeps the picked model per chat and per task', async () => {
+    const m = (await app.inject({ method: 'GET', url: '/api/copilot/models', headers: H })).json();
+    expect(m.models.map((x: { id: string }) => x.id)).toEqual(['scripted-swift', 'scripted-steady']);
+    expect(m.models[0]).toMatchObject({ name: 'Scripted Swift', price: { input: 10, output: 50, cachedInput: 1 }, estimate: 1.3 });
+    expect(m.models[1].estimate).toBe(21);
+    expect(m.auto).toEqual({ light: 'scripted-swift', build: null });
+    expect(m.credits).toEqual({ today: 0, perDay: 75, perTask: 25 });
+
+    const bad = await app.inject({ method: 'POST', url: '/api/threads', headers: W, payload: JSON.stringify({ projectId, mode: 'ask', model: 'nope' }) });
+    expect(bad.statusCode).toBe(409);
+    expect(bad.json().error).toContain('not available');
+    const t = (await app.inject({ method: 'POST', url: '/api/threads', headers: W, payload: JSON.stringify({ projectId, mode: 'ask', model: 'scripted-steady' }) })).json();
+    expect((await app.inject({ method: 'GET', url: `/api/threads/${t.id}`, headers: H })).json().model).toBe('scripted-steady');
+    const cleared = await app.inject({ method: 'PUT', url: `/api/threads/${t.id}/model`, headers: W, payload: JSON.stringify({ model: '' }) });
+    expect(cleared.json().model).toBe('');
+
+    const set = await app.inject({ method: 'PUT', url: `/api/tasks/${taskId}/model`, headers: W, payload: JSON.stringify({ model: 'scripted-swift' }) });
+    expect(set.json().model).toBe('scripted-swift');
+    const d = (await app.inject({ method: 'GET', url: `/api/tasks/${taskId}`, headers: H })).json();
+    expect(d.task.model).toBe('scripted-swift');
+    expect(d.usage.budget.credits).toEqual({ today: 0, perDay: 75, task: 0, perTask: 25 });
+  });
+
   it('maps domain errors to plain messages', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/tasks/nope', headers: H })).statusCode).toBe(404);
     const approve = await app.inject({ method: 'POST', url: `/api/tasks/${taskId}/approve`, headers: W, payload: '{}' });
