@@ -37,6 +37,7 @@ export function providerOf(model: { id?: string; name?: string; vendor?: string 
   const s = (typeof model === 'string' ? model : `${model.vendor ?? ''} ${model.id ?? ''} ${model.name ?? ''}`).toLowerCase();
   if (/claude|anthropic/.test(s)) return 'claude';
   if (/gemini|google/.test(s)) return 'gemini';
+  if (/microsoft|\bmai\b|\bmai-|\bphi-?\d/.test(s)) return 'microsoft';
   if (/\bgpt|openai|\bo[1-9]\b|o[1-9]-|codex/.test(s)) return 'openai';
   if (/grok|xai/.test(s)) return 'grok';
   if (/mistral|codestral|devstral/.test(s)) return 'mistral';

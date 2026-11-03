@@ -25,15 +25,14 @@ All notable changes to Tandem. The format follows
   from its repository (sandboxed), in its own colours, or its initials
   when there is none.
 - **Logos** for the services and model makers Tandem works with: GitHub,
-  GitHub Copilot, AWS, Jira, and Anthropic, OpenAI, Google, xAI, Mistral and
-  Meta in the model menu. Bundled with the app; see THIRD_PARTY_NOTICES.md.
+  GitHub Copilot, AWS, Jira, and Anthropic, OpenAI, Google, xAI, Mistral,
+  Meta and Microsoft in the model menu. Bundled with the app; see THIRD_PARTY_NOTICES.md.
 
 ### Changed
 
 - A new visual design: a neutral palette, Inter display headings, pages on
   a raised panel, grouped settings cards, a step indicator and icon
-  timeline on tasks, richer empty states, and a "how it works" line on the
-  chat start page. Contrast still passes axe (WCAG AA) in light and dark.
+  timeline on tasks, and richer empty states. Contrast still passes axe (WCAG AA) in light and dark.
 
 ## [1.0.0] - 2026-11-03
 

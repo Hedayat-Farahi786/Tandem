@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, FileText, GitPullRequest, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
+import { ArrowUp, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
 import type { ChatMessage, ChatThread } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
@@ -273,17 +273,11 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
     }
   };
   return (
-    <div className="relative mx-auto flex min-h-[calc(100vh-11rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-5rem)]">
-      <div aria-hidden className="pointer-events-none absolute top-[14%] left-1/2 h-[380px] w-[min(760px,100%)] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,var(--surface-3),transparent)] opacity-80 blur-2xl" />
-      <span aria-hidden className="relative mb-5 grid size-11 animate-rise place-items-center rounded-[14px] bg-accent text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_10px_24px_-10px_rgb(0_0_0/0.45)]">
-        <svg viewBox="0 0 16 16" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-          <path d="M3.5 4.5h9M8 4.5v8" />
-        </svg>
-      </span>
-      <h1 className="relative animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
-      <p className="relative mt-2 animate-rise text-[14.5px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
+    <div className="mx-auto flex min-h-[calc(100vh-11rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-5rem)]">
+      <h1 className="animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
+      <p className="mt-2 animate-rise text-[14.5px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form
-        className="relative mt-8 w-full animate-rise text-left [animation-delay:80ms]"
+        className="mt-8 w-full animate-rise text-left [animation-delay:80ms]"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -331,10 +325,9 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
           </div>
         </div>
       </form>
-      <div className="relative mt-4 flex animate-rise flex-wrap justify-center gap-2 [animation-delay:120ms]" aria-label="Examples" role="group">
+      <div className="mt-4 flex animate-rise flex-wrap justify-center gap-2 [animation-delay:120ms]" aria-label="Examples" role="group">
         {EXAMPLES[mode].map((ex) => (
-          <button key={ex} type="button" onClick={() => setText(ex)} className="inline-flex items-center gap-1.5 rounded-full bg-surface/80 px-3.5 py-1.5 text-[12.5px] text-muted shadow-[0_0_0_1px_var(--border)] transition-[color,background-color,box-shadow,transform] duration-150 hover:bg-surface hover:text-fg hover:shadow-[0_0_0_1px_var(--border-strong),var(--shadow-sm)] active:scale-[0.97]">
-            <Sparkles aria-hidden className="size-3 text-faint" />
+          <button key={ex} type="button" onClick={() => setText(ex)} className="rounded-full px-3.5 py-1.5 text-[12.5px] text-muted shadow-[0_0_0_1px_var(--border)] transition-[color,background-color,box-shadow,transform] duration-150 hover:bg-surface hover:text-fg hover:shadow-[0_0_0_1px_var(--border-strong)] active:scale-[0.97]">
             {ex}
           </button>
         ))}
@@ -344,28 +337,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
           <ErrorState error={error} />
         </div>
       )}
-      {mode === 'request' ? (
-        <ol aria-label="How it works" className="relative mt-10 flex animate-rise flex-wrap items-center justify-center gap-x-2 gap-y-2 text-[12.5px] text-muted [animation-delay:160ms]">
-          {(
-            [
-              [MessageSquarePlus, 'Describe it'],
-              [FileText, 'Approve the spec'],
-              [GitPullRequest, 'Review the pull request'],
-            ] as const
-          ).map(([Icon, label], i) => (
-            <li key={label} className="flex items-center gap-2">
-              {i > 0 && <span aria-hidden className="h-px w-6 bg-line-strong" />}
-              <span className="grid size-6 place-items-center rounded-lg bg-surface text-fg shadow-[0_0_0_1px_var(--border)]">
-                <Icon aria-hidden className="size-3.5" strokeWidth={1.9} />
-              </span>
-              {label}
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="relative mt-8 animate-rise text-[12px] text-faint [animation-delay:160ms]">Answers are read-only. Chat never changes code.</p>
-      )}
-      {mode === 'request' && <p className="relative mt-3 text-[12px] text-faint">Chat never changes code. Code is written only after you approve a spec.</p>}
+      <p className="mt-6 animate-rise text-[12px] text-faint [animation-delay:160ms]">{mode === 'request' ? 'Chat never changes code. Code is written only after you approve a spec.' : 'Answers are read-only. Chat never changes code.'}</p>
     </div>
   );
 }

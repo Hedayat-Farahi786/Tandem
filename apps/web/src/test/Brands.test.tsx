@@ -9,7 +9,9 @@ describe('brand logos', () => {
     expect(providerOf({ id: 'o4-mini', name: 'o4-mini' })).toBe('openai');
     expect(providerOf({ id: 'gemini-3-pro', name: 'Gemini 3 Pro', vendor: 'Google' })).toBe('gemini');
     expect(providerOf('grok-code-fast')).toBe('grok');
-    expect(providerOf({ id: 'mai-1', name: 'MAI 1', vendor: 'Microsoft' })).toBeUndefined();
+    expect(providerOf({ id: 'mai-1', name: 'MAI 1', vendor: 'Microsoft' })).toBe('microsoft');
+    expect(providerOf('mai-ds-r1')).toBe('microsoft');
+    expect(providerOf({ id: 'gpt-6-luna', name: 'GPT-6 Luna', vendor: 'OpenAI' })).not.toBe('microsoft');
     expect(providerOf({ id: 'scripted-swift', name: 'Scripted Swift' })).toBeUndefined();
     expect([hostBrand('github'), hostBrand('codecommit')]).toEqual(['github', 'aws']);
   });

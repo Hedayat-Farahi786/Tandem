@@ -6,7 +6,7 @@
 
 - **@lobehub/icons-static-svg** 1.95.1, https://github.com/lobehub/lobe-icons,
   MIT License (below): GitHub, GitHub Copilot, AWS, OpenAI, Claude, Anthropic,
-  Google Gemini, Grok, xAI, Mistral AI and Meta.
+  Google Gemini, Grok, xAI, Mistral AI, Meta and Microsoft.
 - **simple-icons** 16.35.0, https://github.com/simple-icons/simple-icons,
   CC0 1.0: Jira.
 
