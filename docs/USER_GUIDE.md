@@ -234,8 +234,9 @@ upgrade.
 
 Each project shows its website's own icon: the one its `index.html` links
 to, or a favicon in the usual places (`public/`, `static/`, the root, or
-Next.js `app/`), read from the default branch of its repositories. Projects
-without one show their initials. The icon is served with a sandbox policy,
+Next.js `app/`), read from the default branch of its repositories and shown in
+grayscale to match the rest of Tandem. Projects without one show their
+initials. The icon is served with a sandbox policy,
 so an SVG from a repository can never run script in Tandem.
 
 ## Search
