@@ -251,7 +251,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
     }
   };
   return (
-    <div className="mx-auto flex max-w-2xl flex-col items-center pt-[9vh] text-center">
+    <div className="mx-auto flex min-h-[calc(100vh-11rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-5rem)]">
       <h1 className="font-serif text-[34px] leading-tight font-medium tracking-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
       <p className="mt-2 text-[14px] text-muted">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form

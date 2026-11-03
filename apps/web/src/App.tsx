@@ -48,8 +48,8 @@ const COMPACT_NAV = [{ to: '/chat', label: 'Chat' }, ...NAV, ...FOOTER_NAV];
 
 const navItem = (active: boolean) => cx('flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors', active ? 'bg-surface-3/80 font-medium text-fg' : 'text-muted hover:bg-surface-3/50 hover:text-fg');
 
-function Recents({ boot, projectId }: { boot: Bootstrap; projectId: string }) {
-  const { path, search, navigate } = useRouter();
+function Recents({ projectId }: { projectId: string }) {
+  const { path, search } = useRouter();
   const threads = useQuery({ queryKey: ['threads', projectId], queryFn: () => api<ChatThread[]>(`/api/projects/${projectId}/threads`), enabled: Boolean(projectId) });
   const current = path.startsWith('/chat') ? search.get('thread') : null;
   return (
@@ -57,11 +57,6 @@ function Recents({ boot, projectId }: { boot: Bootstrap; projectId: string }) {
       <div className="mb-1 flex h-7 items-center justify-between gap-2 px-2.5">
         <p className="text-[12px] font-medium text-faint">Recents</p>
       </div>
-      {boot.projects.length > 1 && (
-        <div className="mb-2 px-1">
-          <Select label="Project" hideLabel value={projectId} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.projects.map((p) => ({ value: p.id, label: p.name }))} className="[&_button]:h-8 [&_button]:text-[13px]" />
-        </div>
-      )}
       <ul className="-mr-2 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pr-2 [scrollbar-width:thin]">
         {threads.isLoading && <li className="px-2.5 py-1.5 text-[12.5px] text-faint">Loading…</li>}
         {threads.data?.length === 0 && <li className="px-2.5 py-1.5 text-[12.5px] leading-snug text-faint">Your requests and questions appear here.</li>}
@@ -135,6 +130,12 @@ function Shell() {
             </span>
             <span className="font-serif text-[18px] font-medium tracking-tight">Tandem</span>
           </Link>
+          {(boot.data?.projects.length ?? 0) > 1 && (
+            <div className="-mt-2 mb-4 px-1">
+              <p className="mb-1 px-1.5 text-[11.5px] font-medium text-faint">Project</p>
+              <Select label="Project" hideLabel value={chatProject} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.data!.projects.map((p) => ({ value: p.id, label: p.name }))} className="[&_button]:h-8 [&_button]:text-[13px]" />
+            </div>
+          )}
           <nav aria-label="Main" className="flex flex-col gap-px">
             <Link to={chatProject ? `/chat?project=${chatProject}` : '/chat'} aria-current={path.startsWith('/chat') && !search.get('thread') ? 'page' : undefined} className={cx(navItem(path.startsWith('/chat') && !search.get('thread')), 'text-fg')}>
               <span aria-hidden className="-ml-0.5 grid size-5 place-items-center rounded-full bg-accent text-accent-fg">
@@ -153,7 +154,7 @@ function Shell() {
               );
             })}
           </nav>
-          {boot.data?.projects.length ? <Recents boot={boot.data} projectId={chatProject} /> : <div className="flex-1" />}
+          {boot.data?.projects.length ? <Recents projectId={chatProject} /> : <div className="flex-1" />}
           <div className="mt-3 border-t border-line pt-3">
             <nav aria-label="Tandem" className="flex flex-col gap-px">
               {FOOTER_NAV.map((n) => {

@@ -62,7 +62,7 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   const tandem = await createTandem({
     home: config.home,
     overrides: config.overrides,
-    ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript) } : {}),
+    ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript), realModels: process.env.TANDEM_REAL_MODELS === '1' } : {}),
     ...testSeams(),
     events: bus,
     logger,

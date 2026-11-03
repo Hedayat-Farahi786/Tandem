@@ -31,6 +31,11 @@ export interface TandemOptions {
   /** Settings overrides from the environment (RuntimeConfig.overrides). */
   overrides?: Record<string, unknown>;
   agent?: AgentRuntime;
+  /**
+   * With a test agent: list the real Copilot models in the model picker (a free call, no prompts).
+   * Picking one doesn't change what the test agent does.
+   */
+  realModels?: boolean;
   secrets?: SecretStore;
   clock?: Clock;
   events?: EventSink;
@@ -88,6 +93,11 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   };
 
   const agent = o.agent ?? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) });
+  const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
+  if (catalog) {
+    agent.models = () => catalog.models();
+    agent.defaultModel = (tier) => catalog.defaultModel(tier);
+  }
   const deps: WorkflowDeps = {
     store,
     clock,
@@ -132,6 +142,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     close: async () => {
       await runner.stop();
       if (agent instanceof CopilotRuntime) await agent.stop();
+      await catalog?.stop();
       store.close();
     },
   };
