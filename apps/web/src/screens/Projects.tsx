@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, FolderGit2, Pencil, Plus, ShieldCheck } from 'lucide-react';
+import { BookOpen, FolderGit2, Pencil, Plus } from 'lucide-react';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
 import type { Bootstrap } from '../lib/types';
-import { Button, Card, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, useToast } from '../ui/kit';
+import { Button, IconButton, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
 const COMMANDS: Array<{ key: keyof RepoCommands; label: string; placeholder: string }> = [
@@ -144,56 +144,75 @@ function ProjectDialog({ project, repos, jira, onClose }: { project: Project; re
   );
 }
 
-function RulesCard({ repos }: { repos: Repo[] }) {
+function RulesSection({ repos }: { repos: Repo[] }) {
   const qc = useQueryClient();
   const toast = useToast();
   const rules = useQuery({ queryKey: ['rules'], queryFn: () => api<Rule[]>('/api/rules') });
+  const [adding, setAdding] = useState(false);
   const [repoId, setRepoId] = useState(repos[0]?.id ?? '');
   const [text, setText] = useState('');
   const add = useMutation({
     mutationFn: () => post<Rule>('/api/rules', { repoId, text, source: 'Added in Tandem' }),
     onSuccess: () => {
       setText('');
-      toast('Rule saved. It is committed to docs/agent-rules.md on the next task branch.', 'ok');
+      setAdding(false);
+      toast('Rule saved. The next task in that repository follows it.', 'ok');
       void qc.invalidateQueries({ queryKey: ['rules'] });
     },
   });
   return (
-    <Card title="Learned rules" description="Turn review feedback into rules the agent follows. Each is appended to docs/agent-rules.md on that repo's next task branch.">
-      {repos.length > 0 && (
-        <form
-          className="mb-4 grid gap-3 md:grid-cols-[200px_1fr_auto] md:items-end"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (text.trim()) add.mutate();
-          }}
-        >
-          <Select label="Repository" value={repoId} onChange={setRepoId} options={repos.map((r) => ({ value: r.id, label: r.name }))} />
-          <Input label="Rule" value={text} onChange={(e) => setText(e.target.value)} placeholder="Validate every query parameter with zod." />
-          <Button type="submit" variant="primary" icon={Plus} busy={add.isPending} disabled={!text.trim()}>
+    <section aria-labelledby="rules-title">
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <div>
+          <h2 id="rules-title" className="text-[15px] font-semibold">
+            Agent rules
+          </h2>
+          <p className="text-[12.5px] text-muted">Things the agent should always do in a repository, learned from reviews.</p>
+        </div>
+        {repos.length > 0 && (
+          <Button size="sm" variant="ghost" icon={Plus} onClick={() => setAdding(true)}>
             Add rule
           </Button>
-        </form>
-      )}
-      {add.isError && <ErrorState error={add.error} />}
+        )}
+      </div>
       {rules.isLoading ? (
         <Loading rows={2} />
       ) : !rules.data?.length ? (
-        <p className="text-[13px] text-muted">No rules yet.</p>
+        <p className="rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-muted">No rules yet. Save one from a review finding, or add it here.</p>
       ) : (
-        <ul className="divide-y divide-line">
+        <ul className="-mx-3 flex flex-col">
           {rules.data.map((r) => (
-            <li key={r.id} className="flex items-start justify-between gap-4 py-2.5 text-[13px]">
-              <span>
-                <span className="font-medium">{repos.find((x) => x.id === r.repoId)?.name ?? 'Removed repo'}</span>
-                <span className="text-muted"> · {r.text}</span>
+            <li key={r.id} className="flex items-baseline justify-between gap-4 rounded-xl px-3 py-2.5 text-[13.5px]">
+              <span className="min-w-0">
+                {r.text}
+                <span className="text-faint"> · {repos.find((x) => x.id === r.repoId)?.name ?? 'Removed repo'}</span>
               </span>
-              <Pill tone={r.status === 'committed' ? 'ok' : 'accent'}>{r.status === 'committed' ? 'Committed' : 'Next task'}</Pill>
+              <span className={cx('shrink-0 text-[12px]', r.status === 'committed' ? 'text-ok' : 'text-faint')}>{r.status === 'committed' ? 'In the repo' : 'Next task'}</span>
             </li>
           ))}
         </ul>
       )}
-    </Card>
+      <Dialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="Add a rule"
+        description="It's added to docs/agent-rules.md on the repository's next task branch, and every later build and review follows it."
+        footer={
+          <>
+            <Button onClick={() => setAdding(false)}>Cancel</Button>
+            <Button variant="primary" busy={add.isPending} disabled={!text.trim()} onClick={() => add.mutate()}>
+              Add rule
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {repos.length > 1 && <Select label="Repository" value={repoId} onChange={setRepoId} options={repos.map((r) => ({ value: r.id, label: r.name }))} />}
+          <Input label="Rule" value={text} onChange={(e) => setText(e.target.value)} placeholder="Validate every query parameter with zod." autoFocus />
+          {add.isError && <ErrorState error={add.error} />}
+        </div>
+      </Dialog>
+    </section>
   );
 }
 
@@ -204,57 +223,58 @@ export function ProjectsScreen() {
   if (boot.isLoading) return <Loading />;
   if (boot.isError || !boot.data) return <ErrorState error={boot.error} retry={() => void boot.refetch()} />;
   const { projects, repos } = boot.data;
+  const pm = (p: Project) => (p.pmGate === 'tandem' ? 'PM approves in Tandem' : p.pmGate === 'jira' ? 'PM approves in Jira' : 'No PM approval');
   return (
-    <div className="flex flex-col gap-8">
-      <PageHeader title="Projects" subtitle="Repositories, their roles and commands, and how specs are approved." actions={<LinkButton to="/setup" icon={Plus}>Add repository</LinkButton>} />
+    <div className="mx-auto flex w-full max-w-[860px] flex-col gap-10">
+      <div className="flex items-end justify-between gap-4">
+        <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Projects</h1>
+        <LinkButton to="/setup" variant="primary" icon={Plus}>
+          Add repository
+        </LinkButton>
+      </div>
       {projects.length === 0 && <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />}
-      {projects.map((p) => (
-        <Card
-          key={p.id}
-          title={<h2 className="font-serif text-[18px] font-medium">{p.name}</h2>}
-          description={
-            <span className="flex flex-wrap items-center gap-2">
-              <span>Keys {p.keyPrefix}-1, {p.keyPrefix}-2…</span>
-              <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-1">
-                <ShieldCheck aria-hidden className="size-3.5" /> PM approval: {p.pmGate === 'tandem' ? 'recorded in Tandem' : p.pmGate === 'jira' ? 'via Jira' : 'off'}
-              </span>
-            </span>
-          }
-          actions={<Button size="sm" icon={Pencil} onClick={() => setEditProject(p)}>Edit project</Button>}
-          padded={false}
-        >
-          <ul className="divide-y divide-line">
-            {p.contractOrder.map((id, n) => {
-              const r = repos.find((x) => x.id === id);
-              if (!r) return null;
-              return (
-                <li key={id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+      {projects.length > 0 && (
+        <div className="flex flex-col gap-4">
+          {projects.map((p) => {
+            const list = p.contractOrder.map((id) => repos.find((x) => x.id === id)).filter((r): r is Repo => Boolean(r));
+            return (
+              <section key={p.id} aria-label={p.name} className="rounded-2xl border border-line bg-surface">
+                <div className="flex items-center justify-between gap-4 px-5 pt-4 pb-3">
                   <div className="min-w-0">
-                    <p className="flex items-center gap-2 text-sm font-medium">
-                      {r.name}
-                      {p.repoIds.length > 1 && <Pill>{n === 0 ? 'Built first' : `Step ${n + 1}`}</Pill>}
-                      {p.specRepoId === r.id && <Pill tone="accent">Spec repo</Pill>}
+                    <h2 className="truncate text-[16px] font-semibold">{p.name}</h2>
+                    <p className="text-[12.5px] text-muted">
+                      {list.length} {list.length === 1 ? 'repository' : 'repositories'} · {pm(p)} · tasks {p.keyPrefix}-1, {p.keyPrefix}-2…
                     </p>
-                    <p className="mt-0.5 font-mono text-[12px] text-muted">{r.url}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Pill>{ROLE_LABEL[r.role]}</Pill>
-                    <Pill>{[r.language, r.framework].filter(Boolean).join(' · ') || 'Unknown'}</Pill>
-                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditRepo(r)}>
-                      Edit
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
-      ))}
-      <RulesCard repos={repos} />
+                  <IconButton icon={Pencil} label={`Edit ${p.name}`} onClick={() => setEditProject(p)} />
+                </div>
+                <ul className="px-2 pb-2">
+                  {list.map((r, n) => (
+                    <li key={r.id}>
+                      <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2/80">
+                        <FolderGit2 aria-hidden className="size-4 shrink-0 text-faint" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-medium">{r.name}</span>
+                          <span className="block truncate text-[12.5px] text-muted">
+                            {[ROLE_LABEL[r.role], r.language, r.framework].filter(Boolean).join(' · ')}
+                            {p.specRepoId === r.id && list.length > 1 ? ' · holds the specs' : ''}
+                            {list.length > 1 ? ` · built ${n === 0 ? 'first' : `step ${n + 1}`}` : ''}
+                          </span>
+                        </span>
+                        <span className="text-[12.5px] text-faint opacity-0 transition-opacity group-hover:opacity-100">Edit</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      )}
+      <RulesSection repos={repos} />
       <p className="flex items-center gap-2 text-[12.5px] text-faint">
         <BookOpen aria-hidden className="size-3.5" />
-        Tandem also reads each repo's .github/copilot-instructions.md and .github/agents/ as context.
+        Tandem also reads each repository's .github/copilot-instructions.md and .github/agents/.
       </p>
       {editRepo && <RepoDialog repo={editRepo} onClose={() => setEditRepo(null)} />}
       {editProject && <ProjectDialog project={editProject} repos={repos} jira={boot.data.jiraConfigured} onClose={() => setEditProject(null)} />}

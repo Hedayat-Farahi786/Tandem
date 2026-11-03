@@ -148,11 +148,13 @@ describe('Projects', () => {
     mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/rules': [], 'POST /api/rules': (b) => ((rule = b), { id: 'x', ...(b as object), createdAt: '' }) });
     const user = userEvent.setup();
     renderApp('/projects');
-    expect(await screen.findByText('Shop')).toBeTruthy();
-    expect(screen.getByText('codecommit::eu-central-1://shop')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Shop' })).toBeTruthy();
+    expect(screen.getByTitle('codecommit::eu-central-1://shop').textContent).toContain('shop');
     expect(screen.getByRole('link', { name: 'Add repository' }).getAttribute('href')).toBe('/setup');
-    await user.type(screen.getByLabelText('Rule'), 'Validate every query parameter with zod.');
     await user.click(screen.getByRole('button', { name: 'Add rule' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a rule' });
+    await user.type(within(dialog).getByLabelText('Rule'), 'Validate every query parameter with zod.');
+    await user.click(within(dialog).getByRole('button', { name: 'Add rule' }));
     await waitFor(() => expect(rule).toMatchObject({ repoId: 'r1', text: 'Validate every query parameter with zod.' }));
   });
 

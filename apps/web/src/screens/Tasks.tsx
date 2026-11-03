@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Circle, Download, GitPullRequest, ListTodo, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, Download, ListTodo, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
 import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format';
 import { Link, useRouter } from '../lib/router';
 import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
-import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, PageHeader, Pill, Select, Textarea, cx } from '../ui/kit';
+import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, Pill, Select, Textarea, controlBase, cx } from '../ui/kit';
 import { InlineText } from '../ui/text';
 
 const RUNNING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
+const DOT: Record<string, string> = { ok: 'bg-ok', warn: 'bg-warn', danger: 'bg-danger', accent: 'bg-fg', neutral: 'bg-faint' };
 const NEEDS_YOU = new Set(['SPEC_REVIEW', 'BLOCKED', 'FAILED', 'DRAFT']);
 
 export function ReadinessChecklist({ readiness, compact }: { readiness: Readiness; compact?: boolean }) {
@@ -197,9 +198,11 @@ export function TasksScreen() {
   const [projectId, setProjectId] = useState('');
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [query, setQuery] = useState('');
   const list = (tasks.data ?? []).filter(
     (t) =>
       (!projectId || t.projectId === projectId) &&
+      (!query.trim() || `${t.title} ${t.key}`.toLowerCase().includes(query.trim().toLowerCase())) &&
       (filter === 'all' || (filter === 'needs-you' && NEEDS_YOU.has(t.state)) || (filter === 'active' && !['DONE', 'CANCELLED'].includes(t.state) && !NEEDS_YOU.has(t.state)) || (filter === 'finished' && ['DONE', 'CANCELLED'].includes(t.state))),
   );
   const counts = {
@@ -210,28 +213,27 @@ export function TasksScreen() {
   };
   const projectName = (id: string) => boot.data?.projects.find((p) => p.id === id)?.name ?? '';
   return (
-    <div>
-      <PageHeader
-        title="Tasks"
-        subtitle="Everything Tandem is working on, and what is waiting for you."
-        actions={
-          <>
-            <LinkButton to="/chat" icon={MessageSquare}>
-              Request in chat
-            </LinkButton>
-            {boot.data?.jiraConfigured && (
-              <Button icon={Download} onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
-                Import from Jira
-              </Button>
-            )}
-            <Button variant="primary" icon={Plus} onClick={() => setCreating(true)} disabled={!boot.data?.projects.length}>
-              New task
+    <div className="mx-auto w-full max-w-[860px]">
+      <div className="mb-7 flex items-end justify-between gap-4">
+        <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Tasks</h1>
+        <div className="flex items-center gap-2">
+          {boot.data?.jiraConfigured && (
+            <Button variant="ghost" icon={Download} onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
+              Import from Jira
             </Button>
-          </>
-        }
-      />
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div role="group" aria-label="Filter tasks" className="inline-flex rounded-xl bg-surface-2 p-1">
+          )}
+          <Button variant="primary" icon={Plus} onClick={() => setCreating(true)} disabled={!boot.data?.projects.length}>
+            New task
+          </Button>
+        </div>
+      </div>
+      <label className="relative mb-4 block">
+        <span className="sr-only">Search tasks</span>
+        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-faint" />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tasks…" className={cx(controlBase, 'h-11 rounded-xl pl-10 text-[14px]')} />
+      </label>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-line">
+        <div role="group" aria-label="Filter tasks" className="-mb-px flex gap-5">
           {(
             [
               ['all', 'All'],
@@ -240,14 +242,14 @@ export function TasksScreen() {
               ['finished', 'Finished'],
             ] as Array<[Filter, string]>
           ).map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)} className={cx('flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] transition-colors', filter === id ? 'bg-surface font-medium text-fg shadow-sm' : 'text-muted hover:text-fg')}>
+            <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)} className={cx('flex h-9 items-center gap-1.5 border-b-2 text-[13.5px] transition-colors', filter === id ? 'border-fg font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}>
               {label}
-              <span className="text-[11.5px] text-faint tabular-nums">{counts[id]}</span>
+              {counts[id] > 0 && <span className={cx('text-[12px] tabular-nums', id === 'needs-you' && counts[id] ? 'text-warn' : 'text-faint')}>{counts[id]}</span>}
             </button>
           ))}
         </div>
         {(boot.data?.projects.length ?? 0) > 1 && (
-          <div className="w-56">
+          <div className="mb-1.5 w-48">
             <Select label="Project" hideLabel value={projectId} onChange={setProjectId} options={[{ value: '', label: 'All projects' }, ...(boot.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))]} />
           </div>
         )}
@@ -260,44 +262,34 @@ export function TasksScreen() {
         <EmptyState
           icon={ListTodo}
           title={tasks.data?.length ? 'Nothing here' : 'No tasks yet'}
-          body={tasks.data?.length ? 'No task matches this filter.' : 'Describe what you want in chat, and Tandem turns it into a task with a spec and pull requests.'}
+          body={tasks.data?.length ? (query ? 'No task matches your search.' : 'No task matches this filter.') : 'Describe what you want in chat, and Tandem turns it into a task with a spec and pull requests.'}
           action={!tasks.data?.length && <LinkButton to="/chat" variant="primary" icon={MessageSquare}>Start in chat</LinkButton>}
         />
       ) : (
-        <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-          {list.map((t) => (
-            <li key={t.id}>
-              <Link to={`/tasks/${t.id}`} className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-2/60">
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 text-[12px] text-muted">
-                    <span className="font-mono">{t.key}</span>
-                    {projectName(t.projectId) && <span aria-hidden>·</span>}
-                    <span>{projectName(t.projectId)}</span>
-                  </p>
-                  <p className="mt-0.5 truncate text-[14.5px] font-medium group-hover:text-accent-text">{t.title}</p>
-                  {(t.blockedMessage && (t.state === 'BLOCKED' || t.state === 'FAILED')) && <p className="mt-1 line-clamp-1 text-[12.5px] text-muted">{t.blockedMessage.split('\n')[0]}</p>}
-                </div>
-                <div className="hidden shrink-0 items-center gap-2 sm:flex">
-                  {t.needsAttention && (
-                    <Pill tone="warn">
-                      <AlertTriangle aria-hidden className="size-3" /> Needs attention
-                    </Pill>
-                  )}
-                  {t.prCount > 0 && (
-                    <Pill>
-                      <GitPullRequest aria-hidden className="size-3" /> {t.prCount}
-                    </Pill>
-                  )}
-                </div>
-                <div className="flex w-44 shrink-0 flex-col items-end gap-1">
-                  <Pill tone={STATE_TONE[t.state]} dot pulse={RUNNING.has(t.state)}>
-                    {STATE_LABEL[t.state]}
-                  </Pill>
-                  <span className="text-[12px] text-faint">{RUNNING.has(t.state) && t.step ? stepLabel(t.step) : relativeTime(t.updatedAt)}</span>
-                </div>
-              </Link>
-            </li>
-          ))}
+        <ul className="-mx-3 flex flex-col">
+          {list.map((t) => {
+            const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
+            return (
+              <li key={t.id}>
+                <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 rounded-xl px-3 py-3 transition-colors hover:bg-surface-2/80">
+                  <span aria-hidden className={cx('size-2 shrink-0 rounded-full', DOT[STATE_TONE[t.state]], RUNNING.has(t.state) && 'animate-pulse')} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14.5px] font-medium">{t.title}</p>
+                    <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                      <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state]}</span>
+                      {note && <span className="text-muted"> · {note}</span>}
+                      <span className="text-faint">
+                        {' '}· {t.key}
+                        {(boot.data?.projects.length ?? 0) > 1 && projectName(t.projectId) ? ` · ${projectName(t.projectId)}` : ''}
+                        {t.prCount > 0 ? ` · ${t.prCount} PR${t.prCount > 1 ? 's' : ''}` : ''}
+                      </span>
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
       {creating && boot.data && <NewTaskDialog boot={boot.data} onClose={() => setCreating(false)} />}
