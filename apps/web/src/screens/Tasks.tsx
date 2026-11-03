@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Download, ListTodo, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, Download, GitPullRequest, Hand, ListTodo, Loader, MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
+import { IconTile, StatusIcon } from '../ui/visual';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
 import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format';
@@ -10,8 +11,8 @@ import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Lo
 import { InlineText } from '../ui/text';
 
 const RUNNING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
-const DOT: Record<string, string> = { ok: 'bg-ok', warn: 'bg-warn', danger: 'bg-danger', accent: 'bg-fg', neutral: 'bg-faint' };
 const NEEDS_YOU = new Set(['SPEC_REVIEW', 'BLOCKED', 'FAILED', 'DRAFT']);
+const groupOf = (s: string) => (NEEDS_YOU.has(s) ? 'needs-you' : s === 'DONE' || s === 'CANCELLED' ? 'finished' : 'active');
 
 export function ReadinessChecklist({ readiness, compact }: { readiness: Readiness; compact?: boolean }) {
   return (
@@ -227,29 +228,40 @@ export function TasksScreen() {
           </Button>
         </div>
       </div>
-      <label className="relative mb-4 block">
-        <span className="sr-only">Search tasks</span>
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-faint" />
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tasks…" className={cx(controlBase, 'h-11 rounded-xl pl-10 text-[14px]')} />
-      </label>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-line">
-        <div role="group" aria-label="Filter tasks" className="-mb-px flex gap-5">
-          {(
-            [
-              ['all', 'All'],
-              ['needs-you', 'Needs you'],
-              ['active', 'In progress'],
-              ['finished', 'Finished'],
-            ] as Array<[Filter, string]>
-          ).map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)} className={cx('flex h-9 items-center gap-1.5 border-b-2 text-[13.5px] transition-colors', filter === id ? 'border-fg font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}>
-              {label}
-              {counts[id] > 0 && <span className={cx('text-[12px] tabular-nums', id === 'needs-you' && counts[id] ? 'text-warn' : 'text-faint')}>{counts[id]}</span>}
-            </button>
-          ))}
-        </div>
+      <div role="group" aria-label="Filter tasks" className="mb-6 grid grid-cols-3 gap-3">
+        {(
+          [
+            ['needs-you', 'Needs you', Hand, 'warn'],
+            ['active', 'In progress', Loader, 'neutral'],
+            ['finished', 'Finished', CheckCircle2, 'ok'],
+          ] as const
+        ).map(([id, label, icon, tone]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={filter === id}
+            onClick={() => setFilter(filter === id ? 'all' : id)}
+            className={cx(
+              'group flex flex-col items-start gap-3 rounded-2xl border bg-surface p-4 text-left transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:shadow-md',
+              filter === id ? 'border-fg shadow-md' : 'border-line hover:border-line-strong',
+            )}
+          >
+            <IconTile icon={icon} tone={counts[id] > 0 ? tone : 'neutral'} />
+            <span className="flex w-full items-end justify-between gap-2">
+              <span className="text-[13px] font-medium text-muted">{label}</span>
+              <span className="font-serif text-[28px] leading-none font-medium tabular-nums">{counts[id]}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="mb-3 flex items-center gap-3">
+        <label className="relative block flex-1">
+          <span className="sr-only">Search tasks</span>
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-faint" />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tasks…" className={cx(controlBase, 'h-10 rounded-xl pl-10 text-[14px]')} />
+        </label>
         {(boot.data?.projects.length ?? 0) > 1 && (
-          <div className="mb-1.5 w-48">
+          <div className="w-48">
             <Select label="Project" hideLabel value={projectId} onChange={setProjectId} options={[{ value: '', label: 'All projects' }, ...(boot.data?.projects ?? []).map((p) => ({ value: p.id, label: p.name }))]} />
           </div>
         )}
@@ -266,31 +278,55 @@ export function TasksScreen() {
           action={!tasks.data?.length && <LinkButton to="/chat" variant="primary" icon={MessageSquare}>Start in chat</LinkButton>}
         />
       ) : (
-        <ul className="-mx-3 flex flex-col">
-          {list.map((t) => {
-            const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
-            return (
-              <li key={t.id}>
-                <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 rounded-xl px-3 py-3 transition-colors hover:bg-surface-2/80">
-                  <span aria-hidden className={cx('size-2 shrink-0 rounded-full', DOT[STATE_TONE[t.state]], RUNNING.has(t.state) && 'animate-pulse')} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14.5px] font-medium">{t.title}</p>
-                    <p className="mt-0.5 truncate text-[12.5px] text-muted">
-                      <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state]}</span>
-                      {note && <span className="text-muted"> · {note}</span>}
-                      <span className="text-faint">
-                        {' '}· {t.key}
-                        {(boot.data?.projects.length ?? 0) > 1 && projectName(t.projectId) ? ` · ${projectName(t.projectId)}` : ''}
-                        {t.prCount > 0 ? ` · ${t.prCount} PR${t.prCount > 1 ? 's' : ''}` : ''}
-                      </span>
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="flex flex-col gap-6">
+          {(
+            [
+              ['needs-you', 'Needs you'],
+              ['active', 'In progress'],
+              ['finished', 'Finished'],
+            ] as const
+          )
+            .map(([id, label]) => [id, label, list.filter((t) => groupOf(t.state) === id)] as const)
+            .filter(([, , items]) => items.length > 0)
+            .map(([id, label, items]) => (
+              <section key={id} aria-label={label}>
+                <h2 className="mb-1 flex items-center gap-2 px-3 text-[12.5px] font-medium text-muted">
+                  {label}
+                  <span className="text-faint tabular-nums">{items.length}</span>
+                </h2>
+                <ul className="-mx-0 flex flex-col">
+                  {items.map((t) => {
+                    const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
+                    return (
+                      <li key={t.id}>
+                        <Link to={`/tasks/${t.id}`} className="group flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-surface-2/80">
+                          <StatusIcon state={t.state} />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14px] font-medium">{t.title}</p>
+                            <p className="mt-0.5 truncate text-[12.5px] text-muted">
+                              <span className={cx(STATE_TONE[t.state] === 'warn' && 'text-warn', STATE_TONE[t.state] === 'danger' && 'text-danger')}>{RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state]}</span>
+                              {note && <span> · {note}</span>}
+                            </p>
+                          </div>
+                          <div className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
+                            {(boot.data?.projects.length ?? 0) > 1 && projectName(t.projectId) && <span className="max-w-32 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-muted">{projectName(t.projectId)}</span>}
+                            {t.prCount > 0 && (
+                              <span className="flex items-center gap-1">
+                                <GitPullRequest aria-hidden className="size-3.5" />
+                                {t.prCount}
+                              </span>
+                            )}
+                            <span className="w-14 font-mono text-[11.5px]">{t.key}</span>
+                          </div>
+                          <span className="w-16 shrink-0 text-right text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+        </div>
       )}
       {creating && boot.data && <NewTaskDialog boot={boot.data} onClose={() => setCreating(false)} />}
       {importing && boot.data && <ImportDialog boot={boot.data} onClose={() => setImporting(false)} />}

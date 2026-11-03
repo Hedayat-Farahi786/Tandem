@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, ChevronRight, FolderGit2, Pencil, Plus } from 'lucide-react';
+import { BookOpen, ChevronRight, Cloud, FolderGit2, GitBranch, Pencil, Plus, Sparkles } from 'lucide-react';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, post, put } from '../lib/api';
-import type { Bootstrap } from '../lib/types';
+import type { Bootstrap, TaskListItem } from '../lib/types';
+import { IconTile, LangDot, Monogram } from '../ui/visual';
 import { Button, LinkButton, SettingsSection, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
@@ -163,6 +164,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
   return (
     <>
       <SettingsSection
+        icon={<IconTile icon={Sparkles} />}
         title="Agent rules"
         description="Things the agent should always do in a repository, learned from reviews."
         actions={
@@ -217,6 +219,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
 
 export function ProjectsScreen() {
   const boot = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
+  const tasks = useQuery({ queryKey: ['tasks'], queryFn: () => api<TaskListItem[]>('/api/tasks') });
   const [editRepo, setEditRepo] = useState<Repo | null>(null);
   const [editProject, setEditProject] = useState<Project | null>(null);
   if (boot.isLoading) return <Loading />;
@@ -224,7 +227,7 @@ export function ProjectsScreen() {
   const { projects, repos } = boot.data;
   const pm = (p: Project) => (p.pmGate === 'tandem' ? 'PM approves in Tandem' : p.pmGate === 'jira' ? 'PM approves in Jira' : 'No PM approval');
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-12">
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
       <div className="flex items-end justify-between gap-4">
         <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Projects</h1>
         <LinkButton to="/setup" variant="primary" icon={Plus}>
@@ -234,32 +237,59 @@ export function ProjectsScreen() {
       {projects.length === 0 && <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />}
       {projects.map((p) => {
         const list = p.contractOrder.map((id) => repos.find((x) => x.id === id)).filter((r): r is Repo => Boolean(r));
+        const mine = (tasks.data ?? []).filter((t) => t.projectId === p.id);
+        const stats = [
+          ['Open', mine.filter((t) => !['DONE', 'CANCELLED', 'PR_OPEN'].includes(t.state)).length],
+          ['In review', mine.filter((t) => t.state === 'PR_OPEN').length],
+          ['Done', mine.filter((t) => t.state === 'DONE').length],
+        ] as const;
         return (
-          <SettingsSection
-            key={p.id}
-            title={p.name}
-            description={`${pm(p)} · tasks ${p.keyPrefix}-1, ${p.keyPrefix}-2…`}
-            actions={
+          <section key={p.id} aria-label={p.name} className="rounded-2xl border border-line bg-surface p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="flex items-start gap-4">
+              <Monogram name={p.name} size={44} />
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-[17px] font-semibold tracking-tight">{p.name}</h2>
+                <p className="mt-0.5 text-[13px] text-muted">
+                  {pm(p)} · tasks {p.keyPrefix}-1, {p.keyPrefix}-2…
+                </p>
+              </div>
               <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
                 Edit
               </Button>
-            }
-          >
-            {list.map((r, n) => (
-              <button key={r.id} type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3.5 text-left">
-                <FolderGit2 aria-hidden className="size-4 shrink-0 text-faint" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>
-                  <span className="block truncate text-[13px] text-muted">
-                    {[ROLE_LABEL[r.role], r.language, r.framework].filter(Boolean).join(' · ')}
-                    {p.specRepoId === r.id && list.length > 1 ? ' · holds the specs' : ''}
-                    {list.length > 1 ? ` · built ${n === 0 ? 'first' : `step ${n + 1}`}` : ''}
-                  </span>
-                </span>
-                <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
-              </button>
-            ))}
-          </SettingsSection>
+            </div>
+            <dl className="mt-5 grid grid-cols-3 gap-2">
+              {stats.map(([k, v]) => (
+                <div key={k} className="rounded-xl bg-surface-2/70 px-3.5 py-2.5">
+                  <dt className="text-[12px] text-muted">{k}</dt>
+                  <dd className="font-serif text-[22px] leading-tight font-medium tabular-nums">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <ul className="mt-4 divide-y divide-line">
+              {list.map((r, n) => (
+                <li key={r.id}>
+                  <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 py-3 text-left">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
+                      {r.host.kind === 'github' ? <GitBranch aria-hidden className="size-4" /> : <Cloud aria-hidden className="size-4" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium underline-offset-4 group-hover:underline">{r.name}</span>
+                      <span className="mt-0.5 flex items-center gap-2 truncate text-[12.5px] text-muted">
+                        <LangDot language={r.language} />
+                        {[r.language, r.framework].filter(Boolean).join(' · ') || 'Unknown stack'}
+                      </span>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
+                      <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] text-muted">{ROLE_LABEL[r.role]}</span>
+                      {p.specRepoId === r.id && list.length > 1 && <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] text-muted">Specs</span>}
+                      {list.length > 1 && <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[12px] text-muted tabular-nums">Step {n + 1}</span>}
+                    </span>
+                    <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         );
       })}
       <RulesSection repos={repos} />

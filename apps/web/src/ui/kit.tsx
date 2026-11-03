@@ -407,16 +407,19 @@ export function StatusDot({ tone, pulse }: { tone: Tone; pulse?: boolean }) {
  * Settings-style layout: a titled section of rows separated by hairlines, no boxes. Used by
  * Settings, Doctor and Projects.
  */
-export function SettingsSection({ title, description, actions, children, className }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
+export function SettingsSection({ id: anchor, icon, title, description, actions, children, className }: { id?: string; icon?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className={cx('scroll-mt-6', className)}>
-      <div className="flex items-end justify-between gap-4 pb-3">
-        <div className="min-w-0">
+    <section id={anchor} aria-labelledby={id} className={cx('scroll-mt-8', className)}>
+      <div className="flex items-center justify-between gap-4 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {icon}
+          <div className="min-w-0">
           <h2 id={id} className="text-[15px] font-semibold tracking-tight">
             {title}
           </h2>
           {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
+          </div>
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>

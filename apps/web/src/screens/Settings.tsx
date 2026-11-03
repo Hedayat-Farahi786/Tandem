@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save } from 'lucide-react';
+import { Bot, CalendarDays, Cloud, Gauge, GitBranch, Save, Ticket, UserRound, Workflow } from 'lucide-react';
+import { IconTile, Ring } from '../ui/visual';
 import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
@@ -97,6 +98,56 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
   );
 }
 
+const NAV = [
+  ['general', 'General', UserRound],
+  ['copilot', 'Copilot', Bot],
+  ['budget', 'Budget', Gauge],
+  ['workflow', 'Workflow', Workflow],
+  ['aws', 'AWS', Cloud],
+  ['jira', 'Jira', Ticket],
+  ['github', 'GitHub', GitBranch],
+] as const;
+
+/** The section menu beside Settings, following the section in view. */
+function SectionNav() {
+  const [active, setActive] = useState<string>('general');
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => {
+      const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (top) setActive(top.target.id);
+    }, { rootMargin: '-15% 0px -70% 0px' });
+    for (const [id] of NAV) {
+      const el = document.getElementById(id);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, []);
+  return (
+    <nav aria-label="Settings sections" className="hidden lg:block">
+      <ul className="sticky top-8 flex flex-col gap-px">
+        {NAV.map(([id, label, Icon]) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setActive(id);
+                document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              aria-current={active === id ? 'true' : undefined}
+              className={cx('flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] transition-colors', active === id ? 'bg-surface-3/80 font-medium text-fg' : 'text-muted hover:bg-surface-3/50 hover:text-fg')}
+            >
+              <Icon aria-hidden className={cx('size-4', active === id ? 'text-fg' : 'text-faint')} strokeWidth={1.9} />
+              {label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 export function SettingsScreen() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -132,26 +183,24 @@ export function SettingsScreen() {
   const kcOk = secrets.data?.keychain.ok ?? false;
 
   const jiraOn = Boolean(secrets.data?.jiraToken && s.jira.baseUrl);
-  const meter = (used: number, of: number) => (
-    <span aria-hidden className="mt-2 block h-1 overflow-hidden rounded-full bg-surface-3">
-      <span className={cx('block h-full rounded-full transition-[width] duration-500', used / of >= 0.9 ? 'bg-warn' : 'bg-fg/70')} style={{ width: `${Math.min(100, (used / of) * 100)}%` }} />
-    </span>
-  );
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-12 pb-24">
-      <div>
+    <div className="mx-auto w-full max-w-[1000px] pb-24">
+      <div className="mb-10">
         <h1 className="font-serif text-[30px] leading-tight font-medium tracking-tight">Settings</h1>
         <p className="mt-1 text-[13.5px] text-muted">Stored on this machine. Tokens go only to your OS keychain.</p>
       </div>
+      <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">
+      <SectionNav />
+      <div className="flex min-w-0 flex-col gap-14">
 
-      <SettingsSection title="General">
+      <SettingsSection id="general" icon={<IconTile icon={UserRound} />} title="General">
         <Row label="Your name" htmlFor="set-name" description="Shown on the specs you approve.">
           <Input id="set-name" value={s.ownerName} onChange={(e) => set('ownerName', e.target.value)} />
         </Row>
       </SettingsSection>
 
-      <SettingsSection title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
+      <SettingsSection id="copilot" icon={<IconTile icon={Bot} />} title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
         <Row label="Copilot host" htmlFor="set-host" description="Only for GitHub Enterprise with data residency, for example company.ghe.com.">
           <Input id="set-host" value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" />
         </Row>
@@ -170,28 +219,37 @@ export function SettingsScreen() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Copilot budget" description="Plans are often shared. A run that reaches a limit stops at once, and the task waits until you raise it.">
+      <SettingsSection id="budget" icon={<IconTile icon={Gauge} />} title="Copilot budget" description="Plans are often shared. A run that reaches a limit stops at once, and the task waits until you raise it.">
         {usage.data && (
-          <div className="grid gap-6 py-4 sm:grid-cols-3">
-            <div>
-              <p className="text-[12.5px] text-muted">AI credits today</p>
-              <p className="mt-0.5 text-[15px] font-medium tabular-nums">
-                {formatCredits(usage.data.credits.today)} <span className="text-muted">of {usage.data.credits.perDay}</span>
-              </p>
-              {meter(usage.data.credits.today, usage.data.credits.perDay)}
-            </div>
-            <div>
-              <p className="text-[12.5px] text-muted">Prompts today</p>
-              <p className="mt-0.5 text-[15px] font-medium tabular-nums">
-                {usage.data.today} <span className="text-muted">of {usage.data.perDay}</span>
-              </p>
-              {meter(usage.data.today, usage.data.perDay)}
-            </div>
-            <div>
-              <p className="text-[12.5px] text-muted">Last 30 days</p>
-              <p className="mt-0.5 text-[15px] font-medium tabular-nums">
-                {formatCredits(usage.data.last30Days.aiCredits)} <span className="text-muted">credits · {usage.data.last30Days.prompts} prompts</span>
-              </p>
+          <div className="grid gap-4 py-5 sm:grid-cols-3">
+            {(
+              [
+                ['AI credits today', usage.data.credits.today, usage.data.credits.perDay, formatCredits(usage.data.credits.today)],
+                ['Prompts today', usage.data.today, usage.data.perDay, String(usage.data.today)],
+              ] as const
+            ).map(([label, used, of, shown]) => (
+              <div key={label} className="flex items-center gap-3.5">
+                <Ring value={used / of} size={52} stroke={5} tone={used / of >= 0.9 ? 'warn' : 'fg'} label={`${label}: ${shown} of ${of}`}>
+                  <span className="text-[11px] font-medium tabular-nums">{Math.round((used / of) * 100)}%</span>
+                </Ring>
+                <div>
+                  <p className="text-[12.5px] text-muted">{label}</p>
+                  <p className="text-[15px] font-medium tabular-nums">
+                    {shown} <span className="text-muted">of {of}</span>
+                  </p>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3.5">
+              <span className="grid size-[52px] shrink-0 place-items-center rounded-full bg-surface-2">
+                <CalendarDays aria-hidden className="size-5 text-muted" />
+              </span>
+              <div>
+                <p className="text-[12.5px] text-muted">Last 30 days</p>
+                <p className="text-[15px] font-medium tabular-nums">
+                  {formatCredits(usage.data.last30Days.aiCredits)} <span className="text-muted">credits · {usage.data.last30Days.prompts} prompts</span>
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -212,7 +270,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection title="Workflow">
+      <SettingsSection id="workflow" icon={<IconTile icon={Workflow} />} title="Workflow">
         <Row label="Fix conflicts in open pull requests" description="When the base branch changes and a pull request no longer merges cleanly, Tandem merges it in, resolves the conflicts, runs every check and pushes, never with force. Branches someone else pushed to are left to them.">
           <div className="flex justify-end">
             <Switch checked={s.polling.fixConflicts} onChange={(v) => set('polling', { ...s.polling, fixConflicts: v })} label="Fix conflicts in open pull requests" hideLabel />
@@ -238,7 +296,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
+      <SettingsSection id="aws" icon={<IconTile icon={Cloud} />} title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
         <Row label="AWS profile" htmlFor="set-profile" description="Repositories whose codecommit:: URL names a profile use that one.">
           <Input id="set-profile" value={s.aws.profile} onChange={(e) => set('aws', { ...s.aws, profile: e.target.value })} placeholder="default" />
         </Row>
@@ -248,6 +306,8 @@ export function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection
+        id="jira"
+        icon={<IconTile icon={Ticket} />}
         title="Jira"
         description="Optional. Import tasks, post specs and report pull requests."
         actions={
@@ -281,12 +341,14 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection title="GitHub" description="Only for GitHub repositories. Without a token Tandem uses the GitHub CLI's sign-in, or gives you a compare link.">
+      <SettingsSection id="github" icon={<IconTile icon={GitBranch} />} title="GitHub" description="Only for GitHub repositories. Without a token Tandem uses the GitHub CLI's sign-in, or gives you a compare link.">
         <Row label="GitHub token" htmlFor="set-gtoken" description="Needs permission to open pull requests on your repositories." wide>
           <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
         </Row>
       </SettingsSection>
 
+      </div>
+      </div>
       {(dirty || save.isPending) && (
         <div className="sticky bottom-5 z-10 flex justify-center">
           <div role="region" aria-label="Unsaved changes" className="flex animate-pop items-center gap-4 rounded-2xl border border-line bg-surface/95 py-2 pr-2 pl-4 shadow-lg backdrop-blur">
