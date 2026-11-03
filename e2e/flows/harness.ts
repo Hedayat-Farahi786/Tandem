@@ -253,6 +253,12 @@ export class Harness {
     this.token = /<meta name="tandem-token" content="([^"]+)">/.exec(html)?.[1] ?? '';
     if (!this.token) throw new Error('No token in the served page.');
     this.listen();
+    // On a machine short of disk, TANDEM_E2E_MIN_FREE_DISK_GB lowers the "low disk" guard for this run's data only.
+    const minFree = Number(process.env.TANDEM_E2E_MIN_FREE_DISK_GB);
+    if (minFree > 0) {
+      const cur = await this.api<{ limits: Record<string, unknown> }>('GET', '/api/settings');
+      await this.api('PUT', '/api/settings', { ...cur, limits: { ...cur.limits, minFreeDiskGb: minFree } });
+    }
   }
 
   private listen(): void {

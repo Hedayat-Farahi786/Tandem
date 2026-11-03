@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, ChatMessage, ChatThread, CommandResult, CriterionTest, ModelOption, Project, PullRequest, Repo, ReviewFinding, Settings, SpecVersion, Task, TaskTransition, VerifyRun } from '@tandem/shared';
+import type { AgentStep, AgentRun, Approval, ChatMessage, ChatThread, CommandResult, CriterionTest, ModelOption, Project, PullRequest, Repo, ReviewFinding, Settings, SpecVersion, Task, TaskTransition, VerifyRun } from '@tandem/shared';
 
 export interface ReadinessItem {
   id: string;
@@ -67,6 +67,8 @@ export interface ThreadView {
   /** The model this chat uses ('' = Auto). A task chat shows its task's model. */
   model: string;
   messages: ChatMessage[];
+  /** What Copilot did for each answer, by run id (prompt and message steps left out). */
+  steps?: Record<string, AgentStep[]>;
   readiness: Readiness | null;
 }
 

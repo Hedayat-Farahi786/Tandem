@@ -67,3 +67,12 @@ export const SpecChangeArgs = z.object({
   markdown: z.string().optional(),
 });
 export type SpecChangeArgs = z.infer<typeof SpecChangeArgs>;
+
+/** Task chat: the agent proposes how the task should go on; the owner confirms. */
+export const ContinueArgs = z.object({
+  /** One line for the owner, e.g. "Fix the failing date test by using UTC". */
+  summary: z.string(),
+  /** Clear instructions for the agent that does the work. */
+  guidance: z.string(),
+});
+export type ContinueArgs = z.infer<typeof ContinueArgs>;

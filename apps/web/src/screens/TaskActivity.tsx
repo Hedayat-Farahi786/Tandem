@@ -89,7 +89,7 @@ function Message({ text }: { text: string }) {
   );
 }
 
-function Step({ s }: { s: AgentStep }) {
+export function Step({ s }: { s: AgentStep }) {
   switch (s.kind) {
     case 'prompt':
       return (

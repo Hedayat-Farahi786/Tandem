@@ -94,6 +94,7 @@ export class TaskService {
         ...(input.sizeOverride ? { sizeOverride: input.sizeOverride } : {}),
         ...(input.model ? { model: input.model } : {}),
         progress: {},
+        guidance: [],
         slug,
         branch: branchName(key, slug),
         createdAt: now,
@@ -263,6 +264,37 @@ export class TaskService {
     }
     this.deps.events?.emit({ type: 'task.updated', taskId, at: this.deps.clock.iso() });
     return task;
+  }
+
+  /**
+   * The owner tells Copilot how to go on. The guidance is kept on the task (every later agent prompt
+   * includes it), then: a blocked or failed task resumes; a PR whose checks still fail gets another
+   * fix round; a spec in review is redrafted with it; a task that is working uses it at its next step.
+   */
+  async continueWith(taskId: string, text: string): Promise<{ task: Task; action: 'resumed' | 'fixing' | 'redrafting' | 'noted' }> {
+    const task = await this.task(taskId);
+    const guidance = redactor.redact(text.trim());
+    if (!guidance) throw new ActionError('Write what Copilot should do.');
+    if (task.state === 'DONE' || task.state === 'CANCELLED') throw new ActionError(`${task.key} is finished, so there is nothing to continue. Start a new request instead.`);
+    if (task.state === 'SPEC_REVIEW') return { task: await this.requestChanges(taskId, guidance), action: 'redrafting' };
+    if (task.blockedReason === 'split-proposed') throw new ActionError('Accept the proposed split or keep it as one task first.');
+    const now = this.deps.clock.iso();
+    const settings = await this.deps.settings();
+    // Tasks saved before 1.1 have no guidance list yet.
+    const noted: Task = { ...task, guidance: [...(task.guidance ?? []), { text: guidance, at: now }], updatedAt: now };
+    await this.deps.store.tasks.upsert(noted);
+    await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(settings), action: 'task.guidance', summary: `${task.key}: told Copilot how to continue: ${guidance.slice(0, 200)}`, taskId, projectId: task.projectId, detail: { guidance, state: task.state } });
+    if (task.state === 'BLOCKED' || task.state === 'FAILED') return { task: await this.resume(taskId), action: 'resumed' };
+    if (task.state === 'PR_OPEN' && task.needsAttention) {
+      const next = await this.move(noted, 'VERIFYING', 'Owner asked for another fix round with guidance.', 'owner', 'verify', {
+        needsAttention: false,
+        attentionNotes: [],
+        progress: { ...noted.progress, fixAttempts: 0, reviewed: false, refreshPrs: true },
+      });
+      return { task: next, action: 'fixing' };
+    }
+    this.deps.events?.emit({ type: 'task.updated', taskId, at: now });
+    return { task: noted, action: 'noted' };
   }
 
   async cancel(taskId: string): Promise<Task> {

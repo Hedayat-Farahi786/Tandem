@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
-import type { ChatMessage, ChatThread } from '@tandem/shared';
+import type { AgentStep, ChatMessage, ChatThread } from '@tandem/shared';
+import { LiveAnswer, StepsSummary } from './ChatSteps';
 import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
 import { relativeTime } from '../lib/format';
@@ -16,7 +17,7 @@ import { ReadinessChecklist } from './Tasks';
 /** Your message animates once, as you send it; replies animate as they arrive (not on reload). */
 const isFresh = (m: ChatMessage) => m.role === 'assistant' && Date.now() - Date.parse(m.createdAt) < 5_000;
 
-function Message({ m, repoName, enter = isFresh(m) }: { m: ChatMessage; repoName: (id?: string) => string; enter?: boolean }) {
+function Message({ m, repoName, steps, enter = isFresh(m) }: { m: ChatMessage; repoName: (id?: string) => string; steps?: AgentStep[] | undefined; enter?: boolean }) {
   if (m.role === 'system') {
     return (
       <div className="flex justify-center">
@@ -28,6 +29,7 @@ function Message({ m, repoName, enter = isFresh(m) }: { m: ChatMessage; repoName
   return (
     <div className={cx('flex', enter && 'animate-rise', mine ? 'justify-end' : 'justify-start')}>
       <div className={cx('max-w-[min(680px,92%)]', mine ? 'rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5' : 'px-1')}>
+        {!mine && steps && <StepsSummary steps={steps} />}
         {mine ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p> : <Markdown source={m.content} />}
         {m.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -46,7 +48,19 @@ function Message({ m, repoName, enter = isFresh(m) }: { m: ChatMessage; repoName
 }
 
 /** A chat thread with live streaming. Used for Ask, Request and task chats. */
-export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void }) {
+/** A task's state as the task chat needs it: stuck tasks can be continued with the owner's message. */
+export interface ChatTask {
+  id: string;
+  state: string;
+  needsAttention: boolean;
+}
+const WORKING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
+
+export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask }) {
+  const stuck = Boolean(task && (task.state === 'BLOCKED' || task.state === 'FAILED' || (task.state === 'PR_OPEN' && task.needsAttention)));
+  const bootInfo = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
+  const testAgent = bootInfo.data && bootInfo.data.agent !== 'copilot';
+  const working = Boolean(task && WORKING.has(task.state));
   const qc = useQueryClient();
   const toast = useToast();
   const view = useQuery({ queryKey: ['thread', threadId], queryFn: () => api<ThreadView>(`/api/threads/${threadId}`) });
@@ -55,20 +69,34 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const [pending, setPending] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  // Live: the answer as it streams, and Copilot's steps as it takes them.
+  const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEvents((e) => {
     if (e.type === 'agent.delta' && e.threadId === threadId) setStream((s) => s + e.text);
+    if (e.type === 'agent.step' && e.threadId === threadId && !liveTimer.current) {
+      const runId = e.runId;
+      liveTimer.current = setTimeout(() => {
+        liveTimer.current = null;
+        void api<AgentStep[]>(`/api/agent-runs/${runId}/steps`)
+          .then(setLiveSteps)
+          .catch(() => undefined);
+      }, 250);
+    }
   });
   const send = useMutation({
     mutationFn: (t: string) => post(`/api/threads/${threadId}/messages`, { text: t }),
     onMutate: (t) => {
       setPending(t);
       setStream('');
+      setLiveSteps([]);
     },
     onSettled: async () => {
       await qc.invalidateQueries({ queryKey: ['thread', threadId] });
       void qc.invalidateQueries({ queryKey: ['threads'] });
       setPending(null);
       setStream('');
+      setLiveSteps([]);
       input.current?.focus();
     },
   });
@@ -89,6 +117,21 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
       void qc.invalidateQueries({ queryKey: ['task'] });
     },
     onError: (err) => toast(err instanceof Error ? err.message : 'Could not change the model.', 'danger'),
+  });
+  // Continue the task with the owner's message (or with what Copilot proposed).
+  const proceed = useMutation({
+    mutationFn: (t?: string) => post<{ action: string }>(`/api/threads/${threadId}/continue`, t ? { text: t } : {}),
+    onSuccess: (r) => toast(r.action === 'noted' ? 'Copilot follows this from its next step.' : r.action === 'fixing' ? 'Copilot is fixing the checks with your guidance.' : 'Continuing the task.', 'ok'),
+    onError: (err) => toast(err instanceof Error ? err.message : String(err), 'danger'),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['thread', threadId] });
+      void qc.invalidateQueries({ queryKey: ['task'] });
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+  const dismissContinue = useMutation({
+    mutationFn: () => post(`/api/threads/${threadId}/continue/dismiss`),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['thread', threadId] }),
   });
   const applyChange = useMutation({
     mutationFn: (apply: boolean) => post(`/api/threads/${threadId}/spec-change/${apply ? 'apply' : 'dismiss'}`),
@@ -132,23 +175,38 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             </div>
           )}
           {messages.map((m) => (
-            <Message key={m.id} m={m} repoName={repoName} />
+            <Message key={m.id} m={m} repoName={repoName} steps={m.runId ? view.data.steps?.[m.runId] : undefined} />
           ))}
           {pending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
           {send.isPending && (
-            <div className="px-1">
-              {stream ? <Markdown source={stream} /> : null}
-              <p className="mt-1 flex animate-in items-center gap-2.5 text-[12.5px] text-muted" role="status">
-                <span aria-hidden className="thinking-dots">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                {stream ? 'Writing…' : 'Reading the code…'}
-              </p>
+            <div className="flex animate-in flex-col">
+              <LiveAnswer steps={liveSteps} stream={stream} />
+              {stream && (
+                <div className="px-1">
+                  <Markdown source={stream} className="stream-caret" />
+                </div>
+              )}
             </div>
           )}
           {send.isError && <ErrorState title="The message was not answered" error={send.error} />}
+          {thread?.pendingContinue && (
+            <Callout
+              tone="accent"
+              title="Copilot's proposal"
+              actions={
+                <>
+                  <Button size="sm" variant="primary" busy={proceed.isPending} onClick={() => proceed.mutate(undefined)}>
+                    Continue with this
+                  </Button>
+                  <Button size="sm" busy={dismissContinue.isPending} onClick={() => dismissContinue.mutate()}>
+                    Not now
+                  </Button>
+                </>
+              }
+            >
+              {thread.pendingContinue.summary}
+            </Callout>
+          )}
           {thread?.pendingSpecChange && (
             <Callout
               tone="accent"
@@ -186,7 +244,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               rows={1}
               value={text}
               disabled={done}
-              placeholder={done ? 'This request became a task. Continue in the task chat.' : placeholder}
+              placeholder={done ? 'This request became a task. Continue in the task chat.' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
               onChange={(e) => {
                 setText(e.target.value);
                 e.target.style.height = 'auto';
@@ -202,12 +260,29 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             />
             <div className="flex items-center justify-end gap-1.5">
               <ModelPicker value={setModel.isPending ? (setModel.variables ?? '') : view.data.model} onChange={(m) => setModel.mutate(m)} busy={setModel.isPending} disabled={done} align="end" />
+              {(stuck || working) && (
+                <Button
+                  size="sm"
+                  variant={stuck ? 'secondary' : 'ghost'}
+                  disabled={!text.trim() || proceed.isPending}
+                  busy={proceed.isPending}
+                  onClick={() => {
+                    const t = text.trim();
+                    if (!t) return;
+                    setText('');
+                    proceed.mutate(t);
+                  }}
+                >
+                  {stuck ? 'Continue with this' : 'Tell Copilot'}
+                </Button>
+              )}
               <Button type="submit" variant="primary" aria-label="Send" className="disabled:bg-surface-3 disabled:text-faint disabled:opacity-100 size-8 rounded-[10px] !px-0 transition-[background-color,opacity,transform] duration-150 active:scale-[0.92]" disabled={!text.trim() || send.isPending || done}>
                 {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>
             </div>
           </div>
-          <p className="mt-1.5 px-2 text-[11.5px] text-faint">Enter to send · Shift+Enter for a new line · Chat never changes code.</p>
+          {testAgent && <p className="mt-1.5 px-2 text-[11.5px] font-medium text-warn">Test mode: answers come from Tandem's test agent, not Copilot.</p>}
+          <p className={cx('mt-1.5 px-2 text-[11.5px] text-faint', testAgent && 'hidden')}>{stuck ? 'Enter asks Copilot · Continue with this lets Copilot work on it again' : working ? 'Enter asks a question · Tell Copilot passes a note to its next step' : 'Enter to send · Shift+Enter for a new line · Chat never changes code.'}</p>
         </form>
       </div>
       {thread?.mode === 'request' && view.data.readiness && !compact && (
@@ -273,7 +348,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
     }
   };
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-11rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-5rem)]">
+    <div className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-2rem)]">
       <h1 className="animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
       <p className="mt-2 animate-rise text-[14.5px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form
@@ -375,16 +450,17 @@ export function ChatScreen() {
           <Select label="Project" value={projectId} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.data.projects.map((p) => ({ value: p.id, label: p.name }))} />
         </div>
       )}
-      <section aria-label="Conversation" className={cx('min-w-0', current && 'flex min-h-[calc(100vh-9rem)] flex-col md:min-h-[calc(100vh-5rem)]')}>
+      <section aria-label="Conversation" className={cx('min-w-0', current && 'flex min-h-[calc(100vh-7rem)] flex-col md:min-h-[calc(100vh-1rem)]')}>
         {current ? (
           <>
-            <div className="mb-6 flex items-center justify-between gap-4 border-b border-line pb-4">
-              <div className="min-w-0">
-                <h1 className="truncate font-display text-[22px] tracking-tight">{current.title}</h1>
-                <p className="text-[12.5px] text-muted">{current.mode === 'request' ? 'Request · Tandem asks until it is ready to build' : 'Ask · read-only answers about the code'}</p>
+            {/* A slim title bar, like a chat app: the conversation gets the room. */}
+            <div className="sticky top-0 z-20 -mx-4 mb-2 flex h-14 items-center justify-between gap-4 bg-bg/85 px-4 backdrop-blur-md md:-mx-8 md:px-8">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <h1 className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">{current.title}</h1>
+                <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-muted">{current.mode === 'request' ? 'Request' : 'Question'}</span>
               </div>
               {current.createdTaskId && (
-                <Button variant="primary" onClick={() => navigate(`/tasks/${current.createdTaskId}`)}>
+                <Button size="sm" variant="primary" onClick={() => navigate(`/tasks/${current.createdTaskId}`)}>
                   Open task
                 </Button>
               )}

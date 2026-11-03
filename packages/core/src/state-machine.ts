@@ -12,7 +12,8 @@ export const TRANSITIONS: Readonly<Record<TaskState, readonly TaskState[]>> = {
   BUILDING: ['VERIFYING', ...STOPS],
   VERIFYING: ['SELF_REVIEW', ...STOPS],
   SELF_REVIEW: ['PR_OPEN', ...STOPS],
-  PR_OPEN: ['DONE', ...STOPS],
+  // VERIFYING: the owner asks for another fix round on a PR whose checks still fail.
+  PR_OPEN: ['DONE', 'VERIFYING', ...STOPS],
   DONE: [],
   // Blocked and failed tasks resume where they stopped (or are cancelled).
   BLOCKED: [...WORK, 'CANCELLED'],

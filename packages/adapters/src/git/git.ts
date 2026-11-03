@@ -16,6 +16,21 @@ export class GitError extends Error {
 const NETWORK = /(Could not resolve host|Connection (timed out|reset|refused)|Operation timed out|unable to access|early EOF|remote end hung up|RPC failed|The requested URL returned error: 5\d\d|TLS|Temporary failure|Network is unreachable|kex_exchange_identification)/i;
 const AUTH = /(Permission denied \(publickey\)|Authentication failed|could not read Username|The requested URL returned error: 403|unable to get credentials|does not have credentials|ExpiredToken|InvalidClientTokenId|security token included in the request is (invalid|expired))/i;
 
+const EXPIRED = /(session has expired|Please reauthenticate|ExpiredToken|token (has|is) expired|The SSO session associated with this profile has expired)/i;
+/** git's progress chatter ("Cloning into …", counting objects, the credential-prompt fallout) is not a reason. */
+const NOISE = /^(Cloning into|remote: (Counting|Compressing|Enumerating|Total)|Receiving objects|Resolving deltas|fatal: could not read (Username|Password) for .*terminal prompts disabled)/i;
+
+/** The lines of git's output that explain a failure, without progress messages. */
+export function reasonOf(stderr: string): string {
+  return stderr
+    .trim()
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !NOISE.test(l))
+    .slice(-6)
+    .join('\n');
+}
+
 export function gitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...extra };
   if (!env.GIT_SSH_COMMAND && !env.GIT_SSH) env.GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o ConnectTimeout=20';
@@ -63,8 +78,9 @@ export function runGit(args: readonly string[], o: GitRun = {}): Promise<GitResu
         return;
       }
       const what = `git ${args.slice(0, 3).join(' ')}`;
-      const tail = stderr.trim().split('\n').slice(-6).join('\n') || stdout.trim().split('\n').slice(-6).join('\n');
+      const tail = reasonOf(stderr) || stdout.trim().split('\n').slice(-6).join('\n');
       if (code === null) reject(new RetryableError(`${what} timed out.`));
+      else if (EXPIRED.test(stderr)) reject(new GitError(`Your AWS sign-in has expired, so git could not reach CodeCommit. Sign in again in a terminal (aws login, or aws sso login for an SSO profile), then try again.`, stderr, code));
       else if (AUTH.test(stderr)) reject(new GitError(`${what} was refused: ${tail}\nCheck your access: for CodeCommit, sign in to AWS again (aws login or aws sso login) or check your SSH key; for GitHub, run gh auth login.`, stderr, code));
       else if (NETWORK.test(stderr)) reject(new RetryableError(`${what} failed on the network: ${tail}`));
       else reject(new GitError(`${what} failed: ${tail}`, stderr, code));

@@ -229,6 +229,13 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
       at: deps.clock.iso(),
     });
   };
+  /** The owner's guidance for this task goes with every prompt, so it applies from the next step on. */
+  const withGuidance = async (prompt: string) => {
+    if (!req.taskId) return prompt;
+    const g = (await deps.store.tasks.get(req.taskId))?.guidance ?? [];
+    if (!g.length) return prompt;
+    return `${prompt}\n\nGuidance from the owner for this task (follow it; if two notes disagree, the later one wins):\n${g.map((x) => `- ${x.text}`).join('\n')}`;
+  };
   const guard = async () => {
     if (req.signal?.aborted) throw new Error('Stopped because the task was cancelled.');
     await budget.assertCanSend(req.taskId);
@@ -249,8 +256,9 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
   return {
     id: session.id,
     runId: run.id,
-    send: async (prompt) => {
+    send: async (raw) => {
       await guard();
+      const prompt = await withGuidance(raw);
       step({ kind: 'prompt', text: cap(prompt, MAX_TEXT) });
       try {
         const turn = await session.send(prompt);
@@ -260,8 +268,9 @@ export async function openSession(deps: WorkflowDeps, req: SessionRequest): Prom
         throw await failed(err);
       }
     },
-    structured: async (prompt, schema) => {
+    structured: async (raw, schema) => {
       await guard();
+      const prompt = await withGuidance(raw);
       step({ kind: 'prompt', text: cap(prompt, MAX_TEXT) });
       try {
         const r = await session.sendStructured(prompt, schema);

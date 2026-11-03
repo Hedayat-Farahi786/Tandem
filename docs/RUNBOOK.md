@@ -181,6 +181,8 @@ These are for developing Tandem; none of them call Copilot unless stated.
 
 `TANDEM_E2E_PORT=<port>` runs a flow on a fixed port so you can watch it in
 the browser, and `TANDEM_E2E_DIR=<dir>` keeps its data afterwards.
+`TANDEM_E2E_MIN_FREE_DISK_GB=1` lowers the low-disk guard (default 2 GB) for
+the flows' own data, on a machine short of disk.
 `TANDEM_AGENT=scripted` starts Tandem with the scripted agent, and
 `TANDEM_TEST_REMOTE_ROOT=<dir>` serves CodeCommit repositories from local
 copies in `<dir>/<name>.git`; the sidebar then shows a test-mode badge.

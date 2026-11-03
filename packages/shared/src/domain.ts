@@ -126,6 +126,8 @@ export const Task = z.object({
   progress: z.record(z.string(), z.unknown()).default({}),
   /** Copilot model for every agent step of this task. Absent = the defaults in Settings. */
   model: z.string().optional(),
+  /** What the owner told Copilot to do differently; every later agent prompt for the task includes it. */
+  guidance: z.array(z.object({ text: z.string(), at: Iso })).default([]),
   slug: z.string(),
   branch: z.string(),
   createdAt: Iso,
@@ -309,6 +311,8 @@ export const ChatThread = z.object({
   createdTaskId: Id.optional(),
   /** Task chat: a spec change the agent proposed, waiting for the owner to confirm. */
   pendingSpecChange: z.object({ kind: z.enum(['redraft', 'edit']), feedback: z.string().optional(), markdown: z.string().optional(), summary: z.string() }).optional(),
+  /** Task chat: how the agent proposes to continue a stuck task, waiting for the owner to confirm. */
+  pendingContinue: z.object({ summary: z.string(), guidance: z.string() }).optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -321,6 +325,8 @@ export const ChatMessage = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string(),
   refs: z.array(FileRef).default([]),
+  /** For an answer: the agent run that wrote it (its steps show above the answer). */
+  runId: Id.optional(),
   createdAt: Iso,
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

@@ -2,12 +2,9 @@
 @import "@fontsource-variable/inter/opsz.css";
 
 /*
- * Tandem design tokens: warm neutrals, a monochrome accent (#0B0B0B; inverted in dark mode), 8px grid.
- * Text/background pairs meet WCAG AA (4.5:1); large text and UI parts at least 3:1.
- */
-/*
- * Tandem design tokens: refined neutrals, a monochrome accent (#0B0B0B; inverted in dark mode).
- * The sidebar is the canvas; pages sit on a raised panel. Text/background pairs meet WCAG AA.
+ * Tandem design tokens: refined neutrals and a deep teal accent (#0E3B3B; a lighter teal in dark mode).
+ * The sidebar is the canvas; pages sit on a raised panel. Text/background pairs meet WCAG AA
+ * (4.5:1); large text and UI parts at least 3:1.
  */
 :root {
   --bg: #fdfdfc;
@@ -20,10 +17,10 @@
   --text: #19191a;
   --text-muted: #57575a;
   --text-faint: #69696c;
-  --accent: #0b0b0b;
-  --accent-hover: #2a2a2b;
-  --accent-soft: #efefed;
-  --accent-text: #0b0b0b;
+  --accent: #0e3b3b;
+  --accent-hover: #155252;
+  --accent-soft: #e4efee;
+  --accent-text: #0e3b3b;
   --accent-fg: #ffffff;
   --ok: #217a45;
   --ok-soft: #e6f4ea;
@@ -33,7 +30,7 @@
   --danger-soft: #fdecea;
   --info: #2459c9;
   --info-soft: #e9effc;
-  --focus: #0b0b0b;
+  --focus: #0e3b3b;
   --shadow-sm: 0 1px 2px rgb(16 16 18 / 0.05);
   --shadow-md: 0 1px 2px rgb(16 16 18 / 0.04), 0 6px 20px -6px rgb(16 16 18 / 0.1);
   --shadow-lg: 0 2px 4px rgb(16 16 18 / 0.04), 0 24px 56px -12px rgb(16 16 18 / 0.24);
@@ -52,11 +49,11 @@
   --text: #ededee;
   --text-muted: #ababb0;
   --text-faint: #9a9aa0;
-  --accent: #f2f2f2;
-  --accent-hover: #ffffff;
-  --accent-soft: #29292c;
-  --accent-text: #f2f2f2;
-  --accent-fg: #141415;
+  --accent: #7cc7c0;
+  --accent-hover: #94d3cd;
+  --accent-soft: #163130;
+  --accent-text: #8fd3cc;
+  --accent-fg: #062020;
   --ok: #6fd08f;
   --ok-soft: #16281d;
   --warn: #f0b95a;
@@ -65,7 +62,7 @@
   --danger-soft: #36191a;
   --info: #8cb2ff;
   --info-soft: #172238;
-  --focus: #f2f2f2;
+  --focus: #7cc7c0;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -6px rgb(0 0 0 / 0.55);
   --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.04), 0 24px 56px -12px rgb(0 0 0 / 0.75);
@@ -122,8 +119,14 @@
 /* The first message: the composer glides from the centre to the bottom, the rest cross-fades. */
 ::view-transition-group(composer) { animation-duration: 460ms; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 260ms; }
+/* "Thinking…": a soft light sweeping across the text. */
+@keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.shimmer-text { background-image: linear-gradient(90deg, var(--text-faint) 0%, var(--text-faint) 40%, var(--text) 50%, var(--text-faint) 60%, var(--text-faint) 100%); background-size: 250% 100%; background-position: 150% 0; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.9s linear infinite; }
+/* The end of a streaming answer. */
+@keyframes caret-blink { 0%, 45% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.stream-caret > :last-child::after { content: ''; display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: currentColor; opacity: 0.55; animation: caret-blink 1s step-end infinite; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .animate-pop, .animate-in, .animate-rise, .thinking-dots i, [class*='animate-[fade-in'] { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .shimmer-text { background: none; color: var(--text-muted); } .animate-pop, .animate-in, .animate-rise, .thinking-dots i, [class*='animate-[fade-in'] { animation: none !important; } }
 
 @layer base {
 html, body, #root { height: 100%; }

@@ -223,17 +223,50 @@ function chatReply(call: ScriptCall): ScriptReply {
   const owner = /Owner: ([\s\S]*)$/.exec(p)?.[1]?.trim() ?? '';
   if (/^Question: /m.test(p)) {
     const repo = /Repos in the workspace: ([\w.-]+)\//.exec(p)?.[1] ?? 'app';
-    return { text: `The request handlers are in ${repo}/src/app.ts:16 (buildApp), and their tests in ${repo}/test/app.test.ts:5.` };
+    // Say plainly that this is not a real answer: the test agent does not read the code.
+    return {
+      intent: 'Answering as the test agent',
+      text: `I'm Tandem's **test agent**, so I don't read your code and can't really answer this. Tandem is running in test mode, which keeps Copilot (and its credits) out of the loop.\n\nWith Copilot on, this chat reads the code in ${repo} and answers with file and line references, like \`${repo}/src/app.ts:16\`. To turn it on, start Tandem without \`TANDEM_AGENT=scripted\`.`,
+    };
   }
   if (p.includes('Draft so far:')) {
     const repos = [...p.matchAll(/([\w.-]+)\/ \(/g)].map((m) => m[1]!);
     const draft = /Draft so far:\n([\s\S]*?)\n\n(?:Still missing|The draft meets)/.exec(p)?.[1] ?? '';
+    // The scripted agent can only build the health endpoint, but it talks about what was asked.
+    const health = /health/i.test(`${owner} ${draft}`);
     if (/Still missing/.test(p) && !/^1\. Given/m.test(draft)) {
+      if (!health)
+        return {
+          text: 'Thanks. Two questions: what should people see while it loads, or if something goes wrong? And is anything out of scope for now?',
+          tools: [{ name: 'tandem_update_draft', args: { title: titleFrom(owner), goal: owner.slice(0, 300), criteria: [{ given: 'someone uses the app', when: 'they do what this request describes', then: firstSentence(owner) }] } }],
+        };
       return {
         text: 'Thanks. Two questions: what should the page show while the status loads or if the backend is down? And is anything out of scope, such as authentication?',
         tools: [{ name: 'tandem_update_draft', args: { title: 'Add a GET /health endpoint', goal: owner.slice(0, 300) || 'Expose service health', criteria: [{ given: 'the backend is running', when: 'GET /health is called', then: 'it returns 200 {"status":"ok"}' }] } }],
       };
     }
+    if (!health)
+      return {
+        text: 'That covers everything: the draft meets the Definition of Ready. Review the checklist and create the task.',
+        tools: [
+          {
+            name: 'tandem_update_draft',
+            args: {
+              userStory: `As a user I want this: ${goalOf(draft) || 'the change described above'}`,
+              criteria: [
+                { given: 'someone uses the app', when: 'they do what this request describes', then: 'it works as described' },
+                { given: 'something goes wrong', when: 'the change cannot finish', then: owner ? firstSentence(owner) : 'they see a clear message' },
+              ],
+              exampleData: 'As described in the request',
+              affectedAreas: 'The pages and API this change touches',
+              outOfScope: /out of scope/i.test(owner) ? firstSentence(owner.slice(owner.toLowerCase().indexOf('out of scope') - 40 > 0 ? owner.toLowerCase().indexOf('out of scope') - 40 : 0)) : 'Anything not described in the request',
+              openQuestions: [],
+              affectedRepos: repos,
+              size: scriptedSize(goalOf(draft)),
+            },
+          },
+        ],
+      };
     return {
       text: 'That covers everything: the draft meets the Definition of Ready. Review the checklist and create the task.',
       tools: [
@@ -258,6 +291,19 @@ function chatReply(call: ScriptCall): ScriptReply {
   }
   if (/\b(change|also|instead|add)\b/i.test(owner)) {
     return { text: 'I proposed that change to the spec; confirm it to redraft.', tools: [{ name: 'tandem_request_spec_change', args: { kind: 'redraft', summary: owner.slice(0, 80), feedback: owner } }] };
+  }
+  // A task whose checks fail: explain, and propose how to go on (the owner confirms).
+  const failing = /Latest failing checks:\n- (\w[\w-]*) `([^`]+)` failed/.exec(p);
+  if (failing && /\b(why|fail|wrong|help|fix)/i.test(owner)) {
+    const repo = /Repos in the workspace: ([\w.-]+)\//.exec(p)?.[1] ?? 'app';
+    return {
+      intent: 'Reading the failing check',
+      reasoning: `The ${failing[1]} check (\`${failing[2]}\`) fails. I'll compare its output with the spec and the code it tests before suggesting a fix.`,
+      searches: ['describe('],
+      reads: [`${repo}/test/server/health.test.ts`, `${repo}/src/server/app.ts`],
+      text: `The **${failing[1]}** check fails: \`${failing[2]}\` exits with an error in ${repo}. The output points at a test that doesn't match the current code. I suggest fixing the code so the test passes, without changing the spec. If that sounds right, choose **Continue with this**.`,
+      tools: [{ name: 'tandem_continue_task', args: { summary: 'Fix the code so the failing test passes, then run the checks again', guidance: `Read the output of \`${failing[2]}\`, fix the cause in the code (change the test only if it contradicts the spec), and run the checks again.` } }],
+    };
   }
   return { text: `This task is described in the spec. ${owner ? 'Ask me about the build, the diff or failing checks.' : ''}`.trim() };
 }
@@ -294,3 +340,14 @@ export const defaultScript: Script = (call) => {
   if (p.startsWith('Repos in the workspace')) return chatReply(call);
   return { text: 'OK.' };
 };
+
+/** A short task title from what the owner wrote: the first sentence, up to 60 characters. */
+export function titleFrom(text: string): string {
+  const first = firstSentence(text).replace(/^(please|can you|could you|i want to|we need to|let'?s)\s+/i, '');
+  const t = first.length > 60 ? `${first.slice(0, 57).replace(/\s+\S*$/, '')}…` : first;
+  return t ? t.charAt(0).toUpperCase() + t.slice(1).replace(/[.!?]$/, '') : 'New request';
+}
+
+function firstSentence(text: string): string {
+  return (text.trim().split(/(?<=[.!?])\s|\n/)[0] ?? '').trim();
+}

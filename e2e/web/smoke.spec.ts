@@ -146,7 +146,7 @@ test('tasks, projects, settings and doctor screens', async () => {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Tasks' }).click();
   await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
   await expect(page.locator('#main').getByRole('link', { name: /Add a GET \/health endpoint/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Finished\s*1$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Done\s*1$/ })).toBeVisible();
   await checkScreen(page, '16-tasks');
   await page.getByRole('button', { name: 'New task' }).click();
   await expect(page.getByRole('dialog', { name: 'New task' })).toBeVisible();

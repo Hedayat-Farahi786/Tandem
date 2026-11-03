@@ -20,6 +20,7 @@ const task = (id: string, key: string, state: Task['state'] = 'DRAFT'): Task => 
   needsAttention: false,
   attentionNotes: [],
   progress: {},
+  guidance: [],
   slug: 't',
   branch: `agent/${key}-t`,
   createdAt: '2026-11-03T00:00:00.000Z',

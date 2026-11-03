@@ -113,6 +113,12 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
   });
   app.post('/api/tasks/:id/submit', async (req) => service.submit(id(req)));
   app.post('/api/tasks/:id/resume', async (req) => service.resume(id(req)));
+  /** The owner tells Copilot how to go on (from the task page); it also shows in the task chat. */
+  app.post('/api/tasks/:id/continue', async (req) => {
+    const { text } = z.object({ text: z.string() }).parse(req.body);
+    const thread = await ctx.chat.taskThread(id(req));
+    return ctx.chat.continueTask(thread.id, text);
+  });
   app.post('/api/tasks/:id/cancel', async (req) => service.cancel(id(req)));
   app.post('/api/tasks/:id/fix-conflicts', async (req) => {
     const t = await service.fixConflicts(id(req));

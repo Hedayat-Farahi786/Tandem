@@ -31,7 +31,7 @@ export const requirement = {
 };
 
 export function task(over: Partial<Task> = {}): Task {
-  return { id: 'task1', key: 'TND-1', projectId: 'p1', title: 'Health endpoint', source: 'chat', requirement, description: '', affectedRepoIds: ['r1'], state: 'SPEC_REVIEW', needsAttention: false, attentionNotes: [], progress: {}, slug: 'health-endpoint', branch: 'agent/TND-1-health-endpoint', createdAt: T0, updatedAt: T0, ...over };
+  return { id: 'task1', key: 'TND-1', projectId: 'p1', title: 'Health endpoint', source: 'chat', requirement, description: '', affectedRepoIds: ['r1'], state: 'SPEC_REVIEW', needsAttention: false, attentionNotes: [], progress: {}, guidance: [], slug: 'health-endpoint', branch: 'agent/TND-1-health-endpoint', createdAt: T0, updatedAt: T0, ...over };
 }
 
 export const SPEC_MD = '# Health endpoint\n\n## Problem and goal\n\nAdd GET /health.\n';

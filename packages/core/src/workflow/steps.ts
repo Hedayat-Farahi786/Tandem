@@ -520,6 +520,18 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         }
         await ctx.saveProgress({ crossLinked: true });
       }
+      // After another fix round the open PRs describe the new state of the branch (title too, in Tandem).
+      if (ctx.task.progress.refreshPrs) {
+        for (const pr of existing) {
+          const repo = repos.find((r) => r.id === pr.repoId);
+          if (!repo) continue;
+          const others = existing.filter((o) => o.id !== pr.id).map((o) => ({ repoName: repos.find((r) => r.id === o.repoId)?.name ?? o.repoId, url: o.url }));
+          const description = describe(repo, others);
+          if (!pr.manual && pr.status === 'open') await deps.hosts(repo).updatePullRequestDescription(repo, pr, description);
+          await deps.store.prs.upsert({ ...pr, description, title: prTitle(task.key, task.title, ctx.task.needsAttention) });
+        }
+        await ctx.saveProgress({ refreshPrs: false });
+      }
       return { kind: 'next' };
     },
 

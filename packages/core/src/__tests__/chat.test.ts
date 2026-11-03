@@ -170,3 +170,50 @@ describe('chat: model', () => {
     expect(await c.modelOf(tc)).toBe('scripted-steady');
   });
 });
+
+describe('chat: a stuck task', () => {
+  it('asks for help in the task chat, takes a proposal or a message, and continues the task', async () => {
+    const h = harness({ process: { 'npm test': (n) => (n <= 4 ? { exitCode: 1 } : { exitCode: 0 }) } });
+    const c = chat(h);
+    let t = await h.approveAll((await h.start()).id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: true });
+
+    // Tandem asks once, in plain words.
+    await c.notifyStuck(t.id);
+    await c.notifyStuck(t.id);
+    const thread = await c.taskThread(t.id);
+    const asked = (await h.store.messages.list(thread.id)).filter((m) => m.role === 'assistant');
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.content).toMatch(/^I need your help with TND-1\. The pull request is open, but some checks still fail:/);
+
+    // Copilot proposes how to go on; its answer links to the run that wrote it.
+    h.overrides.chat = (call) => {
+      expect(call.opts.tools?.map((x) => x.name)).toEqual(['tandem_request_spec_change', 'tandem_continue_task']);
+      return { text: 'The date test compares local time. I suggest using UTC.', tools: [{ name: 'tandem_continue_task', args: { summary: 'Use UTC in the date test', guidance: 'Compare dates in UTC in test/health.test.ts.' } }] };
+    };
+    const reply = await c.send(thread.id, 'Why do the checks fail?');
+    expect(reply.message.runId).toEqual(expect.any(String));
+    expect((await c.thread(thread.id)).pendingContinue).toEqual({ summary: 'Use UTC in the date test', guidance: 'Compare dates in UTC in test/health.test.ts.' });
+
+    // Confirming it continues the task with that guidance.
+    const r = await c.continueTask(thread.id);
+    expect(r.action).toBe('fixing');
+    expect((await c.thread(thread.id)).pendingContinue).toBeUndefined();
+    await h.runner.runUntilIdle();
+    t = await h.get(t.id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: false, guidance: [{ text: 'Compare dates in UTC in test/health.test.ts.' }] });
+    const last = (await h.store.messages.list(thread.id)).at(-1)!;
+    expect(last).toMatchObject({ role: 'system', content: expect.stringContaining('another round of fixes') });
+
+    // A message typed in the chat can continue it too, and stays in the conversation.
+    await h.store.tasks.upsert({ ...t, state: 'BLOCKED', blockedReason: 'push-rejected', blockedMessage: 'Rejected', resumeTo: { state: 'SELF_REVIEW', step: 'push' } });
+    await h.store.jobs.delete(t.id);
+    const typed = await c.continueTask(thread.id, 'Pull first, then push again.');
+    expect(typed.action).toBe('resumed');
+    expect((await h.store.messages.list(thread.id)).slice(-2).map((m) => [m.role, m.content])).toEqual([
+      ['user', 'Pull first, then push again.'],
+      ['system', 'Continuing the task with your guidance.'],
+    ]);
+    await expect(c.continueTask((await c.createThread({ projectId: 'p1', mode: 'ask' })).id, 'x')).rejects.toThrow(/Only a task chat/);
+  });
+});

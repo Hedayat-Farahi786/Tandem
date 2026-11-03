@@ -70,6 +70,11 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   if (process.env.TANDEM_TEST_REMOTE_ROOT) logger.warn('test mode: CodeCommit repos are served from local copies', { root: process.env.TANDEM_TEST_REMOTE_ROOT });
   const recovered = await tandem.runner.recover();
   const chat = new ChatService(tandem.deps, tandem.service);
+  // When a task gets stuck, Tandem asks for help in the task's chat.
+  bus.subscribe(({ event: e }) => {
+    const stuck = e.type === 'task.blocked' || (e.type === 'task.transition' && (e.to === 'FAILED' || e.to === 'PR_OPEN'));
+    if (stuck) void chat.notifyStuck(e.taskId).catch((err: unknown) => logger.warn('could not post to the task chat', { taskId: e.taskId, error: String(err) }));
+  });
   const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };
   const { app, token } = await buildApp(ctx, { port: config.port, webDir: o.webDir ?? WEB_DIR, version: VERSION });
   try {

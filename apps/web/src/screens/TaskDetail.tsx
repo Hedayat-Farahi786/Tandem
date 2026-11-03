@@ -1421,18 +1421,65 @@ function ChatTab({ d }: { d: TaskDetail }) {
       repos={d.repos}
       placeholder="Why did the test fail? Can the endpoint also return the version?"
       compact
+      task={{ id: d.task.id, state: d.task.state, needsAttention: d.task.needsAttention }}
     />
   );
 }
 
 /* ------------------------------------------------------------------ status banner and screen */
 
+/** Under a stuck task's message: tell Copilot how to go on, or talk it through in the chat first. */
+function HelpCopilot({ taskId, fixing, onOpenChat }: { taskId: string; fixing?: boolean; onOpenChat: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const go = useMutation({
+    mutationFn: () => post<{ action: string }>(`/api/tasks/${taskId}/continue`, { text }),
+    onSuccess: (r) => {
+      setText("");
+      toast(r.action === "fixing" ? "Copilot is fixing the checks with your guidance." : "Continuing with your guidance.", "ok");
+      void qc.invalidateQueries({ queryKey: ["task", taskId] });
+      void qc.invalidateQueries({ queryKey: ["tasks"] });
+      void qc.invalidateQueries({ queryKey: ["thread"] });
+    },
+    onError: (err) => toast(err instanceof Error ? err.message : String(err), "danger"),
+  });
+  return (
+    <div className="mt-3 rounded-xl bg-surface p-2 whitespace-normal shadow-[0_0_0_1px_var(--border)]">
+      <label htmlFor={`help-${taskId}`} className="sr-only">
+        Tell Copilot how to continue
+      </label>
+      <textarea
+        id={`help-${taskId}`}
+        rows={2}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={fixing ? "Tell Copilot how to fix it. For example: the test expects UTC dates, so use UTC everywhere." : "Tell Copilot how to continue. For example: keep our version of the header and add theirs below it."}
+        className="block w-full resize-none bg-transparent px-2 py-1.5 text-[13.5px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <Button size="sm" variant="ghost" icon={MessageSquareText} onClick={onOpenChat}>
+          Ask Copilot first
+        </Button>
+        <Button size="sm" variant="primary" disabled={!text.trim()} busy={go.isPending} onClick={() => go.mutate()}>
+          Continue with this
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function StatusBanner({
   d,
   onOpenSpec,
+  onOpenChat,
+  inChat,
 }: {
   d: TaskDetail;
   onOpenSpec: () => void;
+  onOpenChat: () => void;
+  /** The chat tab is open: its composer is where to answer, so the banner doesn't repeat it. */
+  inChat: boolean;
 }) {
   const act = useAct(d.task.id);
   const [override, setOverride] = useState(false);
@@ -1551,6 +1598,9 @@ function StatusBanner({
         {t.blockedMessage}
         {t.blockedReason === "readiness-missing" &&
           "\n\nEdit the requirement in the Overview, then check readiness again."}
+        {!inChat && t.blockedReason !== "readiness-missing" && t.blockedReason !== "budget-reached" && t.blockedReason !== "disk-low" && (
+          <HelpCopilot taskId={t.id} onOpenChat={onOpenChat} />
+        )}
       </Callout>
     );
   }
@@ -1558,6 +1608,7 @@ function StatusBanner({
     return (
       <Callout tone="warn" title="Needs attention">
         {t.attentionNotes.map((n) => `• ${n}`).join("\n")}
+        {!inChat && t.state === "PR_OPEN" && <HelpCopilot taskId={t.id} fixing onOpenChat={onOpenChat} />}
       </Callout>
     );
   }
@@ -1675,7 +1726,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
       />
       <ProgressRail task={t} />
       <div className="mb-6 empty:hidden">
-        <StatusBanner d={d} onOpenSpec={() => setTab("spec")} />
+        <StatusBanner d={d} onOpenSpec={() => setTab("spec")} onOpenChat={() => setTab("chat")} inChat={tab === "chat"} />
       </div>
       <Tabs
         label="Task sections"

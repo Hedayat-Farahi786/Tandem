@@ -16,3 +16,11 @@ describe('scriptedSize', () => {
     expect(s.proposedSplit.map((p) => p.criteria)).toEqual([[1, 2], [], [], []]);
   });
 });
+
+describe('scripted request chat', () => {
+  it('drafts what the owner asked for, not always the health endpoint', async () => {
+    const { titleFrom } = await import('./default-script.js');
+    expect(titleFrom('Please let customers download their invoices as a PDF from their account page.')).toBe('Let customers download their invoices as a PDF from…');
+    expect(titleFrom('Dark mode for the dashboard')).toBe('Dark mode for the dashboard');
+  });
+});

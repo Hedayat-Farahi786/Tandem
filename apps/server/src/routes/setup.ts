@@ -97,7 +97,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     try {
       mirror = await host.mirror(draft);
     } catch (err) {
-      throw new HttpError(502, `Could not read ${detected.name}: ${String((err as Error).message ?? err).split('\n').slice(0, 2).join(' ')}`);
+      throw new HttpError(502, `Could not read ${detected.name}. ${String((err as Error).message ?? err).split('\n').filter(Boolean).slice(0, 4).join(' ')}`);
     }
     const found = await inspectMirror(mirror.path, `refs/remotes/origin/${mirror.defaultBranch}`);
     return {

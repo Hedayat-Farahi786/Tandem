@@ -17,6 +17,15 @@ All notable changes to Tandem. The format follows
   the instructions it got, its thinking, the files it read and edited, the
   commands it ran with their output, what Tandem blocked, and its answers,
   with the model, time and credits of each step.
+- **Getting stuck tasks moving**: when a task is blocked, fails or its pull
+  request needs attention, Tandem asks for help in the task chat. Answer
+  under the message or in the chat with **Continue with this**, or let
+  Copilot propose a way forward to confirm. The guidance goes with every
+  later Copilot step; a pull request that needs attention gets another round
+  of fixes and is updated when checks pass.
+- **Chat like a chat app**: a shimmering "Thinking…", Copilot's steps inline
+  while it works and folded into one line above each answer, and the answer
+  streaming in; a slim title bar and a centred column.
 - **Settings › Audit log**: verification of the audit log, its head hash, and
   CSV or JSON export of everything recorded.
 - **Task › Trace**: request → criteria and their tests → spec versions and
@@ -42,7 +51,8 @@ All notable changes to Tandem. The format follows
 
 ### Changed
 
-- A new visual design: a neutral palette, Inter display headings, pages on
+- A new visual design: a deep teal accent (#0E3B3B, a lighter teal in dark
+  mode), a neutral palette, Inter display headings, pages on
   a raised panel, grouped settings cards, a step indicator and icon
   timeline on tasks, and richer empty states. Contrast still passes axe (WCAG AA) in light and dark.
 

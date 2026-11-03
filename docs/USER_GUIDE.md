@@ -115,14 +115,35 @@ You can also create a task without chat: **Tasks › New task**.
 | **Record PM approval** | Enter who approved, when, and the evidence (a link or a note). |
 | **Copilot limit reached** | Raise the limit in Settings, then **Resume**. |
 | **Low disk space** | Free space on the disk with Tandem's data, then **Resume**. |
-| **Rebase conflict**, or a rejected push | Resolve it on the branch named in the message, then **Resume**. |
-| **Something failed** | Read the message; **Retry** runs the failed step again. |
+| **Rebase conflict**, or a rejected push | Tell Copilot how to resolve it (below), or resolve it on the branch named in the message and **Resume**. |
+| **Something failed** | Tell Copilot how to go on (below), or **Retry** to run the failed step again. |
+| **Needs attention** (checks still fail on the pull request) | Tell Copilot how to fix it (below): it gets another round of fixes, and the pull request updates when the checks pass. |
 
 Approvals belong to a spec version. Editing the spec, or redrafting it
 after a change request, creates a new version, and earlier approvals stop
 counting. Code is written only after both approvals of the current version.
 
 **Cancel task** stops the work, removes the task folder and pushes nothing.
+
+### Getting a stuck task moving
+
+When a task stops, Tandem says so in the task's **Chat**, in plain words,
+and asks how to go on. You can:
+
+- **Answer under the message** on the task page and choose **Continue with
+  this**.
+- **Ask Copilot first** in the chat: "why did the test fail?". Copilot reads
+  the failing checks and the code. When you agree on a way forward it
+  proposes it, and **Continue with this** starts it.
+- **Continue with this** in the chat sends what you typed as guidance.
+
+Your guidance stays with the task: every later Copilot step includes it
+(you can see it in the instructions on the **Activity** tab), and it is in
+the audit log. While a task is working, **Tell Copilot** passes a note to
+its next step.
+
+Chat answers show what Copilot did to write them ("Read 3 files · searched
+twice"); open the line to see each step.
 
 ### Spec changes from the task chat
 

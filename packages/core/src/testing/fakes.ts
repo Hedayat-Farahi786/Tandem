@@ -269,6 +269,9 @@ export interface ScriptReply {
   /** What the agent says it is doing, and its reasoning (shown in the task's activity). */
   intent?: string;
   reasoning?: string;
+  /** Files it reads and searches it runs (reported as steps; nothing is read). */
+  reads?: string[];
+  searches?: string[];
 }
 
 /** Models the scripted agent offers (prices in AI credits per million tokens). Test data only. */
@@ -320,6 +323,12 @@ export class ScriptedAgent implements AgentRuntime {
       if (reply.reasoning) opts.onEvent?.({ type: 'reasoning', text: reply.reasoning });
       if (reply.error) throw reply.error;
       let n = 0;
+      for (const [tool, list] of [['view', reply.reads ?? []], ['grep', reply.searches ?? []]] as const)
+        for (const input of list) {
+          const id = `${tool}-${turn}-${n++}`;
+          opts.onEvent?.({ type: 'tool-start', id, tool, input });
+          opts.onEvent?.({ type: 'tool-end', id, ok: true });
+        }
       for (const e of reply.edits ?? []) {
         if (opts.mode !== 'build') throw new Error('scripted agent tried to edit in a read-only session');
         const p = isAbsolute(e.path) ? e.path : join(opts.workspace, e.path);

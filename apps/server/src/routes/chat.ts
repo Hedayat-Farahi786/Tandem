@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { AgentStep } from '@tandem/shared';
 import type { ServerContext } from '../app.js';
 
 const id = (req: { params: unknown }) => (req.params as { id: string }).id;
@@ -12,8 +13,14 @@ export function registerChatRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.get('/api/threads/:id', async (req) => {
     const thread = await tandem.store.threads.get(id(req));
     if (!thread) throw Object.assign(new Error('Chat not found.'), { statusCode: 404 });
-    return { thread, model: await chat.modelOf(thread), messages: await chat.messages(thread.id), readiness: thread.mode === 'request' ? tandem.service.readiness(thread.draft ?? {}) : null };
+    const messages = await chat.messages(thread.id);
+    // What Copilot did for each answer, shown folded above it.
+    const steps: Record<string, AgentStep[]> = {};
+    for (const m of messages) if (m.runId) steps[m.runId] = (await tandem.store.agentSteps.list({ runId: m.runId })).filter((x) => x.kind !== 'prompt' && x.kind !== 'message');
+    return { thread, model: await chat.modelOf(thread), messages, steps, readiness: thread.mode === 'request' ? tandem.service.readiness(thread.draft ?? {}) : null };
   });
+  /** One agent run's steps so far (the chat shows them live while Copilot works). */
+  app.get('/api/agent-runs/:id/steps', async (req) => (await tandem.store.agentSteps.list({ runId: id(req) })).filter((x) => x.kind !== 'prompt' && x.kind !== 'message'));
   /** Picks the chat's model ('' = Auto). In a task chat this picks it for the whole task. */
   app.put('/api/threads/:id/model', async (req) => {
     const thread = await chat.setModel(id(req), z.object({ model: z.string() }).parse(req.body).model);
@@ -23,6 +30,12 @@ export function registerChatRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.post('/api/threads/:id/messages', async (req) => chat.send(id(req), z.object({ text: z.string() }).parse(req.body).text));
   app.post('/api/threads/:id/create-task', async (req) => chat.createTask(id(req)));
   app.post('/api/threads/:id/spec-change/apply', async (req) => chat.applySpecChange(id(req)));
+  /** Task chat: continue the task with the owner's message (text) or with what the agent proposed. */
+  app.post('/api/threads/:id/continue', async (req) => chat.continueTask(id(req), z.object({ text: z.string().optional() }).parse(req.body ?? {}).text));
+  app.post('/api/threads/:id/continue/dismiss', async (req) => {
+    await chat.dismissContinue(id(req));
+    return { dismissed: true };
+  });
   app.post('/api/threads/:id/spec-change/dismiss', async (req) => {
     await chat.dismissSpecChange(id(req));
     return { dismissed: true };

@@ -24,7 +24,7 @@ export const cx = (...c: Array<string | false | null | undefined>) => c.filter(B
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'subtle';
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-accent text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.18),0_0_0_1px_var(--accent)] hover:bg-accent-hover active:scale-[0.98]',
+  primary: 'bg-accent text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.18),0_0_0_1px_var(--accent)] hover:bg-accent-hover active:scale-[0.98] disabled:shadow-none',
   secondary: 'bg-surface text-fg shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_rgb(0_0_0/0.05)] hover:bg-surface-2 active:scale-[0.98]',
   subtle: 'bg-surface-2 text-fg hover:bg-surface-3',
   ghost: 'bg-transparent text-muted hover:bg-surface-2 hover:text-fg',

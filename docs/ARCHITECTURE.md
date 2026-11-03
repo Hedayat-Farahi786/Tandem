@@ -719,7 +719,7 @@ activity step by step, trace),
 Projects, Settings (with the audit log), Doctor, and a Ctrl/⌘K command palette.
 
 Design tokens as CSS variables mapped into Tailwind's theme: neutral grays,
-one monochrome accent, 8 px spacing grid, Inter with optical sizing (display
+one deep teal accent (#0E3B3B), 8 px spacing grid, Inter with optical sizing (display
 cut for headings), the sidebar as the canvas and pages on a raised panel,
 light and dark mode (system default, manual toggle). WCAG AA contrast
 checked in tests (axe in Playwright), full keyboard support, visible focus

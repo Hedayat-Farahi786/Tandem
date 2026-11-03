@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { DraftUpdateArgs, Requirement, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
+import { ContinueArgs, DraftUpdateArgs, Requirement, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
@@ -26,7 +26,8 @@ Do not invent requirements; ask. Never write code.`;
 
 const TASK_RULES = `${READ_ONLY_RULES}
 You answer the owner's questions about this task: its spec, the build, the diff and failing checks. Cite files as repo/path:line.
-If the owner asks to change what will be built, call tandem_request_spec_change: kind "redraft" with the feedback for small or unclear changes, or kind "edit" with the full new spec Markdown when the change is precise. Tandem asks the owner to confirm before anything changes. You never change code.`;
+If the owner asks to change what will be built, call tandem_request_spec_change: kind "redraft" with the feedback for small or unclear changes, or kind "edit" with the full new spec Markdown when the change is precise. Tandem asks the owner to confirm before anything changes. You never change code.
+If the task is stuck (blocked, failed, or its pull request needs attention), explain in plain words what went wrong and what you would do. When you and the owner agree on how to go on, call tandem_continue_task with a one-line summary and clear guidance for the agent that will do the work; Tandem asks the owner to confirm.`;
 
 /** File references in an answer (repo/path:line or path:line), kept only if the file exists. */
 export function extractRefs(text: string, root: string, repos: readonly Repo[]): ChatMessage['refs'] {
@@ -110,14 +111,15 @@ export class ChatService {
     return this.deps.store.messages.list(threadId);
   }
 
-  private async thread(id: string): Promise<ChatThread> {
+  /** A chat by id (throws when missing). */
+  async thread(id: string): Promise<ChatThread> {
     const t = await this.deps.store.threads.get(id);
     if (!t) throw new NotFoundError(`Chat ${id} not found.`);
     return t;
   }
 
-  private async say(threadId: string, role: ChatMessage['role'], content: string, refs: ChatMessage['refs'] = []): Promise<ChatMessage> {
-    const m: ChatMessage = { id: this.deps.ids(), threadId, role, content, refs, createdAt: this.deps.clock.iso() };
+  private async say(threadId: string, role: ChatMessage['role'], content: string, refs: ChatMessage['refs'] = [], runId?: string): Promise<ChatMessage> {
+    const m: ChatMessage = { id: this.deps.ids(), threadId, role, content, refs, ...(runId ? { runId } : {}), createdAt: this.deps.clock.iso() };
     await this.deps.store.messages.add(m);
     return m;
   }
@@ -139,7 +141,7 @@ export class ChatService {
 
     const tools: AgentTool<never>[] = [];
     if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>);
-    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>);
+    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId) as AgentTool<never>);
     const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
     const session = await openSession(this.deps, {
       ...(task ? { taskId: task.id } : {}),
@@ -160,7 +162,7 @@ export class ChatService {
       await session.stop();
     }
     thread = await this.thread(threadId);
-    const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos));
+    const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos), session.runId);
     const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
     thread = { ...thread, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
     await this.deps.store.threads.upsert(thread);
@@ -231,6 +233,60 @@ export class ChatService {
         return 'Proposed. The owner will see a "Confirm spec change" button.';
       },
     };
+  }
+
+  private continueTool(threadId: string): AgentTool<ContinueArgs> {
+    return {
+      name: 'tandem_continue_task',
+      description: 'Propose how the stuck task should go on: a one-line summary for the owner and guidance for the agent that does the work. The owner confirms in Tandem.',
+      schema: ContinueArgs,
+      handler: async (a) => {
+        if (!a.guidance.trim()) return 'Write the guidance for the agent.';
+        const t = await this.thread(threadId);
+        await this.deps.store.threads.upsert({ ...t, pendingContinue: { summary: a.summary.trim() || 'Continue the task', guidance: a.guidance.trim() }, updatedAt: this.deps.clock.iso() });
+        return 'Proposed. The owner will see a "Continue with this" button.';
+      },
+    };
+  }
+
+  /**
+   * The owner tells Copilot how to go on, from the task chat: the message is kept in the chat and
+   * becomes guidance for the task (see TaskService.continueWith).
+   */
+  async continueTask(threadId: string, text?: string): Promise<{ task: Task; action: string }> {
+    const t = await this.thread(threadId);
+    if (!t.taskId) throw new ActionError('Only a task chat can continue a task.');
+    const guidance = (text ?? t.pendingContinue?.guidance ?? '').trim();
+    if (!guidance) throw new ActionError('Write what Copilot should do.');
+    if (text?.trim()) await this.say(threadId, 'user', text.trim());
+    const { pendingContinue: _done, ...rest } = t;
+    await this.deps.store.threads.upsert({ ...rest, updatedAt: this.deps.clock.iso() });
+    const r = await this.tasks.continueWith(t.taskId, guidance);
+    const note = { resumed: 'Continuing the task with your guidance.', fixing: 'Starting another round of fixes with your guidance; the pull request updates when checks pass.', redrafting: 'Redrafting the spec with your change. Earlier approvals will not count for the new version.', noted: 'Noted. Copilot follows this from its next step.' }[r.action];
+    await this.say(threadId, 'system', note);
+    this.deps.events?.emit({ type: 'chat.done', threadId, messageId: '' });
+    return r;
+  }
+
+  async dismissContinue(threadId: string): Promise<void> {
+    const t = await this.thread(threadId);
+    const { pendingContinue: _gone, ...rest } = t;
+    await this.deps.store.threads.upsert({ ...rest, updatedAt: this.deps.clock.iso() });
+  }
+
+  /** When a task gets stuck, Tandem says so in its chat and asks how to go on (like an agent asking for input). */
+  async notifyStuck(taskId: string): Promise<void> {
+    const task = await this.deps.store.tasks.get(taskId);
+    if (!task) return;
+    const stuck = task.state === 'BLOCKED' || task.state === 'FAILED' || (task.state === 'PR_OPEN' && task.needsAttention);
+    if (!stuck || task.blockedReason === 'split-proposed' || task.blockedReason === 'readiness-missing') return;
+    const thread = await this.taskThread(taskId);
+    const why = task.state === 'PR_OPEN' ? `The pull request is open, but some checks still fail:\n${task.attentionNotes.map((n) => `- ${n}`).join('\n')}` : (task.blockedMessage ?? `The task stopped at ${STATE_LABELS[task.resumeTo?.state ?? task.state]}.`);
+    const last = (await this.deps.store.messages.list(thread.id)).at(-1);
+    const text = `I need your help with ${task.key}. ${why}\n\nTell me how to continue and choose **Continue with this**, or ask me what went wrong first.`;
+    if (last?.content === text) return;
+    const m = await this.say(thread.id, 'assistant', text);
+    this.deps.events?.emit({ type: 'chat.done', threadId: thread.id, messageId: m.id });
   }
 
   /** Request mode: turns a ready draft into a task (DRAFT -> READINESS). */
