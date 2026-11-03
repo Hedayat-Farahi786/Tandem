@@ -55,7 +55,17 @@ export const Settings = z.object({
     })
     .default({ baseUrl: '', email: '', readyJql: 'status = "Ready for AI"', inReviewStatus: 'In Review', pollIntervalMin: 5 }),
   github: z.object({ apiBase: z.string().default('https://api.github.com') }).default({ apiBase: 'https://api.github.com' }),
-  polling: z.object({ prPollIntervalMin: z.number().int().min(1).default(5) }).default({ prPollIntervalMin: 5 }),
+  polling: z
+    .object({
+      prPollIntervalMin: z.number().int().min(1).default(5),
+      /**
+       * When the base branch changes under an open PR and they conflict, Tandem merges the base
+       * into the PR branch, resolves the conflicts, runs every check and pushes (never a force
+       * push). It never does this on a branch someone else has pushed to; those wait for a person.
+       */
+      fixConflicts: z.boolean().default(true),
+    })
+    .default({ prPollIntervalMin: 5, fixConflicts: true }),
 });
 export type Settings = z.infer<typeof Settings>;
 

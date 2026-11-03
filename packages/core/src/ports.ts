@@ -175,6 +175,17 @@ export interface GitOps {
   conflictedFiles(worktree: string): Promise<string[]>;
   removeWorktree(repo: Repo, worktree: string): Promise<void>;
   isAncestor(repo: Repo, ref: string, of: string): Promise<boolean>;
+  /** Commit of `origin/<branch>` in the repo's mirror (as of its last fetch), if the branch exists. */
+  remoteHead(repo: Repo, branch: string): Promise<string | undefined>;
+  /** Files a merge of `ref` into the worktree's branch would conflict in. Leaves the worktree as it was. */
+  probeMerge(worktree: string, ref: string): Promise<string[]>;
+  /** Merges `ref` into the worktree's branch (a merge commit, no history rewrite). On conflict the merge stays in progress. */
+  merge(worktree: string, ref: string, message: string): Promise<RebaseResult>;
+  /** Commits a merge whose conflicts were resolved. */
+  continueMerge(worktree: string): Promise<string>;
+  abortMerge(worktree: string): Promise<void>;
+  /** Moves the worktree's branch to `ref` (discarding local changes). Used to take others' commits or drop a failed merge. */
+  resetTo(worktree: string, ref: string): Promise<void>;
 }
 
 /* ================================================================== trackers */

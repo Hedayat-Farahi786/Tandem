@@ -3,7 +3,7 @@
 @import "@fontsource-variable/source-serif-4";
 
 /*
- * Tandem design tokens: warm neutrals, one clay accent, 8px grid.
+ * Tandem design tokens: warm neutrals, one ink-indigo accent, 8px grid.
  * Text/background pairs meet WCAG AA (4.5:1); large text and UI parts at least 3:1.
  */
 :root {
@@ -17,10 +17,10 @@
   --text: #1f1e1b;
   --text-muted: #57544c;
   --text-faint: #6c685f;
-  --accent: #b4532f;
-  --accent-hover: #9c4527;
-  --accent-soft: #f8ebe4;
-  --accent-text: #9c4527;
+  --accent: #4a51c9;
+  --accent-hover: #3f46b5;
+  --accent-soft: #ecedf9;
+  --accent-text: #3f46b5;
   --accent-fg: #ffffff;
   --ok: #2f6b3a;
   --ok-soft: #e9f2e7;
@@ -28,7 +28,7 @@
   --warn-soft: #f9f0d9;
   --danger: #b42318;
   --danger-soft: #fbeae8;
-  --focus: #b4532f;
+  --focus: #4a51c9;
   --shadow-sm: 0 1px 2px rgb(31 30 27 / 0.05);
   --shadow-md: 0 1px 2px rgb(31 30 27 / 0.04), 0 8px 24px -6px rgb(31 30 27 / 0.12);
   --shadow-lg: 0 2px 4px rgb(31 30 27 / 0.04), 0 24px 48px -12px rgb(31 30 27 / 0.22);
@@ -45,10 +45,10 @@
   --text: #eceae4;
   --text-muted: #b5b1a6;
   --text-faint: #9d998e;
-  --accent: #d97757;
-  --accent-hover: #e48a6c;
-  --accent-soft: #3a2a22;
-  --accent-text: #e8957a;
+  --accent: #8c93f2;
+  --accent-hover: #a0a6f7;
+  --accent-soft: #25263d;
+  --accent-text: #a0a6f7;
   --accent-fg: #1b1a17;
   --ok: #7cc489;
   --ok-soft: #1f2d21;
@@ -56,7 +56,7 @@
   --warn-soft: #2f2716;
   --danger: #f08b80;
   --danger-soft: #35201d;
-  --focus: #e48a6c;
+  --focus: #a0a6f7;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -6px rgb(0 0 0 / 0.5);
   --shadow-lg: 0 2px 4px rgb(0 0 0 / 0.3), 0 24px 48px -12px rgb(0 0 0 / 0.6);

@@ -11,7 +11,7 @@ export const settings: Settings = {
   budget: { perTaskPrompts: 15, perDayPrompts: 40, perRunModelCalls: 60, perTaskCredits: 25, perDayCredits: 75 },
   jira: { baseUrl: '', email: '', readyJql: 'status = "Ready for AI"', inReviewStatus: 'In Review', pollIntervalMin: 5 },
   github: { apiBase: 'https://api.github.com' },
-  polling: { prPollIntervalMin: 5 },
+  polling: { prPollIntervalMin: 5, fixConflicts: true },
 };
 export const boot = (over: Record<string, unknown> = {}) => ({ setupComplete: true, projects: [project], repos: [repo], settings, agent: 'copilot', doctor: null, jiraConfigured: false, ...over });
 

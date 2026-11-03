@@ -34,6 +34,7 @@ export interface Pr {
   id: string;
   repoId: string;
   url: string;
+  sync?: { state: string; base: string; head: string; files: string[]; message: string };
   title: string;
   description: string;
   status: string;
@@ -171,6 +172,34 @@ export class Harness {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  /** Runs `fn` in a full clone of a remote branch. */
+  private inClone<T>(shape: Shape, branch: string, fn: (dir: string) => T): T {
+    const dir = join(this.work, 'peek', `${shape}-${Date.now()}`);
+    this.git(['clone', '--quiet', '--branch', branch, this.remoteUrl(shape), dir]);
+    try {
+      return fn(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** Commit subjects in a range of a remote branch, newest first. */
+  gitLog(shape: Shape, branch: string, range: string): string {
+    return this.inClone(shape, branch, (dir) => this.git(['log', '--format=%s', range], dir));
+  }
+
+  /** True if `ref` is in the history of `of` (nothing was rewritten). */
+  isAncestorOnRemote(shape: Shape, branch: string, ref: string, of: string): boolean {
+    return this.inClone(shape, branch, (dir) => {
+      try {
+        this.git(['merge-base', '--is-ancestor', ref, of], dir);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   }
 
   /** Branch names on the remote (to check what was pushed, and that main was not). */

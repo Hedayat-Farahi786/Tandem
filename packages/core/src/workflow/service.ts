@@ -318,6 +318,24 @@ export class TaskService {
     return checkReadiness(Requirement.parse(defined(requirement)));
   }
 
+  /**
+   * Owner: bring the open PRs up to date with their base branch now, resolving conflicts even on
+   * a branch someone else has pushed to (merging on top of their commits; never a force push).
+   */
+  async fixConflicts(taskId: string): Promise<Task> {
+    const task = await this.task(taskId);
+    this.requireState(task, ['PR_OPEN'], 'fix conflicts');
+    const next = await this.deps.store.transaction(async (tx) => {
+      const fresh = (await tx.tasks.get(task.id))!;
+      const t = { ...fresh, progress: { ...fresh.progress, syncRequested: true }, updatedAt: this.deps.clock.iso() };
+      await tx.tasks.upsert(t);
+      return t;
+    });
+    await this.wakePoll(taskId);
+    this.deps.events?.emit({ type: 'task.updated', taskId, at: this.deps.clock.iso() });
+    return next;
+  }
+
   private async wakePoll(taskId: string): Promise<void> {
     const job = await this.deps.store.jobs.get(taskId);
     if (job && job.step === 'poll') await this.deps.store.jobs.upsert({ ...job, notBefore: this.deps.clock.now() });

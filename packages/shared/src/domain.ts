@@ -249,6 +249,16 @@ export type ReviewFinding = z.infer<typeof ReviewFinding>;
 export const PullRequestStatus = z.enum(['open', 'merged', 'closed', 'manual-pending']);
 export type PullRequestStatus = z.infer<typeof PullRequestStatus>;
 
+/**
+ * up-to-date: the base has not moved past the branch. mergeable: it moved, without conflicts.
+ * updated: Tandem merged the base in, resolved the conflicts, checks passed, pushed.
+ * needs-person: it conflicts and Tandem leaves it to a person (someone else pushed to the branch,
+ * or fixing conflicts automatically is off). unresolved / checks-failed: Tandem tried and stopped.
+ * branch-rewritten: the branch was force-pushed by someone else; Tandem no longer touches it.
+ */
+export const PrSyncState = z.enum(['up-to-date', 'mergeable', 'updated', 'needs-person', 'unresolved', 'checks-failed', 'branch-rewritten']);
+export type PrSyncState = z.infer<typeof PrSyncState>;
+
 export const PullRequest = z.object({
   id: Id,
   taskId: Id,
@@ -260,6 +270,18 @@ export const PullRequest = z.object({
   status: PullRequestStatus,
   manual: z.boolean(),
   lastPolledAt: Iso.optional(),
+  /** How the PR branch stands against its base branch, from the last check while the PR is open. */
+  sync: z
+    .object({
+      state: PrSyncState,
+      /** The base branch commit and the PR branch commit this check was made against. */
+      base: z.string(),
+      head: z.string(),
+      files: z.array(z.string()).default([]),
+      message: z.string(),
+      at: Iso,
+    })
+    .optional(),
   createdAt: Iso,
 });
 export type PullRequest = z.infer<typeof PullRequest>;

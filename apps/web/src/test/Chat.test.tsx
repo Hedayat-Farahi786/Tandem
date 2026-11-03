@@ -41,6 +41,26 @@ describe('Chat', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/tasks/task1'));
   });
 
+  it('lists recent conversations in the main sidebar and opens one; New chat goes back to the composer', async () => {
+    const older = { ...thread, id: 't2', title: 'Where is the greeting route?', mode: 'ask', createdTaskId: undefined };
+    const done = { ...thread, id: 't3', title: 'Health endpoint', createdTaskId: 'task1' };
+    mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/projects/p1/threads': [done, older],
+      'GET /api/threads/t2': { thread: older, model: '', messages: [], readiness: null },
+    });
+    const user = userEvent.setup();
+    renderApp('/chat');
+    const recents = await screen.findByRole('navigation', { name: 'Conversations' });
+    expect(await within(recents).findByText('Where is the greeting route?')).toBeTruthy();
+    expect(within(recents).getByLabelText('Became a task')).toBeTruthy();
+    await user.click(within(recents).getByText('Where is the greeting route?'));
+    expect(await screen.findByRole('heading', { name: 'Where is the greeting route?' })).toBeTruthy();
+    expect(within(recents).getByText('Where is the greeting route?').closest('a')?.getAttribute('aria-current')).toBe('page');
+    await user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'New chat' }));
+    expect(await screen.findByRole('heading', { name: 'What should we build?' })).toBeTruthy();
+  });
+
   it('picks a Copilot model with prices and details, for a new chat and an open one', async () => {
     let model = '';
     const api = mockApi({

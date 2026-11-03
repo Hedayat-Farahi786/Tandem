@@ -145,7 +145,7 @@ test('task: paste the PR link, then mark it merged', async () => {
 test('tasks, projects, settings and doctor screens', async () => {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Tasks' }).click();
   await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Add a GET \/health endpoint/ })).toBeVisible();
+  await expect(page.locator('#main').getByRole('link', { name: /Add a GET \/health endpoint/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Finished\s*1$/ })).toBeVisible();
   await checkScreen(page, '16-tasks');
   await page.getByRole('button', { name: 'New task' }).click();
@@ -158,7 +158,7 @@ test('tasks, projects, settings and doctor screens', async () => {
   await expect(page.getByText('tandem-sandbox-fullstack').first()).toBeVisible();
   await checkScreen(page, '18-projects');
 
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('navigation', { name: 'Tandem' }).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Copilot budget' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Unsaved changes' })).toBeHidden();
   await page.getByLabel('Prompts per task').fill('12');
@@ -168,7 +168,7 @@ test('tasks, projects, settings and doctor screens', async () => {
   await expect(page.getByText('Settings saved.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Unsaved changes' })).toBeHidden();
 
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Doctor' }).click();
+  await page.getByRole('navigation', { name: 'Tandem' }).getByRole('link', { name: 'Doctor' }).click();
   await page.getByRole('button', { name: 'Run checks' }).first().click();
   await expect(page.getByRole('button', { name: 'Running checks…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run checks' })).toBeVisible({ timeout: 90_000 });

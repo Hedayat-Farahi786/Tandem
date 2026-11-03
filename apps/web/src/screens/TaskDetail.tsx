@@ -1256,7 +1256,70 @@ function PrCard({
           )}
         </div>
       )}
+      <PrSyncNote pr={pr} taskId={taskId} />
     </Card>
+  );
+}
+
+/** Where the PR stands against its base branch, from Tandem's last check while it waits for review. */
+function PrSyncNote({ pr, taskId }: { pr: PullRequest; taskId: string }) {
+  const act = useAct(taskId);
+  const s = pr.sync;
+  if (!s || pr.status === "merged" || pr.status === "closed") return null;
+  if (s.state === "up-to-date" || s.state === "mergeable")
+    return (
+      <p className="mt-4 flex items-center gap-2 border-t border-line pt-3 text-[12.5px] text-muted">
+        <CheckCircle2 aria-hidden className="size-3.5 text-ok" />
+        {s.state === "up-to-date" ? s.message : "Merges cleanly into the latest base branch."}
+        <span className="text-faint">· checked {relativeTime(s.at)}</span>
+      </p>
+    );
+  const title = {
+    updated: "Updated from the base branch",
+    "needs-person": "Conflicts with the base branch",
+    unresolved: "Conflicts Tandem could not resolve",
+    "checks-failed": "Conflict fix failed the checks",
+    "branch-rewritten": "Branch rewritten by someone else",
+  }[s.state];
+  const canFix = s.state === "needs-person" || s.state === "unresolved" || s.state === "checks-failed";
+  return (
+    <div className="mt-4">
+      <Callout
+        tone={s.state === "updated" ? "ok" : s.state === "branch-rewritten" ? "neutral" : "warn"}
+        title={title}
+        {...(canFix
+          ? {
+              actions: (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={GitMerge}
+                  busy={act.isPending}
+                  onClick={() =>
+                    act.mutate({
+                      path: `/api/tasks/${taskId}/fix-conflicts`,
+                      done: "Tandem is merging the base branch in and resolving the conflicts.",
+                    })
+                  }
+                >
+                  Fix conflicts
+                </Button>
+              ),
+            }
+          : {})}
+      >
+        {s.message}
+        {s.files.length > 0 && s.state !== "updated" && (
+          <span className="mt-1.5 flex flex-wrap gap-1.5">
+            {s.files.map((f) => (
+              <code key={f} className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[11.5px]">
+                {f}
+              </code>
+            ))}
+          </span>
+        )}
+      </Callout>
+    </div>
   );
 }
 
@@ -1266,7 +1329,7 @@ function PrsTab({ d }: { d: TaskDetail }) {
       <EmptyState
         icon={GitPullRequest}
         title="No pull requests yet"
-        body="Tandem opens one per repository after verification, self-review and a rebase onto the latest default branch."
+        body="Tandem opens one per repository after verification, self-review and a rebase onto the latest default branch. While they wait for review, Tandem keeps them mergeable."
       />
     );
   return (

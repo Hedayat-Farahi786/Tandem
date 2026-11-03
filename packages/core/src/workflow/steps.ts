@@ -9,11 +9,13 @@ import {
   SizeEstimate,
   type Approval,
   type CriterionTest,
+  type PrSyncState,
   type Project,
   type PullRequest,
   type Repo,
   type ReviewFinding,
   type Task,
+  type VerifyRun,
 } from '@tandem/shared';
 import type { AgentTool } from '../ports.js';
 import { checkReadiness, readinessMessage } from '../policies/ready.js';
@@ -481,32 +483,9 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const task = ctx.task;
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
-      const tracker = await deps.tracker();
       const specRepo = repos.find((r) => r.id === project.specRepoId) ?? repos[0]!;
-      const spec = await deps.store.specs.latest(task.id);
-      const tests = await deps.store.criterionTests.list(task.id);
-      const verify = (await deps.store.verifyRuns.list(task.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      const lastVerify = verify[verify.length - 1];
-      const findings = (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open');
-      const trackerUrl = tracker.link(task.externalKey ?? task.key);
-      const describe = (repo: Repo, others: Array<{ repoName: string; url: string }>) =>
-        buildPrDescription({
-          taskKey: task.key,
-          title: task.title,
-          summary: task.requirement.goal,
-          specPath: `${specRepo.name}/${specFileName(task.key, task.slug)}`,
-          specVersion: spec?.version ?? 1,
-          repoName: repo.name,
-          criteria: task.requirement.criteria,
-          tests: tests.filter((t) => t.repoId === repo.id),
-          verification: (lastVerify?.results ?? []).filter((r) => r.repoId === repo.id || !r.repoId),
-          openFindings: findings.filter((f) => !f.repoId || f.repoId === repo.id),
-          otherPrs: others,
-          ...(trackerUrl ? { trackerUrl } : {}),
-          needsAttention: task.needsAttention,
-          attentionNotes: task.attentionNotes,
-          limit: deps.hosts(repo).descriptionLimit,
-        });
+      const facts = await prFacts(deps, task);
+      const describe = (repo: Repo, others: Array<{ repoName: string; url: string }>) => describePr(deps, task, specRepo, repo, others, facts);
       const existing = await deps.store.prs.list(task.id);
       for (const repo of repos) {
         if (existing.some((p) => p.repoId === repo.id)) continue;
@@ -572,8 +551,10 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         const status = await deps.hosts(repo).getPullRequestStatus(repo, pr);
         if (status !== pr.status) await deps.store.prs.upsert({ ...pr, status, lastPolledAt: deps.clock.iso() });
       }
-      const fresh = await deps.store.prs.list(task.id);
+      let fresh = await deps.store.prs.list(task.id);
       if (fresh.length && fresh.every((p) => p.status === 'merged')) return { kind: 'goto', state: 'DONE', reason: 'All pull requests are merged.' };
+      await syncWithBase(deps, ctx);
+      fresh = await deps.store.prs.list(task.id);
       const closed = fresh.filter((p) => p.status === 'closed');
       const patch = closed.length ? attention(task, closed.map((p) => `A pull request was closed without merging: ${p.url}`)) : undefined;
       return { kind: 'wait', ms: settings.polling.prPollIntervalMin * 60_000, ...(patch ? { patch } : {}) };
@@ -603,3 +584,147 @@ async function cleanup(deps: WorkflowDeps, ctx: StepContext, done: boolean): Pro
   return { kind: 'idle', patch: { progress: { ...task.progress, cleanedUp: true } } };
 }
 
+
+/* ---------------------------------------------------------------- PR descriptions */
+
+type PrFacts = {
+  specVersion: number;
+  tests: CriterionTest[];
+  verification: VerifyRun['results'];
+  findings: ReviewFinding[];
+  trackerUrl: string | undefined;
+};
+
+async function prFacts(deps: WorkflowDeps, task: Task): Promise<PrFacts> {
+  const tracker = await deps.tracker();
+  const verify = (await deps.store.verifyRuns.list(task.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return {
+    specVersion: (await deps.store.specs.latest(task.id))?.version ?? 1,
+    tests: await deps.store.criterionTests.list(task.id),
+    verification: verify[verify.length - 1]?.results ?? [],
+    findings: (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open'),
+    trackerUrl: tracker.link(task.externalKey ?? task.key),
+  };
+}
+
+function describePr(deps: WorkflowDeps, task: Task, specRepo: Repo, repo: Repo, others: Array<{ repoName: string; url: string }>, f: PrFacts): string {
+  return buildPrDescription({
+    taskKey: task.key,
+    title: task.title,
+    summary: task.requirement.goal,
+    specPath: `${specRepo.name}/${specFileName(task.key, task.slug)}`,
+    specVersion: f.specVersion,
+    repoName: repo.name,
+    criteria: task.requirement.criteria,
+    tests: f.tests.filter((t) => t.repoId === repo.id),
+    verification: f.verification.filter((r) => r.repoId === repo.id || !r.repoId),
+    openFindings: f.findings.filter((x) => !x.repoId || x.repoId === repo.id),
+    otherPrs: others,
+    ...(f.trackerUrl ? { trackerUrl: f.trackerUrl } : {}),
+    needsAttention: task.needsAttention,
+    attentionNotes: task.attentionNotes,
+    limit: deps.hosts(repo).descriptionLimit,
+  });
+}
+
+/* ---------------------------------------------------------------- open PRs vs. their base branch */
+
+/**
+ * Keeps open PRs mergeable while they wait for review. When the base branch moves and the PR
+ * would conflict, Tandem merges the base into the PR branch (a merge commit: no history rewrite,
+ * no force push, review comments stay where they are), lets the agent resolve the conflicts, runs
+ * every check and pushes only if they pass. A branch someone else has pushed to is left to a
+ * person unless they ask (the owner's "Fix conflicts"); a rewritten branch is never touched.
+ * Each base/branch pair is handled once, so a conflict the agent could not fix is not retried
+ * until the base or the branch moves again, or the owner asks.
+ */
+async function syncWithBase(deps: WorkflowDeps, ctx: StepContext): Promise<void> {
+  const task = ctx.task;
+  const settings = await deps.settings();
+  const requested = task.progress.syncRequested === true;
+  const project = await loadProject(deps, task.projectId);
+  const repos = await affectedRepos(deps, task, project);
+  const names = new Map(repos.map((r) => [r.id, r.name]));
+  const notes: string[] = [];
+  for (const pr of await deps.store.prs.list(task.id)) {
+    if (pr.status !== 'open' && pr.status !== 'manual-pending') continue;
+    const repo = repos.find((r) => r.id === pr.repoId);
+    const wt = repo && worktreeOf(deps, task, repo);
+    if (!repo || !wt || !existsSync(wt)) continue;
+    const host = deps.hosts(repo);
+    await host.mirror(repo);
+    const base = await deps.git.remoteHead(repo, repo.defaultBranch);
+    const head = await deps.git.remoteHead(repo, task.branch);
+    if (!base || !head) continue;
+    if (!requested && pr.sync?.base === base && pr.sync.head === head) continue;
+    const record = async (state: PrSyncState, message: string, files: string[] = [], at = head) => {
+      const cur = (await deps.store.prs.list(task.id)).find((p) => p.id === pr.id) ?? pr;
+      await deps.store.prs.upsert({ ...cur, sync: { state, base, head: at, files, message, at: deps.clock.iso() } });
+      deps.events?.emit({ type: 'task.updated', taskId: task.id, at: deps.clock.iso() });
+    };
+    const pushed = asRecord(ctx.task.progress.pushed)[repo.id];
+    const othersPushed = Boolean(pushed && head !== pushed);
+    if (othersPushed && !(await deps.git.isAncestor(repo, pushed!, head))) {
+      await record('branch-rewritten', `Someone rewrote ${task.branch} (a force push), so Tandem no longer changes it. If it conflicts with ${repo.defaultBranch}, resolve it on the branch.`);
+      continue;
+    }
+    if (await deps.git.isAncestor(repo, base, head)) {
+      await record('up-to-date', `Up to date with ${repo.defaultBranch}.`);
+      continue;
+    }
+    // Work on exactly what the PR holds, including commits others added.
+    await deps.git.resetTo(wt, head);
+    const files = await deps.git.probeMerge(wt, base);
+    if (!files.length) {
+      await record('mergeable', `${repo.defaultBranch} has moved on; the PR still merges without conflicts.`);
+      continue;
+    }
+    const list = files.join(', ');
+    if (!requested && (othersPushed || !settings.polling.fixConflicts)) {
+      const why = othersPushed ? `Someone else has pushed to ${task.branch}, so Tandem leaves it to them.` : 'Fixing conflicts automatically is off in Settings.';
+      await record('needs-person', `Conflicts with ${repo.defaultBranch} in ${list}. ${why} Use "Fix conflicts" to let Tandem merge ${repo.defaultBranch} in and resolve it, or resolve it on the branch.`, files);
+      notes.push(`${repo.name}: the PR conflicts with ${repo.defaultBranch} in ${list} and waits for a person.`);
+      continue;
+    }
+    const merged = await deps.git.merge(wt, base, `Merge ${repo.defaultBranch} into ${task.branch}`);
+    if (merged.kind === 'conflict') {
+      const s = await buildSession(deps, ctx, project, repos, 'conflict');
+      try {
+        await s.send(P.mergeConflictPrompt(repo, merged.files));
+      } finally {
+        await s.stop();
+      }
+      const left = await deps.git.conflictedFiles(wt);
+      if (left.length) {
+        await deps.git.resetTo(wt, head);
+        await record('unresolved', `Conflicts with ${repo.defaultBranch} in ${list}. The agent could not resolve ${left.join(', ')}, so nothing was pushed. Resolve it on the branch, or use "Fix conflicts" to try again.`, files);
+        notes.push(`${repo.name}: the PR conflicts with ${repo.defaultBranch} in ${list}; the agent could not resolve it.`);
+        continue;
+      }
+      await deps.git.continueMerge(wt);
+    }
+    const { run } = await verifyAll(deps, ctx.task, project, repos, 300);
+    if (!run.passed) {
+      await deps.git.resetTo(wt, head);
+      const failed = failureNotes(run, names);
+      await record('checks-failed', `Tandem resolved the conflicts with ${repo.defaultBranch} in ${list}, but checks fail afterwards, so nothing was pushed:\n${failed.map((n) => `- ${n}`).join('\n')}`, files);
+      notes.push(`${repo.name}: resolving the conflict with ${repo.defaultBranch} made checks fail; nothing was pushed.`);
+      continue;
+    }
+    const r = await host.push(repo, { repoId: repo.id, path: wt, branch: task.branch, base: `origin/${repo.defaultBranch}` });
+    if (r.kind === 'rejected') continue; // the branch moved meanwhile: the next check starts over from it
+    await ctx.saveProgress({ pushed: { ...asRecord(ctx.task.progress.pushed), [repo.id]: r.sha } });
+    const specRepo = repos.find((x) => x.id === project.specRepoId) ?? repos[0]!;
+    const all = await deps.store.prs.list(task.id);
+    const others = all.filter((o) => o.id !== pr.id).map((o) => ({ repoName: names.get(o.repoId) ?? o.repoId, url: o.url }));
+    const description = describePr(deps, ctx.task, specRepo, repo, others, await prFacts(deps, ctx.task));
+    const cur = all.find((p) => p.id === pr.id) ?? pr;
+    if (!cur.manual) await host.updatePullRequestDescription(repo, cur, description);
+    await deps.store.prs.upsert({ ...cur, description });
+    await record('updated', `Merged ${repo.defaultBranch} into the branch${merged.kind === 'conflict' ? ` and resolved the conflicts in ${list}` : ''}; every check passed; pushed ${r.sha.slice(0, 7)}.`, files, r.sha);
+    notes.push(`${repo.name}: ${repo.defaultBranch} changed and conflicted with the PR in ${list}. Tandem merged it in, resolved the conflicts and pushed; every check passed. Please review the merge commit.`);
+    await releaseDependencies(wt).catch(() => undefined);
+  }
+  if (requested) await ctx.saveProgress({ syncRequested: false });
+  if (notes.length) await (await deps.tracker()).comment(task.externalKey ?? task.key, [`Pull requests for ${task.key}:`, ...notes.map((n) => `- ${n}`)].join('\n'));
+}

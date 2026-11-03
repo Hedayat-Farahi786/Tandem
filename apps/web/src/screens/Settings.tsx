@@ -5,7 +5,7 @@ import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
-import { Button, Callout, Card, ErrorState, Input, Loading, PageHeader, Pill, Select, useToast } from '../ui/kit';
+import { Button, Callout, Card, ErrorState, Input, Loading, PageHeader, Pill, Select, useToast , Switch } from '../ui/kit';
 
 interface Secrets {
   keychain: { ok: boolean; message: string };
@@ -190,7 +190,15 @@ export function SettingsScreen() {
           <Num label="Size limit (lines)" min={50} value={s.limits.sizeLineLimit} onChange={(n) => set('limits', { ...s.limits, sizeLineLimit: n })} help="Bigger tasks get a proposed split." />
           <Num label="Build timeout (minutes)" value={s.limits.buildTimeoutMin} onChange={(n) => set('limits', { ...s.limits, buildTimeoutMin: n })} />
           <Num label="Command timeout (minutes)" value={s.limits.commandTimeoutMin} onChange={(n) => set('limits', { ...s.limits, commandTimeoutMin: n })} />
-          <Num label="PR check interval (minutes)" value={s.polling.prPollIntervalMin} onChange={(n) => set('polling', { prPollIntervalMin: n })} />
+          <Num label="PR check interval (minutes)" value={s.polling.prPollIntervalMin} onChange={(n) => set('polling', { ...s.polling, prPollIntervalMin: n })} />
+        </div>
+        <div className="mt-5 border-t border-line pt-5">
+          <Switch
+            checked={s.polling.fixConflicts}
+            onChange={(v) => set('polling', { ...s.polling, fixConflicts: v })}
+            label="Fix conflicts in open pull requests"
+            description="When the base branch changes and a PR no longer merges cleanly, Tandem merges the base in, resolves the conflicts, runs every check and pushes, never with force. Branches someone else has pushed to are left to them."
+          />
         </div>
       </Card>
 

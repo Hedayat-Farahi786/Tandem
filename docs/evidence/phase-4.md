@@ -28,6 +28,7 @@ Suite: `e2e/flows/workflow.e2e.test.ts` (harness: `e2e/flows/harness.ts`), Jira:
 | spec edit resets approvals | ✅ owner approval of v2 stops counting after the edit to v3; the build starts only after both keys on v3 | ✅ (with the redraft, 15 s) | – |
 | failing tests → "needs attention" | ✅ 3 verification runs, 2 fix runs, PR titled `[needs attention]` | ✅ 96 s, PR #13 `[needs attention]` | – |
 | rebase conflict | ✅ another developer changes the same lines while the task verifies; the agent resolves it, checks run again, both changes are in the pushed branch | ✅ 68 s, the other developer's commit pushed to CodeCommit, PR #12 | – |
+| conflict after the PR is open | ✅ 50 s: the base changes the same lines while the PR waits for review; Tandem merges the base in, the agent resolves it, every check passes, a merge commit is pushed on top (no force push), the PR description gets the new checks | – (added after the real run) | – |
 | restart mid-build resumes | ✅ `kill -9` of the server and its child processes during verification, a new start, the task finishes | ✅ 55 s, PR #11 | part of (b) |
 | cancel | ✅ cancelled during verification: the task folder is removed, nothing is pushed, no PR | ✅ 47 s, no branch pushed, no PR | – |
 | Jira flows | written, skipped without `TANDEM_E2E_JIRA=1` | skipped | – |

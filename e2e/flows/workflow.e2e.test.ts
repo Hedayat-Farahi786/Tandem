@@ -223,6 +223,32 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     h.record('rebase conflict', d);
   });
 
+  it('conflict after the PR is open: the base changes under the open PR; Tandem merges it in, resolves, checks and pushes without force', async () => {
+    const task = await fromChat(ids.shop);
+    await reviewReady(task.id);
+    await h.approveBoth(task.id);
+    const open = await prsOpen(task.id, 1);
+    const before = h.remoteBranches('fullstack').get(open.task.branch)!;
+    // Merged elsewhere while the PR waits for review: a route at the same place the agent added one.
+    h.upstream('fullstack', 'src/server/app.ts', (src) => src!.replace(/\n(\s*)return app;/, "\n$1app.get('/ready', async () => ({ ready: true }));\n$1return app;"), 'Add GET /ready');
+    // The 5-minute PR check would find it; "Fix conflicts" runs that check now.
+    await h.api('POST', `/api/tasks/${task.id}/fix-conflicts`);
+    const d = await h.waitFor(task.id, 'PR updated from main', (x) => x.prs[0]?.sync?.state === 'updated', { ms: 300_000 });
+    expect(d.task.state).toBe('PR_OPEN');
+    expect(d.prs[0]!.sync!.files).toEqual(['src/server/app.ts']);
+    const after = h.remoteBranches('fullstack').get(d.task.branch)!;
+    expect(after).not.toBe(before);
+    expect(h.gitLog('fullstack', d.task.branch, `${before}..${after}`)).toMatch(/^Merge \S+ into agent\//m); // a merge commit on top: nothing rewritten
+    expect(h.isAncestorOnRemote('fullstack', d.task.branch, before, after)).toBe(true);
+    const merged = h.remoteFile('fullstack', d.task.branch, 'src/server/app.ts');
+    expect(merged).toContain("app.get('/health'");
+    expect(merged).toContain("app.get('/ready'");
+    expect(merged).not.toMatch(/^(<<<<<<<|=======|>>>>>>>)/m);
+    expect(d.verifyRuns.at(-1)!.passed).toBe(true);
+    expect(d.prs[0]!.description).toContain('| Check | Command | Result | Time |');
+    h.record('conflict after the PR is open', d);
+  });
+
   it('failing tests: two fix attempts, then a PR marked "needs attention"', async () => {
     h.upstream('fullstack', 'test/upstream-regression.test.ts', () => FAILING_TEST, 'Add a failing test');
     try {

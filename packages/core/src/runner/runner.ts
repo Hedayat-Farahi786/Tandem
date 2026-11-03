@@ -221,7 +221,10 @@ export class Runner {
         case 'wait': {
           const t = withPatch(outcome.patch);
           await tx.tasks.upsert(t);
-          await tx.jobs.upsert({ taskId: t.id, state: t.state, step: job.step, status: 'queued', attempt: 0, notBefore: clock.now() + outcome.ms });
+          // Woken while the step ran (an owner action moved notBefore forward): run again now, don't drop the wake.
+          const live = await tx.jobs.get(task.id);
+          const woken = Boolean(live && live.status === 'running' && live.notBefore > job.notBefore);
+          await tx.jobs.upsert({ taskId: t.id, state: t.state, step: job.step, status: 'queued', attempt: 0, notBefore: woken ? clock.now() : clock.now() + outcome.ms });
           return;
         }
         case 'idle':

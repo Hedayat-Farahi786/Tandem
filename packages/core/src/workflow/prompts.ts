@@ -129,6 +129,15 @@ export function reviewFixPrompt(findings: readonly ReviewFinding[]): string {
   ].join('\n');
 }
 
+/** After the PR is open: the base branch was merged into the PR branch and conflicts. */
+export function mergeConflictPrompt(repo: Repo, files: readonly string[]): string {
+  return [
+    `The pull request branch in ${repo.name} no longer merges cleanly: ${repo.defaultBranch} changed after the PR was opened. Tandem started merging ${repo.defaultBranch} into the branch, and it conflicts in: ${files.join(', ')}.`,
+    `Resolve the conflict markers in those files (in ${repo.name}/) so the changes already on ${repo.defaultBranch} and this task's change are both kept, consistent with the spec. Change nothing else. Then run \`git add\` on each resolved file.`,
+    'Do not run git merge, commit or push: Tandem finishes the merge and runs every check. Reply with a short summary of how you resolved each file.',
+  ].join('\n');
+}
+
 export function conflictPrompt(repo: Repo, files: readonly string[]): string {
   return [
     `Rebasing ${repo.name} onto the latest ${repo.defaultBranch} hit conflicts in: ${files.join(', ')}.`,

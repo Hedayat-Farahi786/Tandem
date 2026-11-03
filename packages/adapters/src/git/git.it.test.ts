@@ -103,6 +103,69 @@ describe('git layer (real git, local bare remote)', () => {
     expect(readFileSync(join(wt, 'README.md'), 'utf8')).toContain('mine and theirs');
   });
 
+  it('keeps an open PR branch mergeable: probes, merges the base in, resolves, takes others\' commits, resets', async () => {
+    const r = await remote();
+    const access = plainAccess(r.url);
+    const mirror = join(r.root, 'm.git');
+    await ensureMirror(mirror, access);
+    const wt = join(r.root, 'wt');
+    await addWorktree(mirror, { path: wt, branch: 'agent/T-3-z', base: 'origin/main' });
+    const ops = new RepoGit(() => mirror);
+    const repo = repoOf(mirror);
+    writeFileSync(join(wt, 'README.md'), '# mine\n\nline two\n');
+    const mine = (await ops.commitAll(wt, 'mine'))!;
+    expect((await pushBranch(wt, 'agent/T-3-z')).ok).toBe(true);
+    await ensureMirror(mirror, access);
+    expect(await ops.remoteHead(repo, 'agent/T-3-z')).toBe(mine);
+    expect(await ops.remoteHead(repo, 'nope')).toBeUndefined();
+    const b1 = (await ops.remoteHead(repo, 'main'))!;
+    expect(await ops.isAncestor(repo, b1, mine)).toBe(true);
+
+    // The base moves without touching our file: mergeable, and the probe leaves no trace.
+    await r.upstream('other.txt', 'x\n');
+    await ensureMirror(mirror, access);
+    const b2 = (await ops.remoteHead(repo, 'main'))!;
+    expect(await ops.isAncestor(repo, b2, mine)).toBe(false);
+    expect(await ops.probeMerge(wt, b2)).toEqual([]);
+    expect(await ops.head(wt)).toBe(mine);
+    expect(await ops.status(wt)).toEqual([]);
+
+    // Then it conflicts: the probe names the file and still leaves the worktree as it was.
+    await r.upstream('README.md', '# theirs\n\nline two\n');
+    await ensureMirror(mirror, access);
+    const b3 = (await ops.remoteHead(repo, 'main'))!;
+    expect(await ops.probeMerge(wt, b3)).toEqual(['README.md']);
+    expect(await ops.head(wt)).toBe(mine);
+    expect(await ops.status(wt)).toEqual([]);
+
+    // Merge, give up, merge again, resolve: a merge commit on top of ours, pushed without force.
+    expect(await ops.merge(wt, b3, 'Merge main into agent/T-3-z')).toEqual({ kind: 'conflict', files: ['README.md'] });
+    await ops.resetTo(wt, mine);
+    expect(await ops.head(wt)).toBe(mine);
+    expect((await ops.merge(wt, b3, 'Merge main into agent/T-3-z')).kind).toBe('conflict');
+    writeFileSync(join(wt, 'README.md'), '# mine and theirs\n\nline two\n');
+    expect(await ops.conflictedFiles(wt)).toEqual([]);
+    const merged = await ops.continueMerge(wt);
+    expect(await git(['log', '-1', '--format=%P%n%s', merged], { cwd: wt })).toBe(`${mine} ${b3}\nMerge main into agent/T-3-z`);
+    const pushed = await pushBranch(wt, 'agent/T-3-z');
+    expect(pushed).toEqual({ ok: true, sha: merged });
+    await ensureMirror(mirror, access);
+    expect(await ops.isAncestor(repo, b3, merged)).toBe(true);
+
+    // Someone else adds a commit to the PR branch: Tandem starts from theirs.
+    const other = join(r.root, 'other');
+    await git(['clone', '--branch', 'agent/T-3-z', r.url, other]);
+    writeFileSync(join(other, 'theirs.txt'), 'dev\n');
+    await git(['add', '.'], { cwd: other });
+    await git([...ID, 'commit', '-m', 'dev commit'], { cwd: other });
+    await git(['push', 'origin', 'HEAD:refs/heads/agent/T-3-z'], { cwd: other });
+    await ensureMirror(mirror, access);
+    const dev = (await ops.remoteHead(repo, 'agent/T-3-z'))!;
+    expect(await ops.isAncestor(repo, merged, dev)).toBe(true);
+    await ops.resetTo(wt, dev);
+    expect(readFileSync(join(wt, 'theirs.txt'), 'utf8')).toBe('dev\n');
+  });
+
   it('keeps a detached reference checkout up to date and cleans worktrees up', async () => {
     const r = await remote();
     const access = plainAccess(r.url);

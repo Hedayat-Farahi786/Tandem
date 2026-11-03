@@ -49,7 +49,7 @@ function route(call: ScriptCall): keyof Required<ScriptOverrides> | 'unknown' {
   if (p.startsWith('Verification failed')) return 'fix';
   if (p.startsWith('These acceptance criteria have no recorded test')) return 'coverage';
   if (p.startsWith('A separate reviewer')) return 'reviewFix';
-  if (p.startsWith('Rebasing')) return 'conflict';
+  if (p.startsWith('Rebasing') || p.startsWith('The pull request branch')) return 'conflict';
   if (p.startsWith('Repos in the workspace')) return 'chat';
   return 'unknown';
 }

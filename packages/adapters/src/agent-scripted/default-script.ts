@@ -203,8 +203,8 @@ function implement(call: ScriptCall): ScriptReply {
 }
 
 function resolveConflicts(call: ScriptCall): ScriptReply {
-  const files = /hit conflicts in: ([^\n]+)\./.exec(call.prompt)?.[1]?.split(', ') ?? [];
-  const repo = /^Rebasing (\S+) onto/.exec(call.prompt)?.[1] ?? 'app';
+  const files = /(?:hit conflicts in|and it conflicts in): ([^\n]+)\./.exec(call.prompt)?.[1]?.split(', ') ?? [];
+  const repo = /^(?:Rebasing|The pull request branch in) (\S+?)(?: onto| no longer)/.exec(call.prompt)?.[1] ?? 'app';
   const edits = files
     .map((f) => ({ f, src: read(join(call.opts.workspace, repo, f)) }))
     .filter((x): x is { f: string; src: string } => Boolean(x.src))
@@ -284,7 +284,7 @@ export const defaultScript: Script = (call) => {
   if (p.startsWith('Verification failed')) return { text: 'Looked at the failures; no change.' };
   if (p.startsWith('These acceptance criteria have no recorded test')) return { text: 'Covered by existing tests.' };
   if (p.startsWith('A separate reviewer')) return { text: 'Nothing to fix.' };
-  if (p.startsWith('Rebasing')) return resolveConflicts(call);
+  if (p.startsWith('Rebasing') || p.startsWith('The pull request branch')) return resolveConflicts(call);
   if (p.startsWith('Repos in the workspace')) return chatReply(call);
   return { text: 'OK.' };
 };

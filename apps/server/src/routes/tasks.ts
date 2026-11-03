@@ -107,6 +107,7 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
   app.post('/api/tasks/:id/submit', async (req) => service.submit(id(req)));
   app.post('/api/tasks/:id/resume', async (req) => service.resume(id(req)));
   app.post('/api/tasks/:id/cancel', async (req) => service.cancel(id(req)));
+  app.post('/api/tasks/:id/fix-conflicts', async (req) => service.fixConflicts(id(req)));
   app.post('/api/tasks/:id/accept-split', async (req) => service.acceptSplit(id(req)));
   app.post('/api/tasks/:id/override-split', async (req) => service.overrideSplit(id(req), z.object({ reason: z.string() }).parse(req.body).reason));
   app.post('/api/tasks/:id/request-changes', async (req) => service.requestChanges(id(req), z.object({ feedback: z.string() }).parse(req.body).feedback));

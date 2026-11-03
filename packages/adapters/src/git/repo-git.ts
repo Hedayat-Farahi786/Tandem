@@ -291,6 +291,49 @@ export class RepoGit implements GitOps {
     return r.code === 0;
   }
 
+  async remoteHead(repo: Repo, branch: string): Promise<string | undefined> {
+    const r = await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}^{commit}`], { gitDir: this.mirrorOf(repo), allowFail: true });
+    return r.code === 0 ? r.stdout.trim() : undefined;
+  }
+
+  async probeMerge(worktree: string, ref: string): Promise<string[]> {
+    await this.abortMerge(worktree);
+    const r = await runGit(['merge', '--no-commit', '--no-ff', ref], { cwd: worktree, config: await identity(worktree), allowFail: true });
+    const files = r.code === 0 ? [] : (await git(['diff', '--name-only', '--diff-filter=U'], { cwd: worktree })).split('\n').filter(Boolean);
+    await this.abortMerge(worktree);
+    if (r.code !== 0 && files.length === 0) throw new GitError(`Checking a merge of ${ref} failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' ')}`, r.stderr, r.code);
+    return files;
+  }
+
+  async merge(worktree: string, ref: string, message: string): Promise<RebaseResult> {
+    await this.abortMerge(worktree);
+    // --no-verify: Tandem runs the repo's checks itself afterwards.
+    const r = await runGit(['merge', '--no-ff', '--no-verify', '-m', message, ref], { cwd: worktree, config: await identity(worktree), allowFail: true });
+    if (r.code === 0) return { kind: 'ok', head: await git(['rev-parse', 'HEAD'], { cwd: worktree }) };
+    const files = (await git(['diff', '--name-only', '--diff-filter=U'], { cwd: worktree })).split('\n').filter(Boolean);
+    if (files.length === 0) {
+      await this.abortMerge(worktree);
+      throw new GitError(`Merging ${ref} failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' ')}`, r.stderr, r.code);
+    }
+    return { kind: 'conflict', files };
+  }
+
+  async continueMerge(worktree: string): Promise<string> {
+    await git(['add', '-A'], { cwd: worktree });
+    await git(['commit', '--no-verify', '--no-edit'], { cwd: worktree, config: await identity(worktree) });
+    return git(['rev-parse', 'HEAD'], { cwd: worktree });
+  }
+
+  async abortMerge(worktree: string): Promise<void> {
+    if ((await runGit(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], { cwd: worktree, allowFail: true })).code === 0) await runGit(['merge', '--abort'], { cwd: worktree, allowFail: true });
+  }
+
+  async resetTo(worktree: string, ref: string): Promise<void> {
+    await this.abortMerge(worktree);
+    await git(['reset', '--hard', ref], { cwd: worktree });
+    await git(['clean', '-fd'], { cwd: worktree });
+  }
+
   /** Deletes the local agent branch after a task is done (the remote branch is the PR's business). */
   async deleteLocalBranch(repo: Repo, branch: string): Promise<void> {
     assertAgentBranch(branch);

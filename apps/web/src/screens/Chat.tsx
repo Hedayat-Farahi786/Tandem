@@ -6,6 +6,7 @@ import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
 import { relativeTime } from '../lib/format';
 import { useRouter } from '../lib/router';
+import { useChatProject } from '../lib/project';
 import type { Bootstrap, ThreadView } from '../lib/types';
 import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Pill, Select, Spinner, cx, useToast } from '../ui/kit';
 import { ModelPicker, useModels } from '../ui/model-picker';
@@ -316,7 +317,7 @@ export function ChatScreen() {
   const qc = useQueryClient();
   const { search, navigate } = useRouter();
   const boot = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
-  const projectId = search.get('project') ?? boot.data?.projects[0]?.id ?? '';
+  const projectId = useChatProject(boot.data, search);
   const threadId = search.get('thread') ?? '';
   const [firstMessage, setFirstMessage] = useState<{ threadId: string; text: string } | null>(null);
   const threads = useQuery({ queryKey: ['threads', projectId], queryFn: () => api<ChatThread[]>(`/api/projects/${projectId}/threads`), enabled: Boolean(projectId) });
@@ -335,35 +336,13 @@ export function ChatScreen() {
   const current = threads.data?.find((t) => t.id === threadId);
 
   return (
-    <div className="grid gap-10 md:grid-cols-[220px_1fr]">
-      <aside className="flex flex-col gap-5">
-        {boot.data.projects.length > 1 && <Select label="Project" value={projectId} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.data.projects.map((p) => ({ value: p.id, label: p.name }))} />}
-        <nav aria-label="Conversations" className="flex flex-col gap-0.5">
-          <div className="mb-2 flex items-center justify-between px-2">
-            <p className="text-[11.5px] font-semibold tracking-wide text-faint uppercase">Conversations</p>
-            <Button size="sm" variant="ghost" icon={MessageSquarePlus} onClick={() => navigate(`/chat?project=${projectId}`)}>
-              New
-            </Button>
-          </div>
-          {threads.isLoading && <Loading rows={3} />}
-          {threads.data?.length === 0 && <p className="px-2 text-[12.5px] text-muted">Your requests and questions appear here.</p>}
-          {threads.data?.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              aria-current={t.id === threadId ? 'page' : undefined}
-              onClick={() => navigate(`/chat?project=${projectId}&thread=${t.id}`)}
-              className={cx('flex flex-col rounded-[10px] px-2.5 py-2 text-left transition-colors', t.id === threadId ? 'bg-surface shadow-sm' : 'hover:bg-surface-2/70')}
-            >
-              <span className="flex items-center gap-1.5 truncate text-[13px] font-medium">
-                {t.mode === 'request' ? <PencilRuler aria-hidden className="size-3.5 shrink-0 text-accent" /> : <HelpCircle aria-hidden className="size-3.5 shrink-0 text-faint" />}
-                <span className="truncate">{t.title}</span>
-              </span>
-              <span className="pl-5 text-[11.5px] text-faint">{t.createdTaskId ? 'Became a task' : relativeTime(t.updatedAt)}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
+    <div className="mx-auto w-full max-w-[780px]">
+      {/* The sidebar lists conversations on wide screens; small screens get them here. */}
+      {boot.data.projects.length > 1 && (
+        <div className="mb-6 md:hidden">
+          <Select label="Project" value={projectId} onChange={(p) => navigate(`/chat?project=${p}`)} options={boot.data.projects.map((p) => ({ value: p.id, label: p.name }))} />
+        </div>
+      )}
       <section aria-label="Conversation" className="min-w-0">
         {current ? (
           <>
@@ -390,7 +369,24 @@ export function ChatScreen() {
         ) : threadId && threads.isLoading ? (
           <Loading />
         ) : (
-          <StartComposer projectName={project?.name ?? 'your code'} busy={start.isPending} error={start.error} onStart={(mode, text, model) => start.mutate({ mode, text, model })} />
+          <>
+            <StartComposer projectName={project?.name ?? 'your code'} busy={start.isPending} error={start.error} onStart={(mode, text, model) => start.mutate({ mode, text, model })} />
+            {Boolean(threads.data?.length) && (
+              <nav aria-label="Recent conversations" className="mx-auto mt-12 max-w-2xl md:hidden">
+                <p className="mb-2 px-1 text-[12px] font-medium text-faint">Recents</p>
+                <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-surface">
+                  {threads.data!.slice(0, 8).map((t) => (
+                    <li key={t.id}>
+                      <button type="button" onClick={() => navigate(`/chat?project=${projectId}&thread=${t.id}`)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[13.5px] hover:bg-surface-2">
+                        <span className="truncate">{t.title}</span>
+                        <span className="shrink-0 text-[12px] text-faint">{t.createdTaskId ? 'Became a task' : relativeTime(t.updatedAt)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            )}
+          </>
         )}
       </section>
     </div>

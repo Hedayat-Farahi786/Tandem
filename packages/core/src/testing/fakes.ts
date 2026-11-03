@@ -204,8 +204,40 @@ export class FakeGit implements GitOps {
   async removeWorktree(_repo: Repo, worktree: string): Promise<void> {
     this.removed.push(worktree);
   }
-  async isAncestor(): Promise<boolean> {
-    return false;
+  /** Ancestry answers by "ref|of"; anything not listed is not an ancestor. */
+  readonly ancestors = new Set<string>();
+  async isAncestor(_repo: Repo, ref: string, of: string): Promise<boolean> {
+    return this.ancestors.has(`${ref}|${of}`);
+  }
+  /** Remote branch heads by "repoId:branch" (what the last fetch saw). */
+  readonly remote = new Map<string, string>();
+  async remoteHead(repo: Repo, branch: string): Promise<string | undefined> {
+    return this.remote.get(`${repo.id}:${branch}`);
+  }
+  /** Files a merge of the base would conflict in, per worktree (empty: merges cleanly). */
+  readonly mergeConflicts = new Map<string, string[]>();
+  readonly merges: Array<{ worktree: string; ref: string; message: string }> = [];
+  readonly resets: Array<{ worktree: string; ref: string }> = [];
+  async probeMerge(worktree: string): Promise<string[]> {
+    return [...(this.mergeConflicts.get(worktree) ?? [])];
+  }
+  async merge(worktree: string, ref: string, message: string): Promise<RebaseResult> {
+    this.merges.push({ worktree, ref, message });
+    const files = this.mergeConflicts.get(worktree) ?? [];
+    if (!files.length) return { kind: 'ok', head: `merge-${this.merges.length}` };
+    this.conflicts = [...files];
+    return { kind: 'conflict', files: [...files] };
+  }
+  async continueMerge(): Promise<string> {
+    this.conflicts = [];
+    return `merge-${this.merges.length}`;
+  }
+  async abortMerge(): Promise<void> {
+    this.conflicts = [];
+  }
+  async resetTo(worktree: string, ref: string): Promise<void> {
+    this.resets.push({ worktree, ref });
+    this.conflicts = [];
   }
 }
 
