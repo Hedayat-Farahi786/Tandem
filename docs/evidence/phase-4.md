@@ -20,16 +20,16 @@ Suite: `e2e/flows/workflow.e2e.test.ts` (harness: `e2e/flows/harness.ts`), Jira:
 
 | Scenario | Scripted agent, local remotes | Scripted agent, real CodeCommit | Live Copilot |
 | --- | --- | --- | --- |
-| (a) one full-stack repo | ✅ 42 s | pending: AWS sign-in expired | ✅ 2.9 min, 0.94 credits (+0.17 chat) |
-| (b) separate frontend + backend repos | ✅ 56 s, two cross-linked PRs | pending | ✅ 3.7 min, 1.15 credits (+0.21 chat), two cross-linked PRs |
-| request that needs clarifying questions | ✅ in every scenario: a question, "not ready" refused, the answer, then ready | pending | the live requests were complete, so the agent marked them ready on the first reply |
-| too-big task → split | ✅ 880 lines → 4 parts accepted (parent cancelled, each part drafts its spec); and overridden with a reason | pending | – |
-| request changes → redraft from task chat | ✅ task chat proposes the change, owner confirms, spec v2 | pending | – |
-| spec edit resets approvals | ✅ owner approval of v2 stops counting after the edit to v3; the build starts only after both keys on v3 | pending | – |
-| failing tests → "needs attention" | ✅ 3 verification runs, 2 fix runs, PR titled `[needs attention]` | pending | – |
-| rebase conflict | ✅ another developer changes the same lines while the task verifies; the agent resolves it, checks run again, both changes are in the pushed branch | pending | – |
-| restart mid-build resumes | ✅ `kill -9` of the server and its child processes during verification, a new start, the task finishes | pending | part of (b) |
-| cancel | ✅ cancelled during verification: the task folder is removed, nothing is pushed, no PR | pending | – |
+| (a) one full-stack repo | ✅ 42 s | ✅ 67 s, PR #8 opened by Tandem | ✅ 2.9 min, 0.94 credits (+0.17 chat) |
+| (b) separate frontend + backend repos | ✅ 56 s, two cross-linked PRs | ✅ 92 s, PRs #9 and #10, cross-linked | ✅ 3.7 min, 1.15 credits (+0.21 chat), two cross-linked PRs |
+| request that needs clarifying questions | ✅ in every scenario: a question, "not ready" refused, the answer, then ready | ✅ | the live requests were complete, so the agent marked them ready on the first reply |
+| too-big task → split | ✅ 880 lines → 4 parts accepted (parent cancelled, each part drafts its spec); and overridden with a reason | ✅ 33 s | – |
+| request changes → redraft from task chat | ✅ task chat proposes the change, owner confirms, spec v2 | ✅ | – |
+| spec edit resets approvals | ✅ owner approval of v2 stops counting after the edit to v3; the build starts only after both keys on v3 | ✅ (with the redraft, 15 s) | – |
+| failing tests → "needs attention" | ✅ 3 verification runs, 2 fix runs, PR titled `[needs attention]` | ✅ 96 s, PR #13 `[needs attention]` | – |
+| rebase conflict | ✅ another developer changes the same lines while the task verifies; the agent resolves it, checks run again, both changes are in the pushed branch | ✅ 68 s, the other developer's commit pushed to CodeCommit, PR #12 | – |
+| restart mid-build resumes | ✅ `kill -9` of the server and its child processes during verification, a new start, the task finishes | ✅ 55 s, PR #11 | part of (b) |
+| cancel | ✅ cancelled during verification: the task folder is removed, nothing is pushed, no PR | ✅ 47 s, no branch pushed, no PR | – |
 | Jira flows | written, skipped without `TANDEM_E2E_JIRA=1` | skipped | – |
 
 Local run: 8/8 passed in 6.1 minutes (Ubuntu 20.04, Node 22.23.1, git 2.25.1). Again after the
@@ -64,7 +64,10 @@ Screenshots (real model list of the account, light and dark): `phase-4/picker-*.
 
 With local remotes, the PR API answers "access denied", so every PR is the prefilled console link
 (checked to point at the right repository, base branch and agent branch). On real CodeCommit
-with a profile that may create PRs, Tandem opens them itself.
+with a profile that may create PRs, Tandem opens them itself: the real run (2026-11-03, 8/8 in
+8.8 minutes, scripted agent, no credits) opened PRs #8–#13 in the three sandbox repositories through
+the CodeCommit API, each from its agent branch into the run's base branch, with the spec, checks and
+review in the description.
 
 ## Problems found and fixed in this phase
 
