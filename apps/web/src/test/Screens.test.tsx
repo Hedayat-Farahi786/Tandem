@@ -41,6 +41,26 @@ describe('Tasks list', () => {
     expect(await screen.findByText('Database is locked.', {}, { timeout: 4000 })).toBeTruthy();
   });
 
+  it('imports Jira issues by key when Jira is configured', async () => {
+    const api = mockApi({ 'GET /api/bootstrap': boot({ jiraConfigured: true }), 'GET /api/tasks': [], 'POST /api/projects/p1/import': { imported: [{ id: 't9', key: 'SHOP-12' }] } });
+    const user = userEvent.setup();
+    renderApp('/tasks');
+    await user.click(await screen.findByRole('button', { name: 'Import from Jira' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Import from Jira' });
+    expect(within(dialog).getByRole('button', { name: 'Import ready issues' })).toBeTruthy();
+    await user.type(within(dialog).getByLabelText(/Issue keys/), 'shop-12');
+    await user.click(within(dialog).getByRole('button', { name: 'Import 1 issue' }));
+    expect(await within(dialog).findByText('Imported SHOP-12.')).toBeTruthy();
+    expect(api.calls.find((c) => c.path === '/api/projects/p1/import')?.body).toEqual({ keys: ['SHOP-12'] });
+  });
+
+  it('has no Jira import without Jira', async () => {
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [] });
+    renderApp('/tasks');
+    expect(await screen.findByRole('button', { name: 'New task' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Import from Jira' })).toBeNull();
+  });
+
   it('creates a task from the form with a live readiness check', async () => {
     let created: unknown;
     mockApi({

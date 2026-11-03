@@ -133,6 +133,7 @@ the terminal.
   projects/<projectId>/<repo>/   read-only reference checkouts for Ask and spec
   tasks/<taskId>/<repo>/         one worktree per affected repo, per task
   tasks/<taskId>/.tandem/        verify logs, diffs, review output for that task
+  deps/<repoId>/<installKey>/    shared installed dependencies (hard-linked into task worktrees)
 ```
 
 Worktrees and the task folder are removed on Done and Cancelled. Mirrors are
@@ -213,7 +214,7 @@ is persisted, so a restart resumes at the step, not the state:
 | BUILDING | `prepare-workspace` → `apply-rules` → `implement:<repo>` (contract order) → `commit-spec` → `commit-work` |
 | VERIFYING | `install` → `verify` → `fix:1` → `verify` → `fix:2` → `verify` (stops early on green) |
 | SELF_REVIEW | `review` → `fix-findings` → `verify` → `confirm-findings` → `sync` → (`resolve-conflict` → `verify`) → `push` |
-| PR_OPEN | `open-prs` → `cross-link` → `report` → `poll` (repeats) |
+| PR_OPEN | `open-prs` → `cross-link` → `report` → `poll` (repeats: PR status, then each open PR against its base branch, see §6) |
 | DONE | `cleanup` |
 
 The transition table lives in `core/src/state-machine.ts` as data: allowed
@@ -226,7 +227,8 @@ task.
 
 `readiness-missing` (list of missing items), `split-proposed`,
 `spec-invalid`, `rebase-conflict`, `push-rejected`, `preflight-failed`,
-`pm-changes-requested` (Jira), `budget-reached` (Copilot limit, §7). Each carries `resumeTo` (state + step) and a
+`pm-changes-requested` (Jira), `budget-reached` (Copilot limit, §7),
+`disk-low` (less free space than `limits.minFreeDiskGb` before an install). Each carries `resumeTo` (state + step) and a
 plain message that says what to do next. Fixing the cause (editing the task,
 accepting the split, retrying) re-enters the workflow at `resumeTo`.
 
@@ -424,6 +426,33 @@ preflight, and PR APIs.
   (Settings) or `gh auth token` if the GitHub CLI is logged in. Without a
   token: compare link `https://github.com/o/r/compare/<base>...<head>?expand=1`
   with the title and body to paste.
+
+### Open pull requests and their base branch
+
+Each `PR_OPEN:poll` fetches the mirror and compares every open PR branch
+with its base (`syncWithBase` in `core/workflow/steps.ts`). The result is
+stored on the PR as `sync`: `up-to-date`, `mergeable`, `updated`,
+`needs-person`, `unresolved`, `checks-failed` or `branch-rewritten`.
+
+- Base not ahead, or ahead without conflicts (a `merge --no-commit` probe,
+  aborted): nothing changes.
+- Conflicts, and the branch head is what Tandem pushed: merge the base into
+  the branch (a merge commit, so no history rewrite and no force push;
+  review comments stay anchored), let the agent resolve the conflict
+  (`conflict` run), run every check, push only if they pass, update the PR
+  description, comment on the tracker.
+- Someone else pushed on top (Tandem's last push is an ancestor of the
+  head): leave it to them (`needs-person`) unless the owner asks
+  (`fixConflicts`), which merges on top of their commits.
+- The head no longer contains Tandem's last push (force-pushed): never
+  touched again.
+- Each base/head pair is handled once, so a failed attempt is not retried
+  until something moves or the owner asks. `polling.fixConflicts = false`
+  makes every conflict wait for a person.
+
+This follows what dependency bots and Copilot's coding agent do: update a
+bot-owned branch automatically, stop once a person has pushed to it, and
+always run the checks before pushing.
 
 ### Repo detection
 

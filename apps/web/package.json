@@ -1,6 +1,6 @@
 {
   "name": "@tandem/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Tandem's web UI (React, Vite, Tailwind). Served by @tandem/server on 127.0.0.1.",

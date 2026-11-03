@@ -303,7 +303,9 @@ export class TaskService {
   async importFromTracker(project: Project, keys?: readonly string[]): Promise<Task[]> {
     const tracker = await this.deps.tracker();
     if (tracker.kind !== 'jira') throw new ActionError('Jira is not configured. Add a token in Settings to import issues.');
-    const found = keys?.length ? (await Promise.all(keys.map((k) => tracker.getTask(k)))).filter((t): t is NonNullable<typeof t> => Boolean(t)) : await tracker.findReadyTasks(project.jiraJql);
+    // The project's own query wins; otherwise the "ready" query from Settings.
+    const jql = project.jiraJql?.trim() || (await this.deps.settings()).jira.readyJql;
+    const found = keys?.length ? (await Promise.all(keys.map((k) => tracker.getTask(k)))).filter((t): t is NonNullable<typeof t> => Boolean(t)) : await tracker.findReadyTasks(jql);
     const created: Task[] = [];
     for (const issue of found) {
       if (await this.deps.store.tasks.getByKey(issue.key)) continue;

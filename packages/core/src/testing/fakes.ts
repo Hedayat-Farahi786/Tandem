@@ -76,8 +76,10 @@ export class FakeProcessRunner implements ProcessRunner {
 /* ------------------------------------------------------------------ trackers */
 
 export class FakeTracker implements Tracker {
-  readonly kind = 'local' as const;
+  /** 'jira' lets a test use the Jira paths (import, PM replies) with this fake. */
+  kind: 'local' | 'jira' = 'local';
   readonly comments: TrackerComment[] = [];
+  readonly queries: Array<string | undefined> = [];
   readonly transitions: Array<{ key: string; status: string }> = [];
   readonly tasks = new Map<string, TrackerTask>();
   private n = 0;
@@ -85,7 +87,8 @@ export class FakeTracker implements Tracker {
   async getTask(key: string) {
     return this.tasks.get(key);
   }
-  async findReadyTasks() {
+  async findReadyTasks(query?: string) {
+    this.queries.push(query);
     return [...this.tasks.values()].filter((t) => t.status === 'Ready for AI');
   }
   async comment(key: string, body: string) {

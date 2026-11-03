@@ -225,6 +225,23 @@ describe('workflow: spec review', () => {
     expect((await h.get(t.id)).state).toBe('BUILDING');
   });
 
+  it('imports Jira issues by key or by query: the project query wins, else the ready query from Settings', async () => {
+    const h = harness();
+    await h.ready;
+    h.tracker.kind = 'jira';
+    h.tracker.tasks.set('SHOP-1', { key: 'SHOP-1', title: 'Health', description: 'Add a health endpoint.', status: 'Ready for AI' });
+    h.tracker.tasks.set('SHOP-2', { key: 'SHOP-2', title: 'Version', description: 'Add a version endpoint.', status: 'To do' });
+    const project = (await h.store.projects.get('p1'))!;
+    const s = await h.store.settings.get();
+    await h.store.settings.set({ ...s, jira: { ...s.jira, readyJql: 'labels = ai-ready' } });
+    expect((await h.service.importFromTracker(project)).map((t) => t.externalKey)).toEqual(['SHOP-1']);
+    expect(h.tracker.queries.at(-1)).toBe('labels = ai-ready');
+    await h.service.importFromTracker({ ...project, jiraJql: 'project = SHOP' });
+    expect(h.tracker.queries.at(-1)).toBe('project = SHOP');
+    // By key, whatever its status; an issue already imported is skipped.
+    expect((await h.service.importFromTracker(project, ['SHOP-2', 'SHOP-1'])).map((t) => t.externalKey)).toEqual(['SHOP-2']);
+  });
+
   it('takes PM approval from Jira replies by configured PMs only', async () => {
     const h = harness({ pmGate: 'jira' });
     let t = await h.start();

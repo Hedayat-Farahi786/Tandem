@@ -81,12 +81,18 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   }
   tandem.runner.start(1_000);
 
-  // Jira: poll each project's JQL when Jira is configured.
+  // Jira: import ready issues on a timer when Jira is configured.
   const jiraTimer = setInterval(() => {
     void (async () => {
       const tracker = await tandem.deps.tracker();
       if (tracker.kind !== 'jira') return;
-      for (const p of await tandem.store.projects.list()) if (p.jiraJql) await tandem.service.importFromTracker(p).catch((err: unknown) => logger.warn('jira poll failed', { project: p.id, error: String(err) }));
+      // A project with its own query is polled with it. With one project, the Settings query is enough;
+      // with several, each needs its own query so an issue can't land in the wrong project.
+      const projects = await tandem.store.projects.list();
+      for (const p of projects) {
+        if (!p.jiraJql?.trim() && projects.length > 1) continue;
+        await tandem.service.importFromTracker(p).catch((err: unknown) => logger.warn('jira poll failed', { project: p.id, error: String(err) }));
+      }
     })();
   }, Math.max(1, (await tandem.settings()).jira.pollIntervalMin) * 60_000);
   jiraTimer.unref();

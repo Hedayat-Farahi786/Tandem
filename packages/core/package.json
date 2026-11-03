@@ -1,6 +1,6 @@
 {
   "name": "@tandem/core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "State machine, workflow runner, policies and ports. No I/O of its own.",
   "type": "module",

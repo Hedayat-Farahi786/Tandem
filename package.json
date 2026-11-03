@@ -1,6 +1,6 @@
 {
   "name": "tandem",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Local agentic software development lifecycle, from request to reviewed pull requests.",
   "type": "module",
@@ -25,7 +25,7 @@
     "spike:seed": "pnpm --filter @tandem/spikes run seed",
     "test:unit": "vitest run --project unit",
     "test:real": "TANDEM_REAL=1 vitest run --project integration packages/adapters/src/real-codecommit.it.test.ts",
-    "tandem": "node apps/server/dist/cli.js",
+    "tandem": "node scripts/tandem.mjs",
     "test:e2e": "pnpm test:ui && pnpm test:flows",
     "test:web": "vitest run --project web",
     "test:ui": "playwright test",

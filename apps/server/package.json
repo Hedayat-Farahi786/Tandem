@@ -1,6 +1,6 @@
 {
   "name": "@tandem/server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Tandem's local HTTP server, event stream and CLI (tandem, tandem doctor).",
   "type": "module",

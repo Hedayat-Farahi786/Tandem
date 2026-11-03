@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Circle, GitPullRequest, ListTodo, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Download, GitPullRequest, ListTodo, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
 import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format';
@@ -63,6 +63,51 @@ export function CriteriaEditor({ value, onChange }: { value: Criterion[]; onChan
 }
 
 const EMPTY: Requirement = { goal: '', userStory: '', criteria: [{ given: '', when: '', then: '' }, { given: '', when: '', then: '' }], exampleData: '', affectedAreas: '', outOfScope: '', openQuestions: [] };
+
+/** Jira: import issues by key, or everything the project's query (or the Settings query) finds. */
+function ImportDialog({ boot, onClose }: { boot: Bootstrap; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [projectId, setProjectId] = useState(boot.projects[0]?.id ?? '');
+  const [keys, setKeys] = useState('');
+  const list = keys.split(/[\s,]+/).map((k) => k.trim().toUpperCase()).filter(Boolean);
+  const run = useMutation({
+    mutationFn: () => post<{ imported: Array<{ id: string; key: string }> }>(`/api/projects/${projectId}/import`, list.length ? { keys: list } : {}),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+  const done = run.data?.imported;
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="Import from Jira"
+      description="Each issue becomes a task and goes to the readiness check. Issues already imported are skipped."
+      footer={
+        done ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" busy={run.isPending} disabled={!projectId} onClick={() => run.mutate()}>
+              {list.length ? `Import ${list.length} issue${list.length > 1 ? 's' : ''}` : 'Import ready issues'}
+            </Button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <p className="text-[13.5px]">{done.length ? `Imported ${done.map((t) => t.key).join(', ')}.` : 'Nothing new to import.'}</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {boot.projects.length > 1 && <Select label="Project" value={projectId} onChange={setProjectId} options={boot.projects.map((p) => ({ value: p.id, label: p.name }))} />}
+          <Input label="Issue keys" optional value={keys} onChange={(e) => setKeys(e.target.value)} placeholder="SHOP-12, SHOP-15" help="Leave empty to import every issue the project's query finds (or the ready query from Settings)." autoFocus />
+          {run.isError && <ErrorState error={run.error} />}
+        </div>
+      )}
+    </Dialog>
+  );
+}
 
 function NewTaskDialog({ boot, onClose }: { boot: Bootstrap; onClose: () => void }) {
   const qc = useQueryClient();
@@ -151,6 +196,7 @@ export function TasksScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [projectId, setProjectId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const list = (tasks.data ?? []).filter(
     (t) =>
       (!projectId || t.projectId === projectId) &&
@@ -173,6 +219,11 @@ export function TasksScreen() {
             <LinkButton to="/chat" icon={MessageSquare}>
               Request in chat
             </LinkButton>
+            {boot.data?.jiraConfigured && (
+              <Button icon={Download} onClick={() => setImporting(true)} disabled={!boot.data.projects.length}>
+                Import from Jira
+              </Button>
+            )}
             <Button variant="primary" icon={Plus} onClick={() => setCreating(true)} disabled={!boot.data?.projects.length}>
               New task
             </Button>
@@ -250,6 +301,7 @@ export function TasksScreen() {
         </ul>
       )}
       {creating && boot.data && <NewTaskDialog boot={boot.data} onClose={() => setCreating(false)} />}
+      {importing && boot.data && <ImportDialog boot={boot.data} onClose={() => setImporting(false)} />}
     </div>
   );
 }
