@@ -54,7 +54,7 @@ export interface ShellPolicy {
   configured: string[];
 }
 
-const READ_HELPERS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'sort', 'uniq', 'diff', 'rg', 'grep', 'find', 'true', 'test', 'dir', 'type']);
+const READ_HELPERS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'printf', 'sort', 'uniq', 'diff', 'rg', 'grep', 'find', 'true', 'test', 'dir', 'type']);
 const DENY_COMMANDS = new Set([
   'aws', 'az', 'gcloud', 'gsutil', 'kubectl', 'helm', 'terraform', 'pulumi', 'cdk', 'serverless', 'sls', 'vercel', 'netlify', 'fly', 'flyctl', 'heroku',
   'ssh', 'scp', 'sftp', 'rsync', 'curl', 'wget', 'nc', 'ncat', 'telnet', 'sudo', 'su', 'doas', 'chmod', 'chown', 'rm', 'rmdir', 'dd', 'mkfs',
@@ -161,7 +161,8 @@ export function checkShell(command: string, policy: ShellPolicy): { allowed: boo
 
 /* ------------------------------------------------------------- tool calls */
 
-const READ_TOOLS = new Set(['view', 'glob', 'grep']);
+// Search tool names vary by model (gpt models get `rg`, others `grep`).
+const READ_TOOLS = new Set(['view', 'glob', 'grep', 'rg']);
 const BUILD_TOOLS = new Set([...READ_TOOLS, 'create', 'edit', 'apply_patch', 'bash', 'powershell', 'read_bash', 'stop_bash', 'list_bash', 'write_bash', 'read_powershell', 'stop_powershell', 'list_powershell', 'write_powershell']);
 const SHELL_TOOLS = new Set(['bash', 'powershell']);
 

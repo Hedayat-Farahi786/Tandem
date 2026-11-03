@@ -1,0 +1,132 @@
+{
+  "id": "c-codecommit-pr",
+  "title": "Spike c: CodeCommit pull requests (AWS SDK and console-link fallback)",
+  "startedAt": "2026-11-03T00:19:04.439Z",
+  "machine": {
+    "os": "linux 5.15.0-1084-aws (x64)",
+    "node": "v22.23.1",
+    "git": "2.25.1"
+  },
+  "counts": {
+    "pass": 14,
+    "fail": 0,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "Default branch over SSH",
+      "status": "pass",
+      "durationMs": 2556,
+      "details": []
+    },
+    {
+      "name": "Push a branch agent/spike-xwz20b92-pr with one commit",
+      "status": "pass",
+      "durationMs": 12120,
+      "details": []
+    },
+    {
+      "name": "AWS credentials resolve (STS GetCallerIdentity)",
+      "status": "pass",
+      "durationMs": 433,
+      "details": [
+        "account ****3860, arn:aws:sts::************:assumed-role/<role>/<session>"
+      ]
+    },
+    {
+      "name": "GetRepository",
+      "status": "pass",
+      "durationMs": 442,
+      "details": [
+        "default branch per API: main"
+      ]
+    },
+    {
+      "name": "Permission probe: CreatePullRequest with a non-existent source ref (creates nothing)",
+      "status": "pass",
+      "durationMs": 68,
+      "details": [
+        "probe result: ReferenceDoesNotExistException"
+      ]
+    },
+    {
+      "name": "Permission: ListPullRequests / GetPullRequest (needed for status polling)",
+      "status": "pass",
+      "durationMs": 233,
+      "details": [
+        "ListPullRequests ok (0 returned)"
+      ]
+    },
+    {
+      "name": "CreatePullRequest with clientRequestToken",
+      "status": "pass",
+      "durationMs": 274,
+      "details": [
+        "pull request 2 (OPEN)",
+        "console: https://eu-central-1.console.aws.amazon.com/codesuite/codecommit/repositories/tandem-sandbox-backend/pull-requests/2/details?region=eu-central-1"
+      ]
+    },
+    {
+      "name": "Retry with the same token returns the same PR (no duplicate after a restart)",
+      "status": "pass",
+      "durationMs": 256,
+      "details": []
+    },
+    {
+      "name": "GetPullRequest reports status and merge state",
+      "status": "pass",
+      "durationMs": 158,
+      "details": [
+        "status OPEN, merged false, source 3c2eecab10"
+      ]
+    },
+    {
+      "name": "UpdatePullRequestDescription (used to cross-link PRs)",
+      "status": "pass",
+      "durationMs": 311,
+      "details": []
+    },
+    {
+      "name": "Description length limit",
+      "status": "pass",
+      "durationMs": 255,
+      "details": [
+        "10,240 characters accepted",
+        "10,241 characters rejected: InvalidDescriptionException"
+      ]
+    },
+    {
+      "name": "Close the PR (UpdatePullRequestStatus CLOSED)",
+      "status": "pass",
+      "durationMs": 564,
+      "details": []
+    },
+    {
+      "name": "Console-link fallback: link opens the prefilled \"Create pull request\" page",
+      "status": "pass",
+      "durationMs": 1,
+      "details": [
+        "prefilled link: https://eu-central-1.console.aws.amazon.com/codesuite/codecommit/repositories/tandem-sandbox-backend/pull-requests/new/refs/heads/main/.../refs/heads/agent/spike-xwz20b92-pr?region=eu-central-1",
+        "fallback link (PR list): https://eu-central-1.console.aws.amazon.com/codesuite/codecommit/repositories/tandem-sandbox-backend/pull-requests?region=eu-central-1"
+      ]
+    },
+    {
+      "name": "Cleanup: delete spike branch, remove worktree",
+      "status": "pass",
+      "durationMs": 2821,
+      "details": []
+    }
+  ],
+  "facts": {
+    "region": "eu-central-1",
+    "repo": "tandem-sandbox-backend",
+    "aws.profile": "hedayat",
+    "probe.errorName": "ReferenceDoesNotExistException",
+    "canCreatePullRequest": "true",
+    "canListPullRequests": "true",
+    "idempotentCreate": "true",
+    "description.maxLength": "10240",
+    "console.prefilledLink.format": "https://{region}.console.aws.amazon.com/codesuite/codecommit/repositories/{repo}/pull-requests/new/refs/heads/{dest}/.../refs/heads/{source}?region={region}",
+    "console.prefilledLink.confirmed": "not checked (no terminal); open the link above and confirm"
+  }
+}

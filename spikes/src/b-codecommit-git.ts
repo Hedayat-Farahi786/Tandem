@@ -8,6 +8,7 @@
  * Only branches under agent/spike-<id>-* are created on the remote, and all of them are deleted
  * at the end. The default branch is never written to.
  */
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { flag, shortId, spikeEnv, workDir } from './lib/env.js';
@@ -24,6 +25,7 @@ import {
   git,
   lsRemoteHeads,
   parseCodeCommitUrl,
+  resolveRemote,
   pushBranch,
   rebaseOnto,
   remoteDefaultBranch,
@@ -42,7 +44,9 @@ const base = `agent/spike-${id}-base`;
 const branch = `agent/spike-${id}-work`;
 const createdRemoteBranches = new Set<string>();
 
-let url = env.repoUrl;
+const originalUrl = env.repoUrl;
+const resolved = env.repoUrl && !local ? resolveRemote(env.repoUrl, env.awsProfile) : undefined;
+let url = resolved?.gitUrl;
 const gitVersion = (await git(['--version'])).replace('git version ', '');
 
 try {
@@ -60,8 +64,10 @@ try {
     const remoteUrl = url;
     if (!local) {
       await report.step('URL is a CodeCommit URL (SSH or git-remote-codecommit)', async (ctx) => {
-        const parsed = parseCodeCommitUrl(remoteUrl);
-        check(parsed, `Not a CodeCommit URL: ${remoteUrl}`);
+        const parsed = parseCodeCommitUrl(originalUrl ?? remoteUrl);
+        check(parsed, `Not a CodeCommit URL: ${originalUrl ?? remoteUrl}`);
+        ctx.detail(`git uses: ${resolved?.transport ?? 'as given'}${resolved?.profile ? ` (AWS profile ${resolved.profile})` : ''}`);
+        ctx.fact('git.transport', resolved?.transport ?? 'as given');
         ctx.detail(`region ${parsed.region}, repo ${parsed.name}, transport ${parsed.transport}${parsed.profile ? `, AWS profile ${parsed.profile}` : ''}`);
         ctx.fact('transport', parsed.transport);
         if (parsed.transport === 'ssh') {
@@ -69,10 +75,10 @@ try {
           const user = /^user (\S+)/m.exec(sshCfg)?.[1];
           ctx.detail(`ssh config resolves a user for the host: ${user ? 'yes' : 'no'}`);
           ctx.fact('ssh.userConfigured', Boolean(user && user !== process.env.USER && user !== process.env.USERNAME));
-        } else if (parsed.transport === 'grc') {
+        } else {
           const { which } = await import('./lib/exec.js');
-          check(await which('git-remote-codecommit'), 'git-remote-codecommit is not installed (pip install git-remote-codecommit).');
-          ctx.detail('git-remote-codecommit is installed; git uses your AWS credentials');
+          check(await which('aws'), 'The AWS CLI is needed for CodeCommit over HTTPS (git uses it as the credential helper).');
+          ctx.detail('AWS CLI found; git signs CodeCommit requests with it, using your AWS sign-in');
         }
       });
     }
@@ -81,7 +87,7 @@ try {
       const started = performance.now();
       const b = await remoteDefaultBranch(remoteUrl);
       ctx.fact('lsRemote.ms', Math.round(performance.now() - started));
-      check(b, 'The remote has no HEAD. If the repo is empty, seed it first: pnpm spike:seed -- backend <url>');
+      check(b, 'Could not tell the default branch. If the repo is empty, seed it first: pnpm spike:seed -- backend <url>');
       ctx.detail(`default branch: ${b}`);
       ctx.fact('defaultBranch', b);
       return b;
@@ -272,8 +278,10 @@ try {
       const heads = await lsRemoteHeads(remoteUrl);
       const leftovers = [...heads.keys()].filter((r) => r.includes(`spike-${id}`));
       check(leftovers.length === 0, `left on remote: ${leftovers.join(', ')}`);
-      const list = await git(['worktree', 'list', '--porcelain'], { gitDir: mirror });
-      check(!list.includes(id), 'worktree still registered');
+      if (existsSync(mirror)) {
+        const list = await git(['worktree', 'list', '--porcelain'], { gitDir: mirror });
+        check(!list.includes(id), 'worktree still registered');
+      }
     });
   }
 } finally {

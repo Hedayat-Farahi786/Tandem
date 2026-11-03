@@ -28,8 +28,9 @@ import type { Decision } from './lib/agent-policy.js';
 import { cheapestModel, enforcedConfig, makeClient, meter, newMeter, runtimeEnv, type UsageMeter } from './lib/copilot.js';
 import { flag, shortId, spikeEnv, workDir } from './lib/env.js';
 import { packageManagerCommand, run, which } from './lib/exec.js';
-import { addWorktree, bareClone, git, lsRemoteHeads, remoteDefaultBranch } from './lib/git.js';
-import { redact, registerReplacement } from './lib/redact.js';
+import { addWorktree, bareClone, git, lsRemoteHeads, remoteDefaultBranch, resolveRemote } from './lib/git.js';
+import { registerReplacement } from './lib/redact.js';
+import { sanitizeEvent } from './lib/fixtures.js';
 import { REPORTS_DIR, Report, check } from './lib/report.js';
 import { createLocalRemote } from './lib/sandbox.js';
 
@@ -38,6 +39,8 @@ const live = flag('live');
 /** Container rehearsal: keep going without a login to exercise the free enforcement steps. */
 const rehearsal = flag('rehearsal');
 const MAX_LIVE_PROMPTS = 2;
+/** Second guard: abort a session if the agent loop makes more model calls than this in total. */
+const MAX_LIVE_MODEL_CALLS = 30;
 const report = new Report(live ? 'a-copilot-live' : 'a-copilot', live ? 'Spike a (live): Copilot SDK, two real prompts' : 'Spike a: Copilot SDK with the existing login (no model calls)');
 const work = await workDir('spike-a');
 const id = shortId();
@@ -75,6 +78,9 @@ async function ghAccounts(): Promise<Array<{ host: string; login: string }>> {
 async function track(s: CopilotSession): Promise<CopilotSession> {
   sessionsToDelete.add(s.sessionId);
   meter(s, usage);
+  s.on('assistant.usage', () => {
+    if (usage.modelCalls >= MAX_LIVE_MODEL_CALLS) void s.abort().catch(() => undefined);
+  });
   return s;
 }
 
@@ -185,7 +191,7 @@ try {
     });
 
     const root = await report.step('Sandbox worktree with dependencies installed (by Tandem, not the agent)', async (ctx) => {
-      const url = env.repoUrl ?? (await createLocalRemote(work.path, 'backend'));
+      const url = env.repoUrl ? resolveRemote(env.repoUrl, env.awsProfile).gitUrl : await createLocalRemote(work.path, 'backend');
       ctx.detail(`sandbox: ${env.repoUrl ? 'CodeCommit' : 'local bare repo from spikes/sandbox/backend'}`);
       const mirror = join(work.path, 'mirror.git');
       await bareClone(url, mirror);
@@ -320,7 +326,7 @@ try {
       // ---------------------------------------------------------------- live (opt-in, 2 prompts)
       if (live && authed) {
         const model = env.model ?? cheapest?.id;
-        const ok = await report.step(`Confirm spending ${MAX_LIVE_PROMPTS} prompts on ${model ?? 'the default model'}`, async (ctx) => {
+        const ok = await report.step(`Confirm spending ${MAX_LIVE_PROMPTS} prompts on ${model ?? 'the default model'} (cap: ${MAX_LIVE_MODEL_CALLS} model calls)`, async (ctx) => {
           ctx.detail(`model: ${model ?? 'runtime default'}${!env.model && cheapest ? ` (cheapest enabled: ${cheapest.cost})` : ''}`);
           if (flag('yes')) return true;
           check(process.stdin.isTTY, 'Run in a terminal to confirm, or pass --yes.');
@@ -335,8 +341,8 @@ try {
         const record = (s: CopilotSession, key: string) => {
           fixtures[key] = [];
           return s.on((e: SessionEvent) => {
-            if (e.type === 'assistant.message_delta' || e.type === 'assistant.reasoning_delta') return;
-            fixtures[key]!.push(JSON.parse(redact(JSON.stringify({ type: e.type, data: e.data }))));
+            const clean = sanitizeEvent({ type: e.type, data: e.data });
+            if (clean) fixtures[key]!.push(clean);
           });
         };
 
@@ -430,6 +436,7 @@ try {
         ctx.fact('usage.modelCalls', usage.modelCalls);
         ctx.fact('usage.cost', usage.cost);
         if (!live) check(usage.modelCalls === 0, `free mode made ${usage.modelCalls} model calls`);
+        else check(usage.modelCalls <= MAX_LIVE_MODEL_CALLS, `model calls ${usage.modelCalls} exceeded the cap of ${MAX_LIVE_MODEL_CALLS}`);
       });
     }
 

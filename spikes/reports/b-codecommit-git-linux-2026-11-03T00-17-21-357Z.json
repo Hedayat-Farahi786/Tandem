@@ -1,0 +1,155 @@
+{
+  "id": "b-codecommit-git",
+  "title": "Spike b: CodeCommit over SSH",
+  "startedAt": "2026-11-03T00:17:21.357Z",
+  "machine": {
+    "os": "linux 5.15.0-1084-aws (x64)",
+    "node": "v22.23.1",
+    "git": "2.25.1",
+    "mode": "CodeCommit over SSH"
+  },
+  "counts": {
+    "pass": 16,
+    "fail": 0,
+    "skip": 0
+  },
+  "steps": [
+    {
+      "name": "URL is a CodeCommit URL (SSH or git-remote-codecommit)",
+      "status": "pass",
+      "durationMs": 5,
+      "details": [
+        "git uses: https+aws-cli (AWS profile hedayat)",
+        "region eu-central-1, repo tandem-sandbox-backend, transport grc, AWS profile hedayat",
+        "AWS CLI found; git signs CodeCommit requests with it, using your AWS sign-in"
+      ]
+    },
+    {
+      "name": "Read access and default branch (ls-remote --symref)",
+      "status": "pass",
+      "durationMs": 2684,
+      "details": [
+        "default branch: main"
+      ]
+    },
+    {
+      "name": "Bare clone with remote-tracking refspec (\"mirror\")",
+      "status": "pass",
+      "durationMs": 11216,
+      "details": [
+        "origin/main = bbcbb62c0d"
+      ]
+    },
+    {
+      "name": "Create spike base branch agent/spike-xurim2r2-base from main (stands in for the default branch)",
+      "status": "pass",
+      "durationMs": 5411,
+      "details": [
+        "origin/agent/spike-xurim2r2-base = bbcbb62c0d"
+      ]
+    },
+    {
+      "name": "Worktree on agent/spike-xurim2r2-work from origin/agent/spike-xurim2r2-base",
+      "status": "pass",
+      "durationMs": 25,
+      "details": [
+        "worktree: /tmp/tandem-spike-b-lYPfgG/tasks/xurim2r2/sandbox"
+      ]
+    },
+    {
+      "name": "Commit in the worktree",
+      "status": "pass",
+      "durationMs": 27,
+      "details": [
+        "commit 4c2846895e"
+      ]
+    },
+    {
+      "name": "Push guard refuses anything outside agent/*",
+      "status": "pass",
+      "durationMs": 2578,
+      "details": [
+        "refused: main, refs/heads/main, master, agent, feature/x, refs/tags/v1, agent/../main"
+      ]
+    },
+    {
+      "name": "Push with explicit refspec",
+      "status": "pass",
+      "durationMs": 6222,
+      "details": [
+        "remote agent/spike-xurim2r2-work = 4c2846895e"
+      ]
+    },
+    {
+      "name": "Base branch moves (non-conflicting commit from another clone)",
+      "status": "pass",
+      "durationMs": 9628,
+      "details": [
+        "origin/agent/spike-xurim2r2-base moved to b4d5639be4"
+      ]
+    },
+    {
+      "name": "Clean rebase onto the moved base",
+      "status": "pass",
+      "durationMs": 5069,
+      "details": [
+        "history now:\ntest: spike xurim2r2 change\ntest: upstream change xurim2r2\nchore: seed backend sandbox from Tandem template"
+      ]
+    },
+    {
+      "name": "Re-push after rebase with --force-with-lease (lease = last pushed sha)",
+      "status": "pass",
+      "durationMs": 6059,
+      "details": []
+    },
+    {
+      "name": "Stale lease is rejected (someone else pushed to the agent branch)",
+      "status": "pass",
+      "durationMs": 15504,
+      "details": [
+        "rejected as expected: !\trefs/heads/agent/spike-xurim2r2-work:refs/heads/agent/spike-xurim2r2-work\t[rejected] (stale info)"
+      ]
+    },
+    {
+      "name": "Conflicting rebase is detected and aborted cleanly",
+      "status": "pass",
+      "durationMs": 10272,
+      "details": [
+        "conflicting files: README.md",
+        "abort restored the branch and left a clean worktree"
+      ]
+    },
+    {
+      "name": "Conflict resolved (as the agent would), rebase continued, re-pushed with lease",
+      "status": "pass",
+      "durationMs": 6293,
+      "details": [
+        "resolved and pushed b3424133f8"
+      ]
+    },
+    {
+      "name": "Default branch untouched",
+      "status": "pass",
+      "durationMs": 2660,
+      "details": []
+    },
+    {
+      "name": "Cleanup: delete spike branches on the remote, remove worktree",
+      "status": "pass",
+      "durationMs": 8415,
+      "details": [
+        "deleted agent/spike-xurim2r2-base",
+        "deleted agent/spike-xurim2r2-work"
+      ]
+    }
+  ],
+  "facts": {
+    "git.transport": "https+aws-cli",
+    "transport": "grc",
+    "lsRemote.ms": "2684",
+    "defaultBranch": "main",
+    "clone.ms": "8595",
+    "fetch.noop.ms": "2606",
+    "push.ms": "3496"
+  }
+}

@@ -70,7 +70,7 @@ done any other way, and then only with your go-ahead.
 
 | Run | When | Prompts (estimate) | Why it can't be free |
 | --- | --- | --- | --- |
-| Spike a live (`pnpm spike:a -- --live`) | end of Phase 1, optional | 2 (hard cap in code) | proves streaming, structured output and a real edit + test run with your login |
+| Spike a live (`pnpm spike:a -- --live`) | **done** (2 prompts, 11 model calls, about 0.5 AI credits on `gpt-6-luna`) | 2 (hard cap in code, plus 30 model calls) | proves streaming, structured output and a real edit + test run with your login |
 | E2E (b) split frontend + backend, with a restart during BUILDING | end of Phase 4 | about 12 | the most demanding real case: two repos, API contract, resume after restart |
 | E2E (a) one full-stack repo | end of Phase 4 | about 10 | the second shape from the Definition of Done |
 

@@ -401,10 +401,16 @@ interface SourceHost {
 Both implementations share the git layer; they differ in URL parsing,
 preflight, and PR APIs.
 
-- **CodeCommit**: URLs `codecommit::<region>://[profile@]<name>`
-  (git-remote-codecommit: what the user's existing clones use),
-  `ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>` and HTTPS
-  with the AWS credential helper. PR API via the AWS SDK with the profile
+- **CodeCommit**: accepts `codecommit::<region>://[profile@]<name>`
+  (what the user's existing clones use),
+  `ssh://git-codecommit.<region>.amazonaws.com/v1/repos/<name>` and HTTPS.
+  Non-SSH URLs are cloned over HTTPS with `aws codecommit credential-helper
+  --profile <p>` as the only credential helper, written into Tandem's own
+  mirror config (`credential.helper=` reset, then the helper, plus
+  `credential.UseHttpPath=true`). The user's git config is never changed.
+  This replaces git-remote-codecommit, whose bundled botocore cannot read
+  `aws login` sessions (spike b). Default branch: `GetRepository` first,
+  because CodeCommit HTTPS doesn't advertise the HEAD symref. PR API via the AWS SDK with the profile
   named in the URL, else the one from Settings, else the default chain.
   Expired credentials (for example an `aws login` session) are reported as
   "Sign in again with `aws login --profile <name>`", never as a generic
@@ -485,6 +491,9 @@ interface AgentSession {
   `session.idle`, `session.error` drive the turn state.
 - Structured output: `session.sendAndWait(prompt, zodSchema)` for readiness
   extraction, size estimate, review findings.
+- Tool names differ by model: the gpt models' search tool is `rg`, others
+  get `grep` (spike a live). The read-only set is `view`, `glob`, `grep`
+  and `rg`.
 - Built-in tool names observed from the runtime (`rpc.tools.list`): `bash`,
   `read_bash`, `stop_bash`, `list_bash`, `glob`, `grep`, `view`, `create`,
   `edit`, `web_fetch`, `skill`, `task`, `read_agent`, `list_agents`,

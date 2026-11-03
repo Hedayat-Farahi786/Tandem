@@ -24,7 +24,7 @@ import {
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { shortId, spikeEnv, workDir } from './lib/env.js';
-import { assertAgentBranch, bareClone, addWorktree, commitAll, deleteRemoteBranch, git, parseCodeCommitUrl, pushBranch, removeWorktree, remoteDefaultBranch } from './lib/git.js';
+import { assertAgentBranch, bareClone, addWorktree, commitAll, deleteRemoteBranch, git, parseCodeCommitUrl, pushBranch, removeWorktree, remoteDefaultBranch, resolveRemote } from './lib/git.js';
 import { Report, check } from './lib/report.js';
 
 const env = spikeEnv();
@@ -58,12 +58,13 @@ try {
     report.skip('All steps', 'Set TANDEM_SPIKE_REPO_URL to the SSH URL of a CodeCommit sandbox repo.');
   } else {
     const region = env.awsRegion ?? parsed.region;
+    const gitUrl = resolveRemote(env.repoUrl, env.awsProfile).gitUrl;
     const repoName = parsed.name;
     report.fact('region', region);
     report.fact('repo', repoName);
 
-    const defaultBranch = await report.step('Default branch over SSH', async (ctx) => {
-      const b = await remoteDefaultBranch(env.repoUrl!);
+    const defaultBranch = await report.step('Default branch over git', async (ctx) => {
+      const b = await remoteDefaultBranch(gitUrl);
       check(b, 'Repo has no default branch. Seed it first: pnpm spike:seed -- backend <url>');
       return b;
     });
@@ -72,7 +73,7 @@ try {
     if (defaultBranch) {
       await report.step(`Push a branch ${branch} with one commit`, async (ctx) => {
         mirror = join(work.path, 'mirror.git');
-        await bareClone(env.repoUrl!, mirror);
+        await bareClone(gitUrl, mirror);
         wt = join(work.path, 'wt');
         await addWorktree(mirror, wt, branch, `origin/${defaultBranch}`);
         await writeFile(join(wt, `spike-pr-${id}.md`), `PR spike ${id}\n`);
@@ -102,7 +103,9 @@ try {
         );
       }
       const account = who.Account ?? '';
-      ctx.detail(`account ****${account.slice(-4)}, ${who.Arn?.replace(/:\d{12}:/, ':************:')}`);
+      // The assumed-role session name is usually the person's work identity: never record it.
+      const kind = /:assumed-role\//.test(who.Arn ?? '') ? 'assumed role (SSO or login session)' : /:user\//.test(who.Arn ?? '') ? 'IAM user' : 'other';
+      ctx.detail(`account ****${account.slice(-4)}, ${kind}`);
       return true;
     });
 

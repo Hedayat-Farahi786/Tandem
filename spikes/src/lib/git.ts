@@ -18,8 +18,27 @@ export interface GitOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+let codeCommitProfile: string | undefined;
+
+/**
+ * CodeCommit over HTTPS with the AWS CLI as git's credential source. The AWS CLI understands
+ * every sign-in method (SSO, `aws login` sessions, keys) and refreshes them; git-remote-codecommit's
+ * bundled botocore does not understand `aws login` sessions. The helper is passed per command, so
+ * the user's global git config is never changed. `credential.helper=` first resets inherited helpers.
+ */
+export function useCodeCommitProfile(profile: string | undefined): void {
+  if (profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(profile)) throw new Error(`Invalid AWS profile name: ${profile}`);
+  codeCommitProfile = profile;
+}
+
+function credentialArgs(): string[] {
+  if (!codeCommitProfile) return [];
+  return ['-c', 'credential.helper=', '-c', `credential.helper=!aws --profile ${codeCommitProfile} codecommit credential-helper $@`, '-c', 'credential.UseHttpPath=true'];
+}
+
 function args(base: string[], opts: GitOptions): string[] {
-  return opts.gitDir ? ['--git-dir', opts.gitDir, ...base] : base;
+  const withDir = opts.gitDir ? ['--git-dir', opts.gitDir, ...base] : base;
+  return [...credentialArgs(), ...withDir];
 }
 
 export async function tryGit(gitArgs: string[], opts: GitOptions = {}): Promise<RunResult> {
@@ -55,11 +74,21 @@ export async function commitAll(cwd: string, message: string): Promise<string> {
   return git(['rev-parse', 'HEAD'], { cwd });
 }
 
-/** Returns the default branch name from the remote's HEAD symref, or undefined for an empty repo. */
+/**
+ * Default branch of a remote. Uses the HEAD symref when the server advertises it; CodeCommit over
+ * HTTPS does not, so the fallback matches HEAD's commit to a branch (preferring main, master).
+ * Returns undefined for an empty repo or when it can't tell (the CodeCommit adapter then asks the API).
+ */
 export async function remoteDefaultBranch(url: string, timeoutMs = 30_000): Promise<string | undefined> {
-  const out = await git(['ls-remote', '--symref', url, 'HEAD'], { timeoutMs });
+  const out = await git(['ls-remote', '--symref', url, 'HEAD', 'refs/heads/*'], { timeoutMs });
   const m = /^ref:\s+refs\/heads\/(\S+)\s+HEAD/m.exec(out);
-  return m?.[1];
+  if (m?.[1]) return m[1];
+  const lines = out.split('\n').map((l) => l.trim().split(/\s+/));
+  const head = lines.find((l) => l[1] === 'HEAD')?.[0];
+  if (!head) return undefined;
+  const candidates = lines.filter((l) => l[0] === head && l[1]?.startsWith('refs/heads/')).map((l) => l[1]!.slice('refs/heads/'.length));
+  for (const preferred of ['main', 'master', 'develop', 'trunk']) if (candidates.includes(preferred)) return preferred;
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 export async function lsRemoteHeads(url: string): Promise<Map<string, string>> {
@@ -146,6 +175,24 @@ export async function abortRebase(worktree: string): Promise<void> {
 }
 
 export type CodeCommitTransport = 'ssh' | 'https' | 'grc';
+
+export function codeCommitHttpsUrl(region: string, name: string): string {
+  return `https://git-codecommit.${region}.amazonaws.com/v1/repos/${name}`;
+}
+
+/**
+ * Turns a repo URL into what git should use. codecommit:: and HTTPS CodeCommit URLs become HTTPS
+ * with the AWS CLI credential helper for the profile (from the URL, else the given default).
+ * SSH and non-CodeCommit URLs are used as they are.
+ */
+export function resolveRemote(url: string, defaultProfile?: string): { gitUrl: string; transport: 'ssh' | 'https+aws-cli' | 'other'; profile?: string } {
+  const p = parseCodeCommitUrl(url);
+  if (!p) return { gitUrl: url, transport: 'other' };
+  if (p.transport === 'ssh') return { gitUrl: url, transport: 'ssh' };
+  const profile = p.profile ?? defaultProfile;
+  useCodeCommitProfile(profile);
+  return { gitUrl: codeCommitHttpsUrl(p.region, p.name), transport: 'https+aws-cli', ...(profile ? { profile } : {}) };
+}
 
 /** Parses SSH, HTTPS and git-remote-codecommit (codecommit::region://[profile@]repo) URLs. */
 export function parseCodeCommitUrl(url: string): { region: string; name: string; transport: CodeCommitTransport; profile?: string } | undefined {
