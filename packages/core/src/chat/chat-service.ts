@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, Requirement, type OwnerAnswer, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
+import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, Requirement, type OwnerAnswer, type SkippableCheck, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
@@ -28,7 +28,9 @@ Do not invent requirements; ask. Never write code.`;
 const TASK_RULES = `${READ_ONLY_RULES}
 You answer the owner's questions about this task: its spec, the build, the diff and failing checks. Cite files as repo/path:line.
 If the owner asks to change what will be built, call tandem_request_spec_change: kind "redraft" with the feedback for small or unclear changes, or kind "edit" with the full new spec Markdown when the change is precise. Tandem asks the owner to confirm before anything changes. You never change code.
-If the task is stuck (blocked, failed, or its pull request needs attention), explain in plain words what went wrong and what you would do. When you and the owner agree on how to go on, call tandem_continue_task with a one-line summary and clear guidance for the agent that will do the work; Tandem asks the owner to confirm.`;
+If the task is stuck (blocked, failed, or its pull request needs attention), explain in plain words what went wrong and what you would do. When you and the owner agree on how to go on, call tandem_continue_task with a one-line summary and clear guidance for the agent that will do the work; Tandem asks the owner to confirm.
+You never create branches, commits or pull requests yourself, and neither does this chat: Tandem opens the pull requests on its own once the checks pass and the self-review is done. Never tell the owner "this session can't do it"; say what Tandem will do next.
+If a check fails or hangs for a reason outside the change (for example the test runner can't start on this machine) and the owner wants to go on without it, call tandem_continue_task with skipChecks listing the repo folder and the check (install, lint, typecheck, build, test or integration). Tandem asks the owner to confirm, stops that check if it is running, carries on without it, and says so on the pull request.`;
 
 /** File references in an answer (repo/path:line or path:line), kept only if the file exists. */
 export function extractRefs(text: string, root: string, repos: readonly Repo[]): ChatMessage['refs'] {
@@ -158,7 +160,7 @@ export class ChatService {
 
     const tools: AgentTool<never>[] = [];
     if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>, this.askTool(threadId) as AgentTool<never>);
-    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId) as AgentTool<never>);
+    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId, repos) as AgentTool<never>);
     const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
     const session = await openSession(this.deps, {
       ...(task ? { taskId: task.id } : {}),
@@ -275,16 +277,26 @@ export class ChatService {
     };
   }
 
-  private continueTool(threadId: string): AgentTool<ContinueArgs> {
+  private continueTool(threadId: string, repos: readonly Repo[]): AgentTool<ContinueArgs> {
     return {
       name: 'tandem_continue_task',
-      description: 'Propose how the stuck task should go on: a one-line summary for the owner and guidance for the agent that does the work. The owner confirms in Tandem.',
+      description: 'Propose how the task should go on: a one-line summary for the owner, guidance for the agent that does the work, and optionally checks to skip for this task. The owner confirms in Tandem.',
       schema: ContinueArgs,
       handler: async (a) => {
         if (!a.guidance.trim()) return 'Write the guidance for the agent.';
+        const skip: Array<{ repoId?: string; kind: SkippableCheck }> = [];
+        for (const c of a.skipChecks ?? []) {
+          if (c.kind === 'integration') {
+            skip.push({ kind: c.kind });
+            continue;
+          }
+          const repo = repos.find((r) => r.name === c.repo) ?? (repos.length === 1 ? repos[0] : undefined);
+          if (!repo) return `Name the repo for the ${c.kind} check: one of ${repos.map((r) => r.name).join(', ')}.`;
+          skip.push({ repoId: repo.id, kind: c.kind });
+        }
         const t = await this.thread(threadId);
-        await this.deps.store.threads.upsert({ ...t, pendingContinue: { summary: a.summary.trim() || 'Continue the task', guidance: a.guidance.trim() }, updatedAt: this.deps.clock.iso() });
-        return 'Proposed. The owner will see a "Continue with this" button.';
+        await this.deps.store.threads.upsert({ ...t, pendingContinue: { summary: a.summary.trim() || 'Continue the task', guidance: a.guidance.trim(), ...(skip.length ? { skipChecks: skip } : {}) }, updatedAt: this.deps.clock.iso() });
+        return skip.length ? 'Proposed. The owner will see "Continue with this"; once they confirm, Tandem skips those checks for this task and carries on.' : 'Proposed. The owner will see a "Continue with this" button.';
       },
     };
   }
@@ -299,10 +311,21 @@ export class ChatService {
     const guidance = (text ?? t.pendingContinue?.guidance ?? '').trim();
     if (!guidance) throw new ActionError('Write what Copilot should do.');
     if (text?.trim()) await this.say(threadId, 'user', text.trim());
+    // Confirming Copilot's proposal also applies the checks it proposed to skip.
+    const skip = text?.trim() ? undefined : t.pendingContinue?.skipChecks;
     const { pendingContinue: _done, ...rest } = t;
     await this.deps.store.threads.upsert({ ...rest, updatedAt: this.deps.clock.iso() });
-    const r = await this.tasks.continueWith(t.taskId, guidance);
-    const note = { resumed: 'Continuing the task with your guidance.', fixing: 'Starting another round of fixes with your guidance; the pull request updates when checks pass.', redrafting: 'Redrafting the spec with your change. Earlier approvals will not count for the new version.', noted: 'Noted. Copilot follows this from its next step.' }[r.action];
+    const r = await this.tasks.continueWith(t.taskId, guidance, skip?.length ? { skip } : {});
+    const repoNames = new Map((await this.deps.store.repos.list()).map((x) => [x.id, x.name]));
+    const what = (skip ?? []).map((c) => `${c.kind}${c.repoId ? ` in ${repoNames.get(c.repoId) ?? 'the repo'}` : ''}`).join(', ');
+    const note = {
+      resumed: what ? `Skipping ${what} for this task and continuing.` : 'Continuing the task with your guidance.',
+      fixing: 'Starting another round of fixes with your guidance; the pull request updates when checks pass.',
+      redrafting: 'Redrafting the spec with your change. Earlier approvals will not count for the new version.',
+      noted: 'Noted. Copilot follows this from its next step.',
+      skipping: `Skipping ${what} for this task. If it was running, it stopped; Tandem carries on without it and notes it on the pull request.`,
+      rechecking: `Skipping ${what} and checking again; the pull request updates when the other checks pass.`,
+    }[r.action];
     await this.say(threadId, 'system', note);
     this.deps.events?.emit({ type: 'chat.done', threadId, messageId: '' });
     return r;

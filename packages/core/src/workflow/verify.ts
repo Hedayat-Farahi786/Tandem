@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { CommandKind, CommandResult, CriterionTest, Project, Repo, Task, VerifyRun } from '@tandem/shared';
 import { redactor } from '../policies/redact.js';
 import { worktreeOf, type WorkflowDeps } from './context.js';
+import { checkKey, trackCheck } from './live-checks.js';
 import { assertDiskSpace, detachDependencies, installKey, restoreDependencies, saveDependencies } from './deps.js';
 
 const ORDER: ReadonlyArray<[CommandKind, keyof Repo['commands']]> = [
@@ -26,19 +27,41 @@ export function singleTestCommand(pattern: string, file: string, name: string): 
  * type-check, build and test commands, each recorded criterion test on its own when the repo has a
  * single-test pattern, then the project's integration command.
  */
-export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project, repos: readonly Repo[], attempt: number): Promise<{ run: VerifyRun; tests: CriterionTest[] }> {
+export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: Project, reposAtStart: readonly Repo[], attempt: number): Promise<{ run: VerifyRun; tests: CriterionTest[] }> {
+  // Read the task and repos again: a long step can outlive a change to a repo's commands, and the
+  // owner may have skipped a check since the step began.
+  const task = (await deps.store.tasks.get(taskAtStart.id)) ?? taskAtStart;
+  const repos = await Promise.all(reposAtStart.map(async (r) => (await deps.store.repos.get(r.id)) ?? r));
   const settings = await deps.settings();
+  const skippedNow = async () => (await deps.store.tasks.get(task.id))?.skippedChecks ?? [];
+  const isSkipped = (list: Task['skippedChecks'], repoId: string | undefined, kind: CommandKind) => (list ?? []).some((c) => c.kind === (kind === 'test-single' ? 'test' : kind) && (c.repoId ?? undefined) === repoId);
   const timeoutMs = settings.limits.commandTimeoutMin * 60_000;
   const logDir = join(deps.paths.taskDir(task.id), '.tandem', 'verify');
   await mkdir(logDir, { recursive: true });
   const results: CommandResult[] = [];
+  const skippedResult = (repo: Repo | undefined, kind: CommandKind, command: string, durationMs = 0): CommandResult => {
+    const why = (task.skippedChecks ?? []).find((c) => c.kind === (kind === 'test-single' ? 'test' : kind))?.reason;
+    const res: CommandResult = { ...(repo ? { repoId: repo.id } : {}), kind, command, exitCode: null, timedOut: false, durationMs, outputTail: `Skipped by the owner${why ? `: ${why}` : '.'}`, skipped: true };
+    results.push(res);
+    return res;
+  };
   const exec = async (repo: Repo | undefined, kind: CommandKind, command: string, cwd: string, env?: Record<string, string>): Promise<CommandResult> => {
-    const r = await deps.process.runCommand(command, {
-      cwd,
-      timeoutMs,
-      ...(env ? { env } : {}),
-      onLine: (line) => deps.events?.emit({ type: 'verify.output', taskId: task.id, ...(repo ? { repoId: repo.id } : {}), kind, line: redactor.redact(line) }),
-    });
+    if (isSkipped(task.skippedChecks, repo?.id, kind)) return skippedResult(repo, kind, command);
+    const live = trackCheck(task.id, checkKey(repo?.id, kind));
+    const r = await deps.process
+      .runCommand(command, {
+        cwd,
+        timeoutMs,
+        signal: live.signal,
+        ...(env ? { env } : {}),
+        onLine: (line) => deps.events?.emit({ type: 'verify.output', taskId: task.id, ...(repo ? { repoId: repo.id } : {}), kind, line: redactor.redact(line) }),
+      })
+      .finally(live.done);
+    // Stopped because the owner skipped it while it ran.
+    if (live.signal.aborted && isSkipped(await skippedNow(), repo?.id, kind)) {
+      task.skippedChecks = await skippedNow();
+      return skippedResult(repo, kind, command, r.durationMs);
+    }
     const output = redactor.redact(`${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`);
     const logPath = join(logDir, `${attempt}-${repo?.name ?? 'project'}-${kind}-${results.length}.log`);
     await writeFile(logPath, `$ ${command}\n${output}\n`);
@@ -56,7 +79,7 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
     return res;
   };
 
-  const ok = (r: CommandResult) => r.exitCode === 0 && !r.timedOut;
+  const ok = (r: CommandResult) => r.skipped === true || (r.exitCode === 0 && !r.timedOut);
   /** Install from the dependency cache when the lockfile matches; else install for real and cache it. */
   const install = async (repo: Repo, cmd: string, cwd: string): Promise<CommandResult> => {
     const key = await installKey(cwd, cmd).catch(() => undefined);
@@ -88,7 +111,7 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
         healthy = false;
         break; // nothing else can run without dependencies
       }
-      if (kind === 'test') suitePassed.set(repo.id, ok(r));
+      if (kind === 'test' && !r.skipped) suitePassed.set(repo.id, ok(r));
     }
     if (!healthy) suitePassed.set(repo.id, false);
   }
@@ -100,7 +123,7 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
     const suite = suitePassed.get(t.repoId);
     if (repo?.commands.testSingle) {
       const r = await exec(repo, 'test-single', singleTestCommand(repo.commands.testSingle, t.file, t.name), worktreeOf(deps, task, repo));
-      tests.push({ ...t, scope: 'single', result: ok(r) ? 'pass' : 'fail' });
+      tests.push({ ...t, scope: 'single', result: r.skipped ? 'not-run' : ok(r) ? 'pass' : 'fail' });
     } else {
       tests.push({ ...t, scope: 'suite', result: suite === undefined ? 'not-run' : suite ? 'pass' : 'fail' });
     }
@@ -119,7 +142,12 @@ export async function verifyAll(deps: WorkflowDeps, task: Task, project: Project
 }
 
 export function failuresOf(run: VerifyRun): CommandResult[] {
-  return run.results.filter((r) => r.exitCode !== 0 || r.timedOut);
+  return run.results.filter((r) => !r.skipped && (r.exitCode !== 0 || r.timedOut));
+}
+
+/** Checks the owner skipped in this run, for the pull request and the task's history. */
+export function skippedOf(run: VerifyRun): CommandResult[] {
+  return run.results.filter((r) => r.skipped);
 }
 
 export function failureNotes(run: VerifyRun, repoNames: Map<string, string>): string[] {

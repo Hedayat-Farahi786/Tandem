@@ -311,7 +311,8 @@ export interface ProcessResult {
 
 export interface ProcessRunner {
   /** Runs an owner-configured command line through the platform shell, in `cwd`. */
-  runCommand(command: string, opts: { cwd: string; timeoutMs: number; env?: Record<string, string>; onLine?: (line: string) => void }): Promise<ProcessResult>;
+  /** Runs a command line; `signal` stops it (and everything it started) early. */
+  runCommand(command: string, opts: { cwd: string; timeoutMs: number; env?: Record<string, string>; onLine?: (line: string) => void; signal?: AbortSignal }): Promise<ProcessResult>;
 }
 
 export interface Clock {

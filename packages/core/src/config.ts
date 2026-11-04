@@ -18,6 +18,25 @@ const num = (v: string | undefined, name: string): number | undefined => {
 };
 const str = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
 
+/** Which environment variable sets each overridable setting ("a.b" path). */
+export const SETTING_ENV: Readonly<Record<string, string>> = {
+  'copilot.host': 'COPILOT_GH_HOST',
+  'copilot.cliPath': 'COPILOT_CLI_PATH',
+  'copilot.buildModel': 'TANDEM_MODEL',
+  'copilot.lightModel': 'TANDEM_LIGHT_MODEL',
+  'aws.profile': 'TANDEM_AWS_PROFILE',
+  'aws.region': 'TANDEM_AWS_REGION',
+  'limits.maxConcurrentBuilds': 'TANDEM_MAX_CONCURRENT_BUILDS',
+  'limits.buildTimeoutMin': 'TANDEM_BUILD_TIMEOUT_MIN',
+  'budget.perTaskPrompts': 'TANDEM_BUDGET_PER_TASK',
+  'budget.perDayPrompts': 'TANDEM_BUDGET_PER_DAY',
+  'budget.perTaskCredits': 'TANDEM_CREDITS_PER_TASK',
+  'budget.perDayCredits': 'TANDEM_CREDITS_PER_DAY',
+};
+
+/** The value at an "a.b" path of a settings object. */
+export const settingAt = (s: unknown, path: string): unknown => path.split('.').reduce<unknown>((n, k) => (n && typeof n === 'object' ? (n as Record<string, unknown>)[k] : undefined), s);
+
 /**
  * The one typed config. Environment variables (documented in .env.example) override stored
  * settings. Secrets never come through here: they live in the OS keychain.

@@ -17,6 +17,7 @@ import {
   Scissors,
   ShieldAlert,
   Sparkles,
+  SkipForward,
   LayoutList,
   MessagesSquare,
   ThumbsUp,
@@ -68,6 +69,7 @@ import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
 import { TaskActivity } from "./TaskActivity";
 import { TaskChatView, type PanelTab } from "./TaskChat";
+import { SkipCheckButton } from "./SkipCheck";
 import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
@@ -926,8 +928,8 @@ function ChangesTab({ d }: { d: TaskDetail }) {
 
 /* ------------------------------------------------------------------ checks */
 
-function CommandRow({ r }: { r: CommandResult }) {
-  const ok = r.exitCode === 0 && !r.timedOut;
+function CommandRow({ r, taskId, repoName, canSkip }: { r: CommandResult; taskId: string; repoName?: string | undefined; canSkip: boolean }) {
+  const ok = r.skipped === true || (r.exitCode === 0 && !r.timedOut);
   const [open, setOpen] = useState(!ok);
   return (
     <li className="py-2.5">
@@ -937,7 +939,9 @@ function CommandRow({ r }: { r: CommandResult }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 text-left text-[13px]"
       >
-        {ok ? (
+        {r.skipped ? (
+          <SkipForward aria-hidden className="size-4 shrink-0 text-faint" />
+        ) : ok ? (
           <CheckCircle2 aria-hidden className="size-4 shrink-0 text-ok" />
         ) : (
           <XCircle aria-hidden className="size-4 shrink-0 text-danger" />
@@ -947,9 +951,14 @@ function CommandRow({ r }: { r: CommandResult }) {
           {r.command}
         </code>
         <span className="text-[12px] text-faint tabular-nums">
-          {r.timedOut ? "timed out" : `${(r.durationMs / 1000).toFixed(1)} s`}
+          {r.skipped ? "skipped by you" : r.timedOut ? "timed out" : `${(r.durationMs / 1000).toFixed(1)} s`}
         </span>
       </button>
+      {!ok && canSkip && (
+        <div className="mt-1.5 flex justify-end">
+          <SkipCheckButton taskId={taskId} repoId={r.repoId} repoName={repoName} kind={r.kind} />
+        </div>
+      )}
       {open && r.outputTail.trim() && (
         <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
           {r.outputTail.trim()}
@@ -1100,7 +1109,7 @@ function ChecksTab({ d }: { d: TaskDetail }) {
                     {last.results
                       .filter((r) => (r.repoId ?? "") === repoId)
                       .map((r, i) => (
-                        <CommandRow key={i} r={r} />
+                        <CommandRow key={i} r={r} taskId={d.task.id} repoName={d.repos.length > 1 ? repoName(repoId) : undefined} canSkip={d.task.state !== "DONE" && d.task.state !== "CANCELLED"} />
                       ))}
                   </ul>
                 </div>

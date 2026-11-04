@@ -97,6 +97,13 @@ export type SizeEstimate = z.infer<typeof SizeEstimate>;
 
 export const TaskSource = z.enum(['chat', 'form', 'jira', 'split']);
 
+/** Checks the owner can skip for one task (a test runner that can't start on this machine, say). */
+export const SkippableCheck = z.enum(['install', 'lint', 'typecheck', 'build', 'test', 'integration']);
+export type SkippableCheck = z.infer<typeof SkippableCheck>;
+/** A check the owner skipped for a task: Tandem doesn't run it, and the pull request says so. */
+export const SkippedCheck = z.object({ repoId: Id.optional(), kind: SkippableCheck, reason: z.string(), at: Iso });
+export type SkippedCheck = z.infer<typeof SkippedCheck>;
+
 export const Task = z.object({
   id: Id,
   key: z.string(),
@@ -128,6 +135,8 @@ export const Task = z.object({
   model: z.string().optional(),
   /** What the owner told Copilot to do differently; every later agent prompt for the task includes it. */
   guidance: z.array(z.object({ text: z.string(), at: Iso })).default([]),
+  /** Checks the owner skipped for this task. */
+  skippedChecks: z.array(SkippedCheck).optional(),
   slug: z.string(),
   branch: z.string(),
   createdAt: Iso,
@@ -206,6 +215,8 @@ export const CommandResult = z.object({
   durationMs: z.number().int().nonnegative(),
   outputTail: z.string(),
   logPath: z.string().optional(),
+  /** Not run (or stopped) because the owner skipped this check for the task. */
+  skipped: z.boolean().optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 
@@ -326,7 +337,7 @@ export const ChatThread = z.object({
   /** Task chat: a spec change the agent proposed, waiting for the owner to confirm. */
   pendingSpecChange: z.object({ kind: z.enum(['redraft', 'edit']), feedback: z.string().optional(), markdown: z.string().optional(), summary: z.string() }).optional(),
   /** Task chat: how the agent proposes to continue a stuck task, waiting for the owner to confirm. */
-  pendingContinue: z.object({ summary: z.string(), guidance: z.string() }).optional(),
+  pendingContinue: z.object({ summary: z.string(), guidance: z.string(), skipChecks: z.array(z.object({ repoId: Id.optional(), kind: SkippableCheck })).optional() }).optional(),
   /** Request chat: questions the agent asked, waiting for the owner's answers. */
   pendingQuestions: z.object({ questions: z.array(OwnerQuestion), askedAt: Iso }).optional(),
   createdAt: Iso,

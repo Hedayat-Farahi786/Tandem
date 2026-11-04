@@ -101,6 +101,8 @@ export function harness(o: HarnessOptions = {}) {
   const agent = new ScriptedAgent(async (call) => {
     const r = route(call);
     if (r === 'unknown') throw new Error(`unrouted prompt: ${call.prompt.slice(0, 80)}`);
+    // Like a real worktree: a run that edits code leaves changes until Tandem commits them.
+    if (r === 'implement' || r === 'fix' || r === 'reviewFix' || r === 'conflict' || r === 'coverage') git.dirty = true;
     return (overrides[r] ?? defaults[r])(call);
   });
   const host = new FakeSourceHost('codecommit', o.host);

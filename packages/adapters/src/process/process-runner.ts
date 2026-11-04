@@ -23,7 +23,7 @@ function killTree(pid: number): void {
 
 /** Runs owner-configured command lines (npm test, ...) through the platform shell. */
 export class ShellProcessRunner implements ProcessRunner {
-  async runCommand(command: string, opts: { cwd: string; timeoutMs: number; env?: Record<string, string>; onLine?: (line: string) => void }): Promise<ProcessResult> {
+  async runCommand(command: string, opts: { cwd: string; timeoutMs: number; env?: Record<string, string>; onLine?: (line: string) => void; signal?: AbortSignal }): Promise<ProcessResult> {
     const started = performance.now();
     return new Promise((resolve, reject) => {
       const child = spawn(command, {
@@ -49,6 +49,12 @@ export class ShellProcessRunner implements ProcessRunner {
         timedOut = true;
         if (child.pid) killTree(child.pid);
       }, opts.timeoutMs);
+      // Stopped early (the owner skipped this check): end it and everything it started.
+      const stop = () => {
+        if (child.pid) killTree(child.pid);
+      };
+      if (opts.signal?.aborted) stop();
+      else opts.signal?.addEventListener('abort', stop, { once: true });
       child.stdout.setEncoding('utf8').on('data', (d: string) => {
         stdout = (stdout + d).slice(-MAX_BUFFER);
         feed('out', d);
@@ -63,6 +69,7 @@ export class ShellProcessRunner implements ProcessRunner {
       });
       child.on('close', (code) => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', stop);
         if (partial.out) opts.onLine?.(partial.out);
         if (partial.err) opts.onLine?.(partial.err);
         resolve({ exitCode: timedOut ? null : code, timedOut, durationMs: Math.round(performance.now() - started), stdout, stderr });

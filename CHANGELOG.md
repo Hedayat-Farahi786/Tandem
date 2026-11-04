@@ -8,52 +8,27 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
-- **Traceability.** An append-only audit log in which every entry is sealed
-  with a SHA-256 hash chain: state changes, approvals, spec edits, commits
-  pushed, pull requests, and every change to settings, tokens (name only),
-  repositories, projects and rules, with who made it. Changing or removing
-  an entry is detected.
-- **Task › Activity**: what Copilot did on the task, step by step and live:
-  the instructions it got, its thinking, the files it read and edited, the
-  commands it ran with their output, what Tandem blocked, and its answers,
-  with the model, time and credits of each step.
-- **Getting stuck tasks moving**: when a task is blocked, fails or its pull
-  request needs attention, Tandem asks for help in the task chat. Answer
-  under the message or in the chat with **Continue with this**, or let
-  Copilot propose a way forward to confirm. The guidance goes with every
-  later Copilot step; a pull request that needs attention gets another round
-  of fixes and is updated when checks pass.
-- **Chat like a chat app**: while Copilot works, a live card shows what it is
-  doing now in plain words ("Reading app.routes.ts"), a timer and its latest
-  steps; afterwards they fold into one line ("Worked for 25s · read 10 files ·
-  9 searches") that opens into a grouped timeline with Copilot's thinking. The
-  view follows new content while you are at the bottom, glides down when you
-  send, and offers a "jump to latest" button when you scroll up; answers have
-  a copy action; a slim title bar and a centred column.
-- **Settings › Audit log**: verification of the audit log, its head hash, and
-  CSV or JSON export of everything recorded.
-- **Task › Trace**: request → criteria and their tests → spec versions and
-  approvals → Copilot runs → checks and review → commits and pull requests
-  → audit entries, with a Markdown report to download.
-- **Search** (Ctrl K / ⌘K) for pages, tasks and projects.
-- **Rules for Copilot** in plain words, with examples to start from, a
-  choice of repository (or all of them), and removal before a task saves a
-  rule to the repository.
-- **Tasks** as one list, most recent first, with All / Needs you / In
-  progress / Done filters.
-- A project switcher at the top of the sidebar and a count of tasks that
-  need you next to Tasks.
-- **Project icons**: each project shows its website's real favicon, read
-  from its repository (sandboxed), in its own colours, or its initials
-  when there is none.
-- **Logos** for the services and model makers Tandem works with: GitHub,
-  GitHub Copilot, AWS, Jira, and Anthropic, OpenAI, Google, xAI, Mistral,
-  Meta and Microsoft in the model menu. Bundled with the app; see THIRD_PARTY_NOTICES.md.
-- **Language and framework logos** next to each repository (TypeScript,
-  React, Fastify, Next.js, Python and about 50 more).
-- Everything clickable shows the pointer cursor.
+- **Skip a check for one task.** A check that fails or hangs for reasons
+  outside the change (a test runner that can't start on this machine) can
+  be skipped from the Checks panel, from the live "Running the checks" line,
+  or by asking in the task chat. Tandem stops it if it's running, carries on
+  without it, and the pull request lists it as skipped, with the reason.
 
-### Changed
+### Fixed
+
+- Verification read a repository's commands once per step, so a corrected
+  test command only applied to the next task. It now reads them every round.
+- A Copilot run stopped mid-fix (credit limit, restart) left its edits
+  uncommitted, and the next rebase failed with "You have unstaged changes".
+  Tandem now commits and checks those edits first.
+- Settings fixed by environment variables at start (such as
+  `TANDEM_CREDITS_PER_TASK`) looked editable, but changes did nothing. They
+  now show as locked, naming the variable, and saving a change is refused
+  with an explanation.
+- Saying the same thing twice in the task chat no longer repeats it in every
+  later Copilot prompt.
+- The task chat no longer answers "this session can't create a PR": it says
+  what Tandem will do next.
 
 - **Questions you can answer with a click.** In a request chat, Copilot
   asks through a "Copilot needs you" card: short questions, one at a time,

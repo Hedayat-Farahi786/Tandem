@@ -410,12 +410,18 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         await ctx.saveProgress({ reviewed: true });
       }
       const open = (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open');
-      if (open.length && !ctx.task.progress.reviewFixDone) {
-        const s = await buildSession(deps, ctx, project, repos, 'fix', [resolveFindingTool(deps, task) as AgentTool<never>]);
-        try {
-          await s.send(P.reviewFixPrompt(open));
-        } finally {
-          await s.stop();
+      // A fix run that was stopped (credit limit, restart) may already have marked its findings fixed
+      // without its edits being committed: commit and check them instead of leaving them behind.
+      const started = ctx.task.progress.reviewFixStarted === true;
+      if ((open.length || started) && !ctx.task.progress.reviewFixDone) {
+        if (open.length) {
+          await ctx.saveProgress({ reviewFixStarted: true });
+          const s = await buildSession(deps, ctx, project, repos, 'fix', [resolveFindingTool(deps, task) as AgentTool<never>]);
+          try {
+            await s.send(P.reviewFixPrompt(open));
+          } finally {
+            await s.stop();
+          }
         }
         await commitRepos(deps, ctx.task, repos, `fix(${task.key}): address self-review findings`);
         await ctx.saveProgress({ reviewFixDone: true });
@@ -430,6 +436,12 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
       const names = await repoNames(task);
+      // Edits an interrupted run left uncommitted would block the rebase: keep them, and check them.
+      let leftover: Partial<Task> | undefined;
+      if (await commitRepos(deps, task, repos, `fix(${task.key}): keep changes from an interrupted Copilot run`)) {
+        const { run } = await verifyAll(deps, task, project, repos, 150);
+        if (!run.passed) leftover = attention(task, failureNotes(run, names).map((n) => `After an interrupted run: ${n}`));
+      }
       for (const repo of repos) {
         const host = deps.hosts(repo);
         await host.mirror(repo);
@@ -458,7 +470,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           };
         }
       }
-      return { kind: 'next' };
+      return { kind: 'next', ...(leftover ? { patch: leftover } : {}) };
     },
 
     'SELF_REVIEW:push': async (ctx) => {

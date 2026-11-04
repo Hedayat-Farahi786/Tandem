@@ -11,6 +11,7 @@ import { Button, ErrorState, IconButton, Loading, Pill, Spinner, TabPanel, Tabs,
 import { StatusIcon } from '../ui/visual';
 import { ThreadPanel, type TimelineItem } from './Chat';
 import { RunCard, type RunActivity } from './TaskActivity';
+import { SkipCheckButton } from './SkipCheck';
 
 /** The parts of a task that open beside its conversation. */
 export type PanelTab = 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'trace';
@@ -94,15 +95,15 @@ const clock = (ms: number) => {
  * What Tandem is doing when Copilot isn't (installing, building, running the tests): a live line at
  * the end of the conversation, with the latest output, so a long step never looks stuck.
  */
-function TandemWorking({ taskId, state, since }: { taskId: string; state: TaskState; since: string }) {
+function TandemWorking({ taskId, state, since, repos }: { taskId: string; state: TaskState; since: string; repos: TaskDetail['repos'] }) {
   const [now, setNow] = useState(() => Date.now());
-  const [out, setOut] = useState<{ kind: string; line: string } | null>(null);
+  const [out, setOut] = useState<{ kind: string; repoId?: string | undefined; line: string; from: number } | null>(null);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   useEvents((e) => {
-    if (e.type === 'verify.output' && e.taskId === taskId && e.line.trim()) setOut({ kind: e.kind, line: e.line.trim() });
+    if (e.type === 'verify.output' && e.taskId === taskId && e.line.trim()) setOut((o) => ({ kind: e.kind, repoId: e.repoId, line: e.line.trim(), from: o && o.kind === e.kind && o.repoId === e.repoId ? o.from : Date.now() }));
   });
   return (
     <div role="status" className="flex animate-in items-start gap-3 rounded-xl px-1 py-1">
@@ -116,6 +117,13 @@ function TandemWorking({ taskId, state, since }: { taskId: string; state: TaskSt
           <span className="ml-auto shrink-0 text-[12px] text-faint tabular-nums">{clock(now - Date.parse(since))}</span>
         </p>
         {out && <p className="mt-0.5 truncate font-mono text-[12px] text-faint" title={out.line}>{out.line}</p>}
+        {/* A check that runs on and on (a test runner waiting for changes, say) can be skipped. */}
+        {out && state === 'VERIFYING' && now - out.from > 60_000 && (
+          <div className="mt-2 flex animate-in items-center gap-2 text-[12px] text-muted">
+            <span>Taking long?</span>
+            <SkipCheckButton taskId={taskId} repoId={out.repoId} repoName={repos.length > 1 ? repos.find((r) => r.id === out.repoId)?.name : undefined} kind={out.kind} variant="secondary" label={`Skip ${out.kind === 'test-single' ? 'tests' : out.kind === 'typecheck' ? 'type check' : out.kind === 'test' ? 'tests' : out.kind}`} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -241,7 +249,7 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
             timeline={timeline}
             tail={
               <>
-                {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking taskId={d.task.id} state={d.task.state} since={since} />}
+                {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking taskId={d.task.id} state={d.task.state} since={since} repos={d.repos} />}
                 <div className="empty:hidden">{banner}</div>
               </>
             }

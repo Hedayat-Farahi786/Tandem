@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { Budget } from '@tandem/core';
+import { Budget, settingAt } from '@tandem/core';
 import { inspectMirror } from '@tandem/adapters';
 import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate, estimateTaskCredits, type ModelOption } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
@@ -63,8 +63,14 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   });
 
   app.get('/api/settings', async () => tandem.settings());
+  /** Settings fixed by environment variables at start: shown read-only, with the variable's name. */
+  app.get('/api/settings/locked', async () => tandem.lockedSettings);
   app.put('/api/settings', async (req) => {
     const next = Settings.parse(req.body);
+    // A value set by an environment variable can't change here: saving it would do nothing.
+    const current = await tandem.settings();
+    const blocked = Object.entries(tandem.lockedSettings).filter(([path]) => JSON.stringify(settingAt(next, path)) !== JSON.stringify(settingAt(current, path)));
+    if (blocked.length) throw new HttpError(409, `${blocked.map(([path, env]) => `${path} is set by ${env} when Tandem starts`).join('; ')}. Change it there and restart Tandem.`);
     const before = await store.settings.get();
     await store.settings.set(next);
     const changes = settingsDiff(before, next);

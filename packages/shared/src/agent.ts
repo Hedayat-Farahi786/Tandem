@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Criterion, SizeEstimate } from './domain.js';
+import { Criterion, SizeEstimate, SkippableCheck } from './domain.js';
 
 /** Structured outputs the agent returns. Code validates them; the model never decides a gate. */
 
@@ -96,5 +96,10 @@ export const ContinueArgs = z.object({
   summary: z.string(),
   /** Clear instructions for the agent that does the work. */
   guidance: z.string(),
+  /**
+   * Checks to skip for this task, when the owner wants that: e.g. tests that can't run on this
+   * machine. `repo` is the repo's folder name; leave it out for the project's integration check.
+   */
+  skipChecks: z.array(z.object({ repo: z.string().optional(), kind: SkippableCheck })).optional(),
 });
 export type ContinueArgs = z.infer<typeof ContinueArgs>;

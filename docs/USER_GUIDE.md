@@ -167,6 +167,23 @@ its next step.
 Chat answers show what Copilot did to write them ("Read 3 files · searched
 twice"); open the line to see each step.
 
+### Skipping a check for one task
+
+Sometimes a check fails or never ends for a reason that has nothing to do
+with the change: the browser tests need Chrome and this machine has none,
+say. Copilot can't fix that, and more fix rounds only cost credits. Skip it
+for this task instead:
+
+- On **Checks**, a failing or timed-out check has **Skip for this task**.
+- While a check runs for more than a minute, the live line in the task's
+  conversation offers **Skip** for it.
+- Or say so in the task chat ("ignore the Chrome tests and open the PR"):
+  Copilot proposes the skip and **Continue with this** applies it.
+
+Tandem stops the check if it is running, carries on without it, and lists
+it on the pull request as skipped by you, with your reason. It's in the
+audit log too. Other tasks still run the check.
+
 ### Spec changes from the task chat
 
 Ask for a change in the task's chat ("also return the version"). Tandem

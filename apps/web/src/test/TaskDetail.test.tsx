@@ -158,6 +158,18 @@ describe('Task detail', () => {
     expect(screen.queryByRole('button', { name: 'Fix conflicts' })).toBeNull();
   });
 
+  it('a check that fails or hangs for reasons outside the change can be skipped for this task', async () => {
+    const d = detail({ verifyRuns: [{ id: 'v1', taskId: 'task1', attempt: 0, passed: false, createdAt: '2026-11-03T09:00:00.000Z', results: [{ repoId: 'r1', kind: 'lint', command: 'npm run lint', exitCode: 0, timedOut: false, durationMs: 900, outputTail: '' }, { repoId: 'r1', kind: 'test', command: 'npm test', exitCode: null, timedOut: true, durationMs: 900000, outputTail: 'Watching for file changes' }] }] }, { state: 'VERIFYING' });
+    const { api, user } = setup(d, { 'POST /api/tasks/task1/skip-check': { action: 'skipping' } });
+    await user.click(await screen.findByRole('tab', { name: /Checks/ }));
+    expect(screen.getAllByRole('button', { name: 'Skip for this task' })).toHaveLength(1); // only the failing one
+    await user.click(screen.getByRole('button', { name: 'Skip for this task' }));
+    const dialog = screen.getByRole('dialog', { name: 'Skip tests?' });
+    await user.type(within(dialog).getByLabelText(/Why/), 'Chrome is not installed here.');
+    await user.click(within(dialog).getByRole('button', { name: 'Skip tests' }));
+    await waitFor(() => expect(posted(api, '/api/tasks/task1/skip-check')[0]?.body).toEqual({ repoId: 'r1', kind: 'test', reason: 'Chrome is not installed here.' }));
+  });
+
   it('checks: criteria mapped to tests, verification output, findings turned into rules', async () => {
     const d = detail(
       {

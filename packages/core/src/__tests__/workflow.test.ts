@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { RetryableError } from '../ports.js';
+import { BudgetError } from '../budget.js';
 import { GOOD_REQUIREMENT, SINGLE_SPEC, harness, repoFromPrompt } from './harness.js';
 
 const states = async (h: ReturnType<typeof harness>, id: string) => (await h.store.transitions.list(id)).map((t) => t.to);
@@ -426,7 +427,85 @@ describe('workflow: PRs', () => {
   });
 });
 
+describe('workflow: checks the owner skips', () => {
+  it('skips a failing check on an open PR: checked again without it, no new Copilot run, and the PR says so', async () => {
+    const h = harness({ process: { 'npm test': { exitCode: 1, stdout: 'No binary for Chrome browser on your platform.' } } });
+    let t = await h.approveAll((await h.start()).id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: true });
+    const runs = (await h.store.runs.listFor({ taskId: t.id })).length;
+    const r = await h.service.continueWith(t.id, 'Chrome is not installed here, so the browser tests cannot start.', { skip: [{ repoId: 'r-app', kind: 'test' }] });
+    expect(r.action).toBe('rechecking');
+    await h.runner.runUntilIdle();
+    t = await h.get(t.id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: false, skippedChecks: [{ repoId: 'r-app', kind: 'test', reason: 'Chrome is not installed here, so the browser tests cannot start.' }] });
+    expect((await h.store.runs.listFor({ taskId: t.id })).length).toBe(runs); // no new Copilot run
+    const last = (await h.store.verifyRuns.list(t.id)).at(-1)!;
+    expect(last.passed).toBe(true);
+    expect(last.results.find((x) => x.kind === 'test')).toMatchObject({ skipped: true, outputTail: expect.stringContaining('Chrome is not installed') });
+    expect(h.host.updatedDescriptions.at(-1)!.description).toContain('skipped by the owner');
+    expect((await h.store.audit.list({ taskId: t.id })).some((e) => e.action === 'checks.skipped')).toBe(true);
+  });
+
+  it('skipping a check that hangs stops it at once, and the task goes on without it', async () => {
+    const h = harness({ process: { 'npm test': { hang: true } } });
+    const t = await h.start();
+    await h.service.approve(t.id, 'Owner');
+    await h.service.recordPmApproval(t.id, { name: 'Pat', date: h.clock.iso(), evidence: 'chat' });
+    const done = h.runner.runUntilIdle();
+    for (let i = 0; i < 200 && !h.process.calls.some((c) => c.command === 'npm test'); i++) await new Promise((r) => setTimeout(r, 5));
+    expect((await h.get(t.id)).state).toBe('VERIFYING');
+    const r = await h.service.continueWith(t.id, 'The test runner waits for changes and never ends.', { skip: [{ repoId: 'r-app', kind: 'test' }] });
+    expect(r.action).toBe('skipping');
+    await done;
+    const end = await h.get(t.id);
+    expect(end).toMatchObject({ state: 'PR_OPEN', needsAttention: false });
+    expect(h.agent.calls.filter((c) => c.prompt.startsWith('Verification failed'))).toHaveLength(0);
+    expect(h.process.calls.filter((c) => c.command === 'npm test')).toHaveLength(1); // stopped, never run again
+  });
+
+  it("picks up a repo's changed test command in the next round of the same step", async () => {
+    const h = harness({
+      process: {
+        'npm test': (n) => {
+          // The owner fixes the repo's test command while the first round fails.
+          if (n === 1) void h.store.repos.get('r-app').then((r) => h.store.repos.upsert({ ...r!, commands: { ...r!.commands, test: 'npm run test:ci' } }));
+          return { exitCode: 1 };
+        },
+      },
+    });
+    const t = await h.approveAll((await h.start()).id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: false });
+    expect(h.process.calls.map((c) => c.command)).toContain('npm run test:ci');
+    expect((await h.store.verifyRuns.list(t.id)).map((v) => v.passed)).toEqual([false, true]);
+  });
+});
+
 describe('workflow: resilience', () => {
+  it('a review fix stopped at the credit limit keeps its edits: committed and checked on resume, not left to block the rebase', async () => {
+    const h = harness({
+      script: {
+        review: () => ({ value: { findings: [{ severity: 'low', category: 'criteria', repo: 'app', title: 'Save button not tested', detail: 'Add a test.' }] } }),
+      },
+    });
+    const started = await h.start();
+    h.overrides.reviewFix = async () => {
+      // It marks the finding fixed, edits code, then hits the limit before Tandem commits.
+      const f = (await h.store.findings.list(started.id))[0]!;
+      await h.store.findings.replace(started.id, [{ ...f, status: 'fixed' }]);
+      throw new BudgetError('limit');
+    };
+    let t = await h.approveAll(started.id);
+    expect(['BLOCKED', 'FAILED']).toContain(t.state); // stopped mid-fix
+    expect(h.git.commits.map((c) => c.message)).not.toContain('fix(TND-1): address self-review findings');
+    await h.service.resume(t.id);
+    await h.runner.runUntilIdle();
+    t = await h.get(t.id);
+    expect(t.blockedMessage ?? '').toBe('');
+    expect(t.state).toBe('PR_OPEN');
+    expect(h.git.commits.map((c) => c.message)).toContain('fix(TND-1): address self-review findings');
+    expect((await h.store.verifyRuns.list(t.id)).at(-1)!.attempt).toBe(100);
+  });
+
   it('resumes a build interrupted by a restart, in the same agent session', async () => {
     const h = harness();
     let hang = true;

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   Runner,
   TaskService,
+  SETTING_ENV,
   effectiveSettings,
   workflowHandlers,
   type AgentRuntime,
@@ -52,6 +53,8 @@ export interface Tandem {
   runner: Runner;
   service: TaskService;
   settings: () => Promise<Settings>;
+  /** Settings fixed by environment variables when Tandem started ("a.b" path -> variable name). */
+  lockedSettings: Record<string, string>;
   codecommit: CodeCommitHost;
   github: GitHubHost;
   secrets: SecretStore;
@@ -133,6 +136,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     runner,
     service,
     settings,
+    lockedSettings: Object.fromEntries(Object.keys(o.overrides ?? {}).map((p) => [p, SETTING_ENV[p] ?? 'an environment variable'])),
     codecommit: hosts.codecommit,
     github: hosts.github,
     secrets,

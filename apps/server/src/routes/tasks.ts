@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { approvalState, checkReadiness, finalizeSpec, stepsOf, validateSpec, currentSpecTemplate, affectedRepos, Budget } from '@tandem/core';
 import { runGit } from '@tandem/adapters';
-import { Requirement, TaskState, type Task } from '@tandem/shared';
+import { Requirement, SkippableCheck, TaskState, type Task } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
 import { specPdf } from '../pdf.js';
 import { auditOwner } from '../audit.js';
@@ -118,6 +118,13 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
     const { text } = z.object({ text: z.string() }).parse(req.body);
     const thread = await ctx.chat.taskThread(id(req));
     return ctx.chat.continueTask(thread.id, text);
+  });
+  /** Skip one check for this task (it fails or hangs for reasons outside the change). */
+  app.post('/api/tasks/:id/skip-check', async (req) => {
+    const b = z.object({ repoId: z.string().optional(), kind: SkippableCheck, reason: z.string().optional() }).parse(req.body);
+    const why = b.reason?.trim() || `Skipped the ${b.kind} check.`;
+    const r = await service.continueWith(id(req), why, { skip: [{ repoId: b.repoId, kind: b.kind }] });
+    return { action: r.action, task: r.task };
   });
   app.post('/api/tasks/:id/cancel', async (req) => service.cancel(id(req)));
   app.post('/api/tasks/:id/fix-conflicts', async (req) => {

@@ -58,15 +58,23 @@ export function sequentialIds(prefix = 'id'): () => string {
 
 /* ------------------------------------------------------------------ processes */
 
+type FakeResult = Partial<ProcessResult> & { hang?: boolean };
+
 export class FakeProcessRunner implements ProcessRunner {
   readonly calls: Array<{ command: string; cwd: string }> = [];
   /** Command -> result. A function lets a test fail the first run and pass later. */
-  constructor(private readonly results: Record<string, Partial<ProcessResult> | ((n: number) => Partial<ProcessResult>)> = {}) {}
-  async runCommand(command: string, opts: { cwd: string; onLine?: (line: string) => void }): Promise<ProcessResult> {
+  /** `hang: true` runs until stopped through the signal (a watch-mode test runner, say). */
+  constructor(private readonly results: Record<string, FakeResult | ((n: number) => FakeResult)> = {}) {}
+  async runCommand(command: string, opts: { cwd: string; onLine?: (line: string) => void; signal?: AbortSignal }): Promise<ProcessResult> {
     this.calls.push({ command, cwd: opts.cwd });
     const n = this.calls.filter((c) => c.command === command).length;
     const spec = this.results[command];
-    const r = typeof spec === 'function' ? spec(n) : (spec ?? {});
+    const { hang, ...r } = typeof spec === 'function' ? spec(n) : (spec ?? {});
+    if (hang) {
+      opts.onLine?.('Watching for file changes…');
+      await new Promise<void>((resolve) => (opts.signal?.aborted ? resolve() : opts.signal?.addEventListener('abort', () => resolve(), { once: true })));
+      return { exitCode: null, timedOut: false, durationMs: 5, stdout: 'Watching for file changes…', stderr: '' };
+    }
     const out: ProcessResult = { exitCode: 0, timedOut: false, durationMs: 5, stdout: '', stderr: '', ...r };
     for (const line of `${out.stdout}${out.stderr}`.split('\n').filter(Boolean)) opts.onLine?.(line);
     return out;
@@ -177,12 +185,22 @@ export class FakeGit implements GitOps {
   readonly commits: Array<{ worktree: string; message: string }> = [];
   readonly removed: string[] = [];
   conflicts: string[] = [];
-  dirty = true;
-  async status(): Promise<string[]> {
-    return this.dirty ? ['M file'] : [];
+  /** Setting it marks every worktree as changed; a commit cleans just its own worktree. */
+  private changed = true;
+  private readonly clean = new Set<string>();
+  get dirty(): boolean {
+    return this.changed;
+  }
+  set dirty(v: boolean) {
+    this.changed = v;
+    this.clean.clear();
+  }
+  async status(worktree?: string): Promise<string[]> {
+    return this.changed && !(worktree && this.clean.has(worktree)) ? ['M file'] : [];
   }
   async commitAll(worktree: string, message: string): Promise<string | undefined> {
     this.commits.push({ worktree, message });
+    this.clean.add(worktree);
     return `commit-${this.commits.length}`;
   }
   async head(): Promise<string> {

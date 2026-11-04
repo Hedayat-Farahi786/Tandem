@@ -1,4 +1,4 @@
-import { Requirement, type Approval, type Project, type PullRequest, type Rule, type Task, type TaskState } from '@tandem/shared';
+import { Requirement, type Approval, type Project, type PullRequest, type Rule, type SkippableCheck, type Task, type TaskState } from '@tandem/shared';
 import { branchName, slugify } from '../naming.js';
 import { checkReadiness } from '../policies/ready.js';
 import { redactor } from '../policies/redact.js';
@@ -8,6 +8,7 @@ import { canTransition } from '../state-machine.js';
 import { NotFoundError, affectedRepos, loadProject, type WorkflowDeps } from './context.js';
 import { approvalState, currentSpecTemplate } from './steps.js';
 import { ownerOf } from '../audit.js';
+import { checkKey, stopCheck } from './live-checks.js';
 
 export class ActionError extends Error {
   override readonly name = 'ActionError';
@@ -271,17 +272,25 @@ export class TaskService {
    * includes it), then: a blocked or failed task resumes; a PR whose checks still fail gets another
    * fix round; a spec in review is redrafted with it; a task that is working uses it at its next step.
    */
-  async continueWith(taskId: string, text: string): Promise<{ task: Task; action: 'resumed' | 'fixing' | 'redrafting' | 'noted' }> {
+  /**
+   * Continues a task with the owner's words. `skip` also skips checks for this task (a test runner
+   * that can't start on this machine, say): Tandem stops them if they're running, doesn't run them
+   * again, and the pull request says so.
+   */
+  async continueWith(taskId: string, text: string, o: { skip?: Array<{ repoId?: string | undefined; kind: SkippableCheck }> } = {}): Promise<{ task: Task; action: 'resumed' | 'fixing' | 'redrafting' | 'noted' | 'skipping' | 'rechecking' }> {
     const task = await this.task(taskId);
     const guidance = redactor.redact(text.trim());
     if (!guidance) throw new ActionError('Write what Copilot should do.');
     if (task.state === 'DONE' || task.state === 'CANCELLED') throw new ActionError(`${task.key} is finished, so there is nothing to continue. Start a new request instead.`);
+    if (o.skip?.length) return this.skipChecks(task, guidance, o.skip);
     if (task.state === 'SPEC_REVIEW') return { task: await this.requestChanges(taskId, guidance), action: 'redrafting' };
     if (task.blockedReason === 'split-proposed') throw new ActionError('Accept the proposed split or keep it as one task first.');
     const now = this.deps.clock.iso();
     const settings = await this.deps.settings();
     // Tasks saved before 1.1 have no guidance list yet.
-    const noted: Task = { ...task, guidance: [...(task.guidance ?? []), { text: guidance, at: now }], updatedAt: now };
+    // Saying the same thing again ("okay, continue") doesn't repeat it in every prompt.
+    const same = (task.guidance ?? []).at(-1)?.text === guidance;
+    const noted: Task = { ...task, guidance: same ? (task.guidance ?? []) : [...(task.guidance ?? []), { text: guidance, at: now }], updatedAt: now };
     await this.deps.store.tasks.upsert(noted);
     await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(settings), action: 'task.guidance', summary: `${task.key}: told Copilot how to continue: ${guidance.slice(0, 200)}`, taskId, projectId: task.projectId, detail: { guidance, state: task.state } });
     if (task.state === 'BLOCKED' || task.state === 'FAILED') return { task: await this.resume(taskId), action: 'resumed' };
@@ -295,6 +304,32 @@ export class TaskService {
     }
     this.deps.events?.emit({ type: 'task.updated', taskId, at: now });
     return { task: noted, action: 'noted' };
+  }
+
+  private async skipChecks(task: Task, reason: string, skip: Array<{ repoId?: string | undefined; kind: SkippableCheck }>): Promise<{ task: Task; action: 'resumed' | 'skipping' | 'rechecking' }> {
+    const now = this.deps.clock.iso();
+    const repos = new Map((await this.deps.store.repos.list()).map((r) => [r.id, r.name]));
+    const have = task.skippedChecks ?? [];
+    const added = skip.filter((c) => !have.some((h) => h.kind === c.kind && h.repoId === c.repoId));
+    const skippedChecks = [...have, ...added.map((c) => ({ ...(c.repoId ? { repoId: c.repoId } : {}), kind: c.kind, reason: reason.slice(0, 300), at: now }))];
+    const what = skip.map((c) => `${c.kind}${c.repoId ? ` in ${repos.get(c.repoId) ?? c.repoId}` : ''}`).join(', ');
+    const noted: Task = { ...task, skippedChecks, guidance: [...(task.guidance ?? []), { text: `The owner skipped these checks for this task: ${what}. Reason: ${reason}`, at: now }], updatedAt: now };
+    await this.deps.store.tasks.upsert(noted);
+    await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(await this.deps.settings()), action: 'checks.skipped', summary: `${task.key}: skipped ${what}. ${reason.slice(0, 200)}`, taskId: task.id, projectId: task.projectId, detail: { checks: skip, reason, state: task.state } });
+    // A skipped check that is running now stops at once (a watch-mode test runner never ends).
+    for (const c of skip) stopCheck(task.id, checkKey(c.repoId, c.kind));
+    if (task.state === 'BLOCKED' || task.state === 'FAILED') return { task: await this.resume(task.id), action: 'resumed' };
+    if (task.state === 'PR_OPEN' && task.needsAttention) {
+      // Check again without the skipped checks; the review already happened, so no new Copilot run.
+      const next = await this.move(noted, 'VERIFYING', `Owner skipped ${what}; checking again.`, 'owner', 'verify', {
+        needsAttention: false,
+        attentionNotes: [],
+        progress: { ...noted.progress, fixAttempts: 0, refreshPrs: true },
+      });
+      return { task: next, action: 'rechecking' };
+    }
+    this.deps.events?.emit({ type: 'task.updated', taskId: task.id, at: now });
+    return { task: noted, action: 'skipping' };
   }
 
   async cancel(taskId: string): Promise<Task> {

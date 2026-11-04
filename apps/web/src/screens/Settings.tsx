@@ -24,7 +24,7 @@ interface Usage {
 }
 
 /** A whole-number field: free to clear and retype; commits valid values, restores the last one on blur. */
-function Num({ id, value, onChange, min = 1 }: { id: string; value: number; onChange: (n: number) => void; min?: number }) {
+function Num({ id, value, onChange, min = 1, disabled }: { id: string; value: number; onChange: (n: number) => void; min?: number; disabled?: boolean }) {
   const [text, setText] = useState(String(value));
   useEffect(() => {
     setText((t) => (Number(t) === value ? t : String(value)));
@@ -40,6 +40,7 @@ function Num({ id, value, onChange, min = 1 }: { id: string; value: number; onCh
           inputMode="numeric"
           min={min}
           step={1}
+          disabled={disabled}
           value={text}
           className="text-right tabular-nums"
           onChange={(e) => {
@@ -192,6 +193,10 @@ export function SettingsScreen() {
   const qc = useQueryClient();
   const toast = useToast();
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => api<Settings>('/api/settings') });
+  // Values fixed by environment variables at start can't be changed here: say so instead of pretending.
+  const locked = useQuery({ queryKey: ['settings-locked'], queryFn: () => api<Record<string, string>>('/api/settings/locked') });
+  const lock = (path: string) => locked.data?.[path];
+  const note = (path: string, base?: string) => (lock(path) ? `Set by ${lock(path)} when Tandem started. Change it there and restart Tandem.` : base);
   const secrets = useQuery({ queryKey: ['secrets'], queryFn: () => api<Secrets>('/api/secrets') });
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<Usage>('/api/usage') });
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), retry: false });
@@ -241,14 +246,14 @@ export function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
-        <Row label="Copilot host" htmlFor="set-host" description="Only for GitHub Enterprise with data residency, for example company.ghe.com.">
-          <Input id="set-host" value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" />
+        <Row label="Copilot host" htmlFor="set-host" description={note('copilot.host', 'Only for GitHub Enterprise with data residency, for example company.ghe.com.')}>
+          <Input id="set-host" disabled={Boolean(lock('copilot.host'))} value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" />
         </Row>
-        <Row label="Default model for code" htmlFor="set-build" description="Builds and fixes, when a task's model is Auto." wide>
-          <Select id="set-build" value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} />
+        <Row label="Default model for code" htmlFor="set-build" description={note('copilot.buildModel', "Builds and fixes, when a task's model is Auto.")} wide>
+          <Select id="set-build" disabled={Boolean(lock('copilot.buildModel'))} value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} />
         </Row>
-        <Row label="Default model for chat, specs and reviews" htmlFor="set-light" description="Read-only steps, when the model is Auto." wide>
-          <Select id="set-light" value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} />
+        <Row label="Default model for chat, specs and reviews" htmlFor="set-light" description={note('copilot.lightModel', 'Read-only steps, when the model is Auto.')} wide>
+          <Select id="set-light" disabled={Boolean(lock('copilot.lightModel'))} value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} />
         </Row>
         {models.isError && (
           <div className="py-4">
@@ -293,17 +298,17 @@ export function SettingsScreen() {
             </div>
           </div>
         )}
-        <Row label="AI credits per task" htmlFor="set-ctask" description="The model menu warns when a model is likely to need more.">
-          <Num id="set-ctask" value={s.budget.perTaskCredits} onChange={(n) => set('budget', { ...s.budget, perTaskCredits: n })} />
+        <Row label="AI credits per task" htmlFor="set-ctask" description={note('budget.perTaskCredits', 'The model menu warns when a model is likely to need more.')}>
+          <Num id="set-ctask" disabled={Boolean(lock('budget.perTaskCredits'))} value={s.budget.perTaskCredits} onChange={(n) => set('budget', { ...s.budget, perTaskCredits: n })} />
         </Row>
-        <Row label="AI credits per day" htmlFor="set-cday" description="For all of Tandem together.">
-          <Num id="set-cday" value={s.budget.perDayCredits} onChange={(n) => set('budget', { ...s.budget, perDayCredits: n })} />
+        <Row label="AI credits per day" htmlFor="set-cday" description={note('budget.perDayCredits', 'For all of Tandem together.')}>
+          <Num id="set-cday" disabled={Boolean(lock('budget.perDayCredits'))} value={s.budget.perDayCredits} onChange={(n) => set('budget', { ...s.budget, perDayCredits: n })} />
         </Row>
-        <Row label="Prompts per task" htmlFor="set-ptask">
-          <Num id="set-ptask" value={s.budget.perTaskPrompts} onChange={(n) => set('budget', { ...s.budget, perTaskPrompts: n })} />
+        <Row label="Prompts per task" htmlFor="set-ptask" description={note('budget.perTaskPrompts')}>
+          <Num id="set-ptask" disabled={Boolean(lock('budget.perTaskPrompts'))} value={s.budget.perTaskPrompts} onChange={(n) => set('budget', { ...s.budget, perTaskPrompts: n })} />
         </Row>
-        <Row label="Prompts per day" htmlFor="set-pday">
-          <Num id="set-pday" value={s.budget.perDayPrompts} onChange={(n) => set('budget', { ...s.budget, perDayPrompts: n })} />
+        <Row label="Prompts per day" htmlFor="set-pday" description={note('budget.perDayPrompts')}>
+          <Num id="set-pday" disabled={Boolean(lock('budget.perDayPrompts'))} value={s.budget.perDayPrompts} onChange={(n) => set('budget', { ...s.budget, perDayPrompts: n })} />
         </Row>
         <Row label="Model calls per run" htmlFor="set-calls" description="Stops a runaway agent loop.">
           <Num id="set-calls" min={5} value={s.budget.perRunModelCalls} onChange={(n) => set('budget', { ...s.budget, perRunModelCalls: n })} />
@@ -337,11 +342,11 @@ export function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
-        <Row label="AWS profile" htmlFor="set-profile" description="Repositories whose codecommit:: URL names a profile use that one.">
-          <Input id="set-profile" value={s.aws.profile} onChange={(e) => set('aws', { ...s.aws, profile: e.target.value })} placeholder="default" />
+        <Row label="AWS profile" htmlFor="set-profile" description={note('aws.profile', 'Repositories whose codecommit:: URL names a profile use that one.')}>
+          <Input id="set-profile" disabled={Boolean(lock('aws.profile'))} value={s.aws.profile} onChange={(e) => set('aws', { ...s.aws, profile: e.target.value })} placeholder="default" />
         </Row>
-        <Row label="Region" htmlFor="set-region" description="Optional. Taken from the repository URL when empty.">
-          <Input id="set-region" value={s.aws.region} onChange={(e) => set('aws', { ...s.aws, region: e.target.value })} placeholder="From the repo URL" />
+        <Row label="Region" htmlFor="set-region" description={note('aws.region', 'Optional. Taken from the repository URL when empty.')}>
+          <Input id="set-region" disabled={Boolean(lock('aws.region'))} value={s.aws.region} onChange={(e) => set('aws', { ...s.aws, region: e.target.value })} placeholder="From the repo URL" />
         </Row>
       </SettingsSection>
 
