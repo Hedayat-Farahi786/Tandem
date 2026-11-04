@@ -203,6 +203,13 @@ export class FakeGit implements GitOps {
     this.clean.add(worktree);
     return `commit-${this.commits.length}`;
   }
+  /** Files the checks changed (a `lint --fix`, say): set by a test, committed by commitTracked. */
+  checksChanged = new Set<string>();
+  async commitTracked(worktree: string, message: string): Promise<string | undefined> {
+    if (!this.checksChanged.delete(worktree)) return undefined;
+    this.commits.push({ worktree, message });
+    return `commit-${this.commits.length}`;
+  }
   async head(): Promise<string> {
     return `commit-${this.commits.length}`;
   }

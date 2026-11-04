@@ -26,6 +26,9 @@ const PR_STATUS: Record<string, { label: string; tone: 'ok' | 'neutral' | 'accen
   'manual-pending': { label: 'To create', tone: 'warn' },
 };
 
+/** Which round of checks: fix attempts count up; later rounds have fixed numbers for their moment. */
+const roundLabel = (n: number) => (n < 100 ? `attempt ${n + 1}` : n === 100 ? 'after review fixes' : n === 150 ? 'after an interrupted run' : n === 200 ? 'after the rebase' : n === 300 ? 'on the pull request' : 'again');
+
 const When = ({ at }: { at: string }) => (
   <time dateTime={at} title={new Date(at).toLocaleString()} className="shrink-0 text-[12px] text-faint tabular-nums">
     {relativeTime(at)}
@@ -174,7 +177,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
           <ArtifactCard
             icon={v.passed ? CheckCircle2 : AlertTriangle}
             title={v.passed ? 'Checks passed' : 'Checks failed'}
-            badge={v.attempt > 0 ? <span className="text-[12px] text-faint">attempt {v.attempt + 1}</span> : undefined}
+            badge={v.attempt > 0 ? <span className="text-[12px] text-faint">{roundLabel(v.attempt)}</span> : undefined}
             sub={`${passed} of ${v.results.length} command${v.results.length === 1 ? '' : 's'} passed`}
             at={v.createdAt}
             open={() => openPanel('checks')}

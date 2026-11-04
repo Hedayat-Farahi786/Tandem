@@ -180,6 +180,8 @@ export interface SourceHost {
 export interface GitOps {
   status(worktree: string): Promise<string[]>;
   commitAll(worktree: string, message: string): Promise<string | undefined>;
+  /** Commits changes to files git already tracks (not new files such as reports); undefined when there are none. */
+  commitTracked(worktree: string, message: string): Promise<string | undefined>;
   head(worktree: string): Promise<string>;
   diff(worktree: string, base: string): Promise<string>;
   diffStat(worktree: string, base: string): Promise<{ files: number; insertions: number; deletions: number }>;

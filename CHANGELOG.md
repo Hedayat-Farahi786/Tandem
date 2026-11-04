@@ -25,6 +25,10 @@ All notable changes to Tandem. The format follows
   `TANDEM_CREDITS_PER_TASK`) looked editable, but changes did nothing. They
   now show as locked, naming the variable, and saving a change is refused
   with an explanation.
+- Checks that change files themselves (a lint script with `--fix`, a
+  formatter) left the task's folder modified, so the next rebase failed.
+  Tandem now commits what a repository's own checks changed. Special check
+  rounds say what they are ("after the rebase") instead of "attempt 151".
 - Saying the same thing twice in the task chat no longer repeats it in every
   later Copilot prompt.
 - The task chat no longer answers "this session can't create a PR": it says

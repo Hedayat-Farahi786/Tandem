@@ -56,10 +56,18 @@ describe('git layer (real git, local bare remote)', () => {
     expect(await ops.status(wt)).toEqual(['?? feature.txt']);
     const c1 = await ops.commitAll(wt, 'feat: x');
     expect(c1).toMatch(/^[0-9a-f]{40}$/);
+    // What a check changed (lint --fix) is kept; files a check created (reports) are not.
+    expect(await ops.commitTracked(wt, 'nothing')).toBeUndefined();
+    writeFileSync(join(wt, 'feature.txt'), 'x fixed\n');
+    writeFileSync(join(wt, 'coverage.json'), '{}\n');
+    expect(await ops.commitTracked(wt, 'style: keep lint fixes')).toMatch(/^[0-9a-f]{40}$/);
+    expect(await ops.status(wt)).toEqual(['?? coverage.json']);
+    rmSync(join(wt, 'coverage.json'));
+    const c2 = await ops.head(wt);
 
     await expect(pushBranch(wt, 'main')).rejects.toThrow(/only pushes to branches under agent/);
     const p1 = await pushBranch(wt, 'agent/T-1-x');
-    expect(p1).toEqual({ ok: true, sha: c1 });
+    expect(p1).toEqual({ ok: true, sha: c2 });
 
     await r.upstream('other.txt', 'upstream\n');
     await ensureMirror(mirror, access);
@@ -68,7 +76,7 @@ describe('git layer (real git, local bare remote)', () => {
     expect(await ops.isAncestor(repoOf(mirror), 'origin/main', 'HEAD').catch(() => false)).toBe(false); // HEAD is a worktree ref; checked below
     const stale = await pushBranch(wt, 'agent/T-1-x');
     expect(stale.ok).toBe(false); // non-fast-forward after rebase without a lease
-    const leased = await pushBranch(wt, 'agent/T-1-x', c1!);
+    const leased = await pushBranch(wt, 'agent/T-1-x', c2);
     expect(leased.ok).toBe(true);
     const stat = await ops.diffStat(wt, 'origin/main');
     expect(stat).toEqual({ files: 1, insertions: 1, deletions: 0 });

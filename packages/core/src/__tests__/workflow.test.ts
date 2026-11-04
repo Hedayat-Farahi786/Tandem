@@ -463,6 +463,16 @@ describe('workflow: checks the owner skips', () => {
     expect(h.process.calls.filter((c) => c.command === 'npm test')).toHaveLength(1); // stopped, never run again
   });
 
+  it("keeps what a repo's own checks change (lint --fix), so nothing is left to block the rebase", async () => {
+    let wt = '';
+    const h = harness({ process: { 'npm run lint': () => (h.git.checksChanged.add(wt), { exitCode: 0 }) } });
+    const t0 = await h.start();
+    wt = join(h.deps.paths.taskDir(t0.id), 'app');
+    const t = await h.approveAll(t0.id);
+    expect(t.state).toBe('PR_OPEN');
+    expect(h.git.commits.map((c) => c.message)).toContain("style(TND-1): keep what app's checks changed");
+  });
+
   it("picks up a repo's changed test command in the next round of the same step", async () => {
     const h = harness({
       process: {

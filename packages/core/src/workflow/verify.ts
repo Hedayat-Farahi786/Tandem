@@ -114,6 +114,10 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
       if (kind === 'test' && !r.skipped) suitePassed.set(repo.id, ok(r));
     }
     if (!healthy) suitePassed.set(repo.id, false);
+    // A repo's own checks may change files (lint --fix, a formatter): keep that like a developer
+    // would, or the uncommitted changes block the next rebase.
+    if (await deps.git.commitTracked(cwd, `style(${task.key}): keep what ${repo.name}'s checks changed`).catch(() => undefined))
+      deps.events?.emit({ type: 'verify.output', taskId: task.id, repoId: repo.id, kind: 'lint', line: `Kept the changes ${repo.name}'s checks made to its files.` });
   }
 
   const recorded = await deps.store.criterionTests.list(task.id);

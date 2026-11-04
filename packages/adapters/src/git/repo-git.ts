@@ -231,6 +231,13 @@ export class RepoGit implements GitOps {
     return git(['rev-parse', 'HEAD'], { cwd: worktree });
   }
 
+  async commitTracked(worktree: string, message: string): Promise<string | undefined> {
+    await git(['add', '-u'], { cwd: worktree });
+    if ((await runGit(['diff', '--cached', '--quiet'], { cwd: worktree, allowFail: true })).code === 0) return undefined;
+    await git(['commit', '--no-verify', '-m', message], { cwd: worktree, config: await identity(worktree) });
+    return git(['rev-parse', 'HEAD'], { cwd: worktree });
+  }
+
   async head(worktree: string): Promise<string> {
     return git(['rev-parse', 'HEAD'], { cwd: worktree });
   }
