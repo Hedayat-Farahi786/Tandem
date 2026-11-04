@@ -170,7 +170,8 @@ export interface SourceHost {
   rebase(repo: Repo, worktree: Worktree): Promise<RebaseResult>;
   push(repo: Repo, worktree: Worktree, opts?: { forceWithLease?: string }): Promise<PushResult>;
   openPullRequest(req: PullRequestRequest): Promise<PullRequestResult>;
-  updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string): Promise<void>;
+  /** Updates the description, and the title when `title` differs from the PR's. */
+  updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string, title?: string): Promise<void>;
   getPullRequestStatus(repo: Repo, pr: PullRequest): Promise<PullRequestStatus>;
   /** Tracker/PR description limit for this host, in characters. */
   readonly descriptionLimit: number;

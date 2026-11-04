@@ -22,7 +22,7 @@ describe('continue with the owner’s guidance', () => {
     expect(fix.prompt).toContain('Guidance from the owner for this task');
     expect(fix.prompt).toContain('use UTC everywhere');
     const pr = (await h.store.prs.list(t.id))[0]!;
-    expect(pr.title).toBe('TND-1: Add a GET /health endpoint');
+    expect(pr.title).toBe('Add a GET /health endpoint');
     expect(h.host.updatedDescriptions.at(-1)?.description).not.toContain('**Needs attention.**');
     expect(t.progress.refreshPrs).toBe(false);
     expect((await h.store.audit.list({ taskId: t.id })).some((e) => e.action === 'task.guidance')).toBe(true);

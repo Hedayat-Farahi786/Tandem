@@ -6,6 +6,7 @@ import {
   GetPullRequestCommand,
   GetRepositoryCommand,
   UpdatePullRequestDescriptionCommand,
+  UpdatePullRequestTitleCommand,
 } from '@aws-sdk/client-codecommit';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
@@ -202,9 +203,11 @@ export class CodeCommitHost implements SourceHost {
     }
   }
 
-  async updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string): Promise<void> {
+  async updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string, title?: string): Promise<void> {
     if (!pr.providerId) return;
-    await (await this.api(repo)).send(new UpdatePullRequestDescriptionCommand({ pullRequestId: pr.providerId, description: description.slice(0, this.descriptionLimit) }));
+    const api = await this.api(repo);
+    await api.send(new UpdatePullRequestDescriptionCommand({ pullRequestId: pr.providerId, description: description.slice(0, this.descriptionLimit) }));
+    if (title && title !== pr.title) await api.send(new UpdatePullRequestTitleCommand({ pullRequestId: pr.providerId, title }));
   }
 
   async getPullRequestStatus(repo: Repo, pr: PullRequest): Promise<PullRequestStatus> {

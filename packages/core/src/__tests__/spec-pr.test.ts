@@ -146,8 +146,13 @@ describe('PR description', () => {
   });
 
   it('titles', () => {
-    expect(prTitle('TND-1', 'Health', false)).toBe('TND-1: Health');
-    expect(prTitle('TND-1', 'Health', true)).toBe('[needs attention] TND-1: Health');
+    // Just the short name: no task key, no status (that's in the description), no trailing dot.
+    expect(prTitle('Health  endpoint ')).toBe('Health endpoint');
+    expect(prTitle('[needs attention] O4M-1: Enable Save only for changed arrows.')).toBe('Enable Save only for changed arrows');
+    expect(prTitle('add a beta badge')).toBe('Add a beta badge');
+    const long = prTitle('Enable Save only when the arrows in the microstructure drawing tool differ from their initial or last-saved state and');
+    expect(long.length).toBeLessThanOrEqual(72);
+    expect(long).toBe('Enable Save only when the arrows in the microstructure drawing tool');
   });
 });
 

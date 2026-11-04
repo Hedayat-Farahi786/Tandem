@@ -170,8 +170,10 @@ export class FakeSourceHost implements SourceHost {
     this.opened.push(req);
     return this.script.openPr?.(req) ?? { kind: 'created', providerId: `${this.opened.length}`, url: `https://pr.example/${req.repo.name}/${this.opened.length}` };
   }
-  async updatePullRequestDescription(_repo: Repo, pr: PullRequest, description: string): Promise<void> {
+  readonly updatedTitles: Array<{ prId: string; title: string }> = [];
+  async updatePullRequestDescription(_repo: Repo, pr: PullRequest, description: string, title?: string): Promise<void> {
     this.updatedDescriptions.push({ prId: pr.id, description });
+    if (title && title !== pr.title) this.updatedTitles.push({ prId: pr.id, title });
   }
   async getPullRequestStatus(_repo: Repo, pr: PullRequest): Promise<PullRequestStatus> {
     const scripted = this.script.prStatus?.(pr, this.count(`status:${pr.id}`));

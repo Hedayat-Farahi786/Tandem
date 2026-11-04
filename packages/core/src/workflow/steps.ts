@@ -503,7 +503,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const existing = await deps.store.prs.list(task.id);
       for (const repo of repos) {
         if (existing.some((p) => p.repoId === repo.id)) continue;
-        const title = prTitle(task.key, task.title, task.needsAttention);
+        const title = prTitle(task.title);
         const description = describe(repo, []);
         const r = await deps.hosts(repo).openPullRequest({ repo, sourceBranch: task.branch, destinationBranch: repo.defaultBranch, title, description, idempotencyKey: `${task.id}:${repo.id}` });
         const pr: PullRequest = {
@@ -539,8 +539,9 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           if (!repo) continue;
           const others = existing.filter((o) => o.id !== pr.id).map((o) => ({ repoName: repos.find((r) => r.id === o.repoId)?.name ?? o.repoId, url: o.url }));
           const description = describe(repo, others);
-          if (!pr.manual && pr.status === 'open') await deps.hosts(repo).updatePullRequestDescription(repo, pr, description);
-          await deps.store.prs.upsert({ ...pr, description, title: prTitle(task.key, task.title, ctx.task.needsAttention) });
+          const title = prTitle(task.title);
+          if (!pr.manual && pr.status === 'open') await deps.hosts(repo).updatePullRequestDescription(repo, pr, description, title);
+          await deps.store.prs.upsert({ ...pr, description, title });
         }
         await ctx.saveProgress({ refreshPrs: false });
       }
@@ -576,7 +577,12 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         const repo = await deps.store.repos.get(pr.repoId);
         if (!repo) continue;
         const status = await deps.hosts(repo).getPullRequestStatus(repo, pr);
-        if (status !== pr.status) await deps.store.prs.upsert({ ...pr, status, lastPolledAt: deps.clock.iso() });
+        // A PR opened with an older title format ("[needs attention] KEY: ...") gets the plain name.
+        const title = prTitle(task.title);
+        if (status === 'open' && !pr.manual && pr.title !== title) {
+          const renamed = await deps.hosts(repo).updatePullRequestDescription(repo, pr, pr.description, title).then(() => true, () => false);
+          await deps.store.prs.upsert({ ...pr, ...(renamed ? { title } : {}), status, lastPolledAt: deps.clock.iso() });
+        } else if (status !== pr.status) await deps.store.prs.upsert({ ...pr, status, lastPolledAt: deps.clock.iso() });
       }
       let fresh = await deps.store.prs.list(task.id);
       if (fresh.length && fresh.every((p) => p.status === 'merged')) return { kind: 'goto', state: 'DONE', reason: 'All pull requests are merged.' };

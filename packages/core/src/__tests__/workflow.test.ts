@@ -291,7 +291,7 @@ describe('workflow: verification and review', () => {
     expect(fixes[0]!.opts.resumeId).toBe(t.progress.buildSessionId); // the build session is resumed, not restarted
     expect(fixes[0]!.opts.resumeId).toBe(h.agent.calls.find((c) => c.prompt.startsWith('Implement'))!.opts.resumeId ?? 'scripted-3');
     expect(h.git.commits.map((c) => c.message)).toEqual(['feat(TND-1): Add a GET /health endpoint', 'fix(TND-1): address verification failures (attempt 1)', 'fix(TND-1): address verification failures (attempt 2)']);
-    expect(h.host.opened[0]!.title).toBe('[needs attention] TND-1: Add a GET /health endpoint');
+    expect(h.host.opened[0]!.title).toBe('Add a GET /health endpoint');
     expect(h.host.opened[0]!.description).toContain('**Needs attention.**');
     expect((await h.store.verifyRuns.list(t.id)).map((v) => v.passed)).toEqual([false, false, false]);
   });
@@ -481,6 +481,18 @@ describe('workflow: checks the owner skips', () => {
     const t = await h.approveAll(t0.id);
     expect(t.state).toBe('PR_OPEN');
     expect(h.git.commits.map((c) => c.message)).toContain("style(TND-1): keep what app's checks changed");
+  });
+
+  it('renames an open PR that still has an old-style title to the plain task name', async () => {
+    const h = harness();
+    const t = await h.approveAll((await h.start()).id);
+    const [pr] = await h.store.prs.list(t.id);
+    await h.store.prs.upsert({ ...pr!, title: '[needs attention] TND-1: Add a GET /health endpoint' });
+    await h.store.jobs.upsert({ taskId: t.id, state: 'PR_OPEN', step: 'poll', status: 'queued', attempt: 0, notBefore: h.clock.now() });
+    await h.runner.tick();
+    await h.runner.runUntilIdle?.().catch(() => undefined);
+    expect(h.host.updatedTitles).toContainEqual({ prId: pr!.id, title: 'Add a GET /health endpoint' });
+    expect((await h.store.prs.list(t.id))[0]!.title).toBe('Add a GET /health endpoint');
   });
 
   it("picks up a repo's changed test command in the next round of the same step", async () => {

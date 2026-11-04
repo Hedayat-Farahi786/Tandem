@@ -29,6 +29,10 @@ All notable changes to Tandem. The format follows
   formatter) left the task's folder modified, so the next rebase failed.
   Tandem now commits what a repository's own checks changed. Special check
   rounds say what they are ("after the rebase") instead of "attempt 151".
+- Pull request titles are the change's short name only: no task number and
+  no "[needs attention]" (that is in the description), cut cleanly at 72
+  characters. Open pull requests with an old-style title are renamed on the
+  next status check. Copilot names requests in 3 to 8 words.
 - Saying the same thing twice in the task chat no longer repeats it in every
   later Copilot prompt.
 - The task chat no longer answers "this session can't create a PR": it says

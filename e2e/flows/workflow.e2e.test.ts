@@ -45,7 +45,7 @@ const states = (d: Detail) => d.transitions.map((t) => t.to);
 
 function expectPr(d: Detail) {
   for (const pr of d.prs) {
-    expect(pr.title).toBe(`${d.task.needsAttention ? '[needs attention] ' : ''}${d.task.key}: ${d.task.title}`);
+    expect(pr.title).toBe(d.task.title);
     expect(pr.description).toContain('## Acceptance criteria');
     expect(pr.description).toContain('## Verification');
     if (REAL) {
@@ -291,7 +291,8 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
       expect(d.task.attentionNotes.join('\n')).toMatch(/test/);
       expect(d.verifyRuns.map((v) => v.passed)).toEqual([false, false, false]);
       expect(d.runs.filter((r) => r.kind === 'fix')).toHaveLength(2);
-      expect(d.prs[0]!.title.startsWith('[needs attention] ')).toBe(true);
+      expect(d.prs[0]!.title).toBe(d.task.title);
+      expect(d.prs[0]!.description).toContain('Needs attention');
       expect(d.prs[0]!.description).toContain('**Needs attention.**');
       expectPr(d);
       h.record('failing tests → needs attention', d);

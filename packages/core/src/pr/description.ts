@@ -23,8 +23,27 @@ const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const icon = (r: string) => (r === 'pass' ? '✅ pass' : r === 'fail' ? '❌ fail' : '⏭️ not run');
 
-export function prTitle(taskKey: string, title: string, needsAttention: boolean): string {
-  return `${needsAttention ? '[needs attention] ' : ''}${taskKey}: ${title}`.slice(0, 150);
+const DANGLING = /\s+(and|or|to|for|of|with|the|a|an|in|on|at|by|from|that|so)$/i;
+
+/**
+ * A pull request is titled with what it does: the task's short name. No task key, no status tags
+ * (needs attention is in the description), no trailing punctuation, at most 72 characters cut
+ * between words.
+ */
+export function prTitle(title: string): string {
+  let t = title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(\[[^\]]*\]\s*)+/, '') // [needs attention], [WIP]...
+    .replace(/^[A-Z][A-Z0-9]*-\d+\s*[:\-–—]\s*/, '') // ABC-12: ...
+    .replace(/[\s.,;:!?–—-]+$/, '');
+  if (t.length > 72) {
+    t = t.slice(0, 73);
+    t = t.includes(' ') ? t.slice(0, t.lastIndexOf(' ')) : t.slice(0, 72);
+    while (DANGLING.test(t)) t = t.replace(DANGLING, '');
+    t = t.replace(/[\s.,;:!?–—-]+$/, '');
+  }
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Change';
 }
 
 /** PR description: summary, spec, other PRs, criterion -> test -> result, verification, open findings. */

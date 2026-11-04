@@ -152,10 +152,10 @@ export class GitHubHost implements SourceHost {
     }
   }
 
-  async updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string): Promise<void> {
+  async updatePullRequestDescription(repo: Repo, pr: PullRequest, description: string, title?: string): Promise<void> {
     if (!pr.providerId) return;
     const { owner, name } = this.ref(repo);
-    await this.api(repo, 'PATCH', `/repos/${owner}/${name}/pulls/${pr.providerId}`, { body: description.slice(0, this.descriptionLimit) });
+    await this.api(repo, 'PATCH', `/repos/${owner}/${name}/pulls/${pr.providerId}`, { body: description.slice(0, this.descriptionLimit), ...(title && title !== pr.title ? { title } : {}) });
   }
 
   async getPullRequestStatus(repo: Repo, pr: PullRequest): Promise<PullRequestStatus> {
