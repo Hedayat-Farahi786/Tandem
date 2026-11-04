@@ -446,6 +446,16 @@ describe('workflow: checks the owner skips', () => {
     expect((await h.store.audit.list({ taskId: t.id })).some((e) => e.action === 'checks.skipped')).toBe(true);
   });
 
+  it('skipping a check on a failed task clears the notes about it', async () => {
+    const h = harness({ process: { 'npm test': { exitCode: 1 } } });
+    const t = await h.approveAll((await h.start()).id);
+    expect(t.attentionNotes).toEqual(['app: test failed (`npm test`, exit 1)']);
+    await h.store.tasks.upsert({ ...t, state: 'FAILED', resumeTo: { state: 'PR_OPEN', step: 'open-prs' } });
+    const r = await h.service.continueWith(t.id, 'No Chrome here.', { skip: [{ repoId: 'r-app', kind: 'test' }] });
+    expect(r.action).toBe('resumed');
+    expect(await h.get(t.id)).toMatchObject({ needsAttention: false, attentionNotes: [] });
+  });
+
   it('skipping a check that hangs stops it at once, and the task goes on without it', async () => {
     const h = harness({ process: { 'npm test': { hang: true } } });
     const t = await h.start();

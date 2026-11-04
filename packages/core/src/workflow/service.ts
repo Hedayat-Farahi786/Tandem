@@ -313,7 +313,10 @@ export class TaskService {
     const added = skip.filter((c) => !have.some((h) => h.kind === c.kind && h.repoId === c.repoId));
     const skippedChecks = [...have, ...added.map((c) => ({ ...(c.repoId ? { repoId: c.repoId } : {}), kind: c.kind, reason: reason.slice(0, 300), at: now }))];
     const what = skip.map((c) => `${c.kind}${c.repoId ? ` in ${repos.get(c.repoId) ?? c.repoId}` : ''}`).join(', ');
-    const noted: Task = { ...task, skippedChecks, guidance: [...(task.guidance ?? []), { text: `The owner skipped these checks for this task: ${what}. Reason: ${reason}`, at: now }], updatedAt: now };
+    // Notes about a check that is now skipped no longer apply (e.g. "app: test failed (`npm test`, timed out)").
+    const stale = (n: string) => skip.some((c) => n.includes(`: ${c.kind} failed (`) && (!c.repoId || n.startsWith(`${repos.get(c.repoId) ?? ''}: `)));
+    const attentionNotes = task.attentionNotes.filter((n) => !stale(n));
+    const noted: Task = { ...task, skippedChecks, attentionNotes, needsAttention: attentionNotes.length > 0 && task.needsAttention, guidance: [...(task.guidance ?? []), { text: `The owner skipped these checks for this task: ${what}. Reason: ${reason}`, at: now }], updatedAt: now };
     await this.deps.store.tasks.upsert(noted);
     await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(await this.deps.settings()), action: 'checks.skipped', summary: `${task.key}: skipped ${what}. ${reason.slice(0, 200)}`, taskId: task.id, projectId: task.projectId, detail: { checks: skip, reason, state: task.state } });
     // A skipped check that is running now stops at once (a watch-mode test runner never ends).
