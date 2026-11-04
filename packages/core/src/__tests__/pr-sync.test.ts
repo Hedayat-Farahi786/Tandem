@@ -116,7 +116,8 @@ describe('open PRs and their base branch', () => {
     await a.poll();
     expect(a.conflictCalls()).toBe(1);
 
-    const b = await openPr({ process: { 'npm test': (n) => (n > 1 ? { exitCode: 1, stdout: 'FAIL test/app.test.ts' } : {}) } });
+    // The base branch itself passes; merging it into the PR branch breaks a test.
+    const b = await openPr({ process: { 'npm test': (n, cwd) => (n > 1 && !cwd.includes('.baseline') ? { exitCode: 1, stdout: 'FAIL test/app.test.ts' } : {}) } });
     b.h.git.remote.set('r-app:main', 'b2');
     b.h.git.mergeConflicts.set(b.wt, ['src/app.ts']);
     const pr = await b.poll();

@@ -409,7 +409,9 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         await deps.store.findings.replace(task.id, findings);
         await ctx.saveProgress({ reviewed: true });
       }
-      const open = (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open');
+      // Copilot fixes what matters (medium, high); low findings stay open and are listed on the PR for the
+      // reviewer, instead of a fix run and another round of checks for a nit.
+      const open = (await deps.store.findings.list(task.id)).filter((f) => f.status === 'open' && f.severity !== 'low');
       // A fix run that was stopped (credit limit, restart) may already have marked its findings fixed
       // without its edits being committed: commit and check them instead of leaving them behind.
       const started = ctx.task.progress.reviewFixStarted === true;

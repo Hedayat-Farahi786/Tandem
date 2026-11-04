@@ -217,6 +217,8 @@ export const CommandResult = z.object({
   logPath: z.string().optional(),
   /** Not run (or stopped) because the owner skipped this check for the task. */
   skipped: z.boolean().optional(),
+  /** It fails on the base branch too, and this change adds no failures: not the task's to fix. */
+  preexisting: z.object({ base: z.string(), failures: z.number().int().optional() }).optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 

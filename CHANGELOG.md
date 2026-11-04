@@ -8,6 +8,15 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Knowing where a repo starts.** A failing check is compared with the
+  same check on the base branch (once per base commit, cached). Failures
+  that were already there no longer cost Copilot fix rounds or mark the PR
+  "needs attention"; new failures get a fix round that names just them.
+  Check output is cleaned of colour codes and progress lines, so Copilot
+  sees the actual failures. Low self-review findings are listed on the PR
+  instead of triggering a fix run and another round of checks. Copilot may
+  run the repo's own configured commands even when they set a variable
+  (`CHROME_BIN=… npx ng test`), and `npx ng` for tests, lint and builds.
 - **Skip a check for one task.** A check that fails or hangs for reasons
   outside the change (a test runner that can't start on this machine) can
   be skipped from the Checks panel, from the live "Running the checks" line,

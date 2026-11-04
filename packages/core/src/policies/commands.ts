@@ -89,6 +89,9 @@ export function parseShell(input: string): { segments: string[][] } | { error: s
 }
 
 function checkSegment(raw: readonly string[], policy: ShellPolicy): Verdict {
+  // The owner's own repo command, exactly as configured (it may set a variable, e.g. CHROME_BIN=...).
+  const rawLine = raw.join(' ');
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(raw[0] ?? '') && policy.configured.some((c) => c.trim() && (rawLine === c.trim() || rawLine.startsWith(`${c.trim()} `)))) return { allowed: true, reason: 'configured repo command' };
   const seg = [...raw];
   while (seg.length && SAFE_ENV_PREFIX.test(seg[0]!)) seg.shift();
   if (seg.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(seg[0]!)) return { allowed: false, reason: `setting ${seg[0]!.split('=')[0]} is not allowed` };
@@ -116,7 +119,7 @@ function checkSegment(raw: readonly string[], policy: ShellPolicy): Verdict {
   }
   if (base === 'pip' && args[0] === 'install' && !args.some((a) => /^(--user|--target|--prefix|-t)$/.test(a))) return { allowed: true, reason: 'package install' };
   if (base === 'go' && /^(get|mod|build|test|vet)$/.test(args[0] ?? '')) return { allowed: true, reason: 'go tooling' };
-  if (base === 'npx' && /^(vitest|tsc|eslint|jest|prettier|playwright)$/.test(args[0] ?? '')) return { allowed: true, reason: 'local dev tool' };
+  if (base === 'npx' && /^(vitest|tsc|eslint|jest|prettier|playwright|ng)$/.test(args[0] ?? '') && !(args[0] === 'ng' && /^(deploy|add|update|new)$/.test(args[1] ?? ''))) return { allowed: true, reason: 'local dev tool' };
   if (/^(npm|pnpm|yarn)$/.test(base) && (args[0] === 'test' || (args[0] === 'run' && /^(test|lint|typecheck|type-check|build|format)(:[\w-]+)?$/.test(args[1] ?? '')))) {
     return { allowed: true, reason: 'repo script' };
   }

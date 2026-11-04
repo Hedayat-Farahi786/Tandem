@@ -929,7 +929,7 @@ function ChangesTab({ d }: { d: TaskDetail }) {
 /* ------------------------------------------------------------------ checks */
 
 function CommandRow({ r, taskId, repoName, canSkip }: { r: CommandResult; taskId: string; repoName?: string | undefined; canSkip: boolean }) {
-  const ok = r.skipped === true || (r.exitCode === 0 && !r.timedOut);
+  const ok = r.skipped === true || r.preexisting !== undefined || (r.exitCode === 0 && !r.timedOut);
   const [open, setOpen] = useState(!ok);
   return (
     <li className="py-2.5">
@@ -939,7 +939,9 @@ function CommandRow({ r, taskId, repoName, canSkip }: { r: CommandResult; taskId
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 text-left text-[13px]"
       >
-        {r.skipped ? (
+        {r.preexisting ? (
+          <AlertTriangle aria-hidden className="size-4 shrink-0 text-warn" />
+        ) : r.skipped ? (
           <SkipForward aria-hidden className="size-4 shrink-0 text-faint" />
         ) : ok ? (
           <CheckCircle2 aria-hidden className="size-4 shrink-0 text-ok" />
@@ -951,7 +953,7 @@ function CommandRow({ r, taskId, repoName, canSkip }: { r: CommandResult; taskId
           {r.command}
         </code>
         <span className="text-[12px] text-faint tabular-nums">
-          {r.skipped ? "skipped by you" : r.timedOut ? "timed out" : `${(r.durationMs / 1000).toFixed(1)} s`}
+          {r.preexisting ? `fails on ${r.preexisting.base} too` : r.skipped ? "skipped by you" : r.timedOut ? "timed out" : `${(r.durationMs / 1000).toFixed(1)} s`}
         </span>
       </button>
       {!ok && canSkip && (

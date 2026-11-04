@@ -169,7 +169,8 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
     for (const a of d.approvals)
       items.push({ at: a.createdAt, key: `ap-${a.id}`, node: <Milestone icon={<ThumbsUp className="size-3.5 text-ok" strokeWidth={2} />} title={`${a.name} approved spec v${a.specVersion}`} body={a.role === 'pm' ? `as PM${a.method === 'jira' ? ', in Jira' : ''}` : 'as owner'} at={a.createdAt} /> });
     for (const v of d.verifyRuns) {
-      const passed = v.results.filter((r) => r.exitCode === 0 && !r.timedOut).length;
+      const passed = v.results.filter((r) => !r.skipped && !r.preexisting && r.exitCode === 0 && !r.timedOut).length;
+      const extra = [v.results.filter((r) => r.preexisting).length ? `${v.results.filter((r) => r.preexisting).length} failing before this change too` : '', v.results.filter((r) => r.skipped).length ? `${v.results.filter((r) => r.skipped).length} skipped` : ''].filter(Boolean).join(', ');
       items.push({
         at: v.createdAt,
         key: `vr-${v.id}`,
@@ -178,7 +179,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
             icon={v.passed ? CheckCircle2 : AlertTriangle}
             title={v.passed ? 'Checks passed' : 'Checks failed'}
             badge={v.attempt > 0 ? <span className="text-[12px] text-faint">{roundLabel(v.attempt)}</span> : undefined}
-            sub={`${passed} of ${v.results.length} command${v.results.length === 1 ? '' : 's'} passed`}
+            sub={`${passed} of ${v.results.length} command${v.results.length === 1 ? '' : 's'} passed${extra ? ` · ${extra}` : ''}`}
             at={v.createdAt}
             open={() => openPanel('checks')}
             openLabel="View checks"

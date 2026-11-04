@@ -167,6 +167,24 @@ its next step.
 Chat answers show what Copilot did to write them ("Read 3 files · searched
 twice"); open the line to see each step.
 
+### Failures that were there before
+
+When a check fails on a task, Tandem runs the same check once on the base
+branch (in a scratch copy, using the dependency cache) and compares:
+
+- **Nothing new failing**: the failures were already there, so they aren't
+  this task's. Copilot gets no fix round for them; the check shows
+  "fails on development too" and the pull request says so.
+- **New failures**: Copilot gets a fix round that names just the tests the
+  change broke, and is told to leave the old ones alone.
+
+The base branch result is remembered per commit, so this costs one run at
+most. Check output is cleaned before Copilot or the pull request see it (no
+colour codes or progress lines), so the failures themselves are in view.
+
+Self-review fixes what matters: medium and high findings get a fix round;
+low ones are listed on the pull request for the reviewer instead.
+
 ### Skipping a check for one task
 
 Sometimes a check fails or never ends for a reason that has nothing to do

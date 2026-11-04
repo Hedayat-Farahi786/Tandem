@@ -64,12 +64,12 @@ export class FakeProcessRunner implements ProcessRunner {
   readonly calls: Array<{ command: string; cwd: string }> = [];
   /** Command -> result. A function lets a test fail the first run and pass later. */
   /** `hang: true` runs until stopped through the signal (a watch-mode test runner, say). */
-  constructor(private readonly results: Record<string, FakeResult | ((n: number) => FakeResult)> = {}) {}
+  constructor(private readonly results: Record<string, FakeResult | ((n: number, cwd: string) => FakeResult)> = {}) {}
   async runCommand(command: string, opts: { cwd: string; onLine?: (line: string) => void; signal?: AbortSignal }): Promise<ProcessResult> {
     this.calls.push({ command, cwd: opts.cwd });
     const n = this.calls.filter((c) => c.command === command).length;
     const spec = this.results[command];
-    const { hang, ...r } = typeof spec === 'function' ? spec(n) : (spec ?? {});
+    const { hang, ...r } = typeof spec === 'function' ? spec(n, opts.cwd) : (spec ?? {});
     if (hang) {
       opts.onLine?.('Watching for file changes…');
       await new Promise<void>((resolve) => (opts.signal?.aborted ? resolve() : opts.signal?.addEventListener('abort', () => resolve(), { once: true })));

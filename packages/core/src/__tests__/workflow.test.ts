@@ -427,6 +427,44 @@ describe('workflow: PRs', () => {
   });
 });
 
+const karma = (failed: number, names: string[]) =>
+  [
+    '\x1b[32m✔ Browser application bundle generation complete.\x1b[39m',
+    ...Array.from({ length: 30 }, (_, i) => `\x1b[1A\x1b[2KChrome Headless 153.0.0.0 (Linux 0.0.0): Executed ${i + 1} of 68 (${Math.min(i, failed)} FAILED) (0 secs / 1.2 secs)`),
+    ...names.map((n) => `Chrome Headless 153.0.0.0 (Linux 0.0.0) ${n} FAILED\n\tNullInjectorError: No provider for MsalService!`),
+    `TOTAL: ${failed} FAILED, ${68 - failed} SUCCESS`,
+  ].join('\n');
+
+describe('workflow: knowing where the repo starts', () => {
+  const base = ['AuthGuard redirects to login', 'AppComponent should create'];
+  it('tests that already fail on the base branch are not the task\'s: no fix rounds, no "needs attention"', async () => {
+    const h = harness({ process: { 'npm test': () => ({ exitCode: 1, stdout: karma(2, base) }) } });
+    h.git.remote.set('r-app:main', 'base-1');
+    const t = await h.approveAll((await h.start()).id);
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: false, attentionNotes: [] });
+    expect(h.agent.calls.filter((c) => c.prompt.startsWith('Verification failed'))).toHaveLength(0);
+    const test = (await h.store.verifyRuns.list(t.id))[0]!.results.find((r) => r.kind === 'test')!;
+    expect(test.preexisting).toEqual({ base: 'main', failures: 2 });
+    expect(test.outputTail).toContain('Also fails on main before this change (2 failing there)');
+    expect(test.outputTail).not.toContain('\x1b['); // no colour codes
+    expect(test.outputTail.match(/Executed \d+ of 68/g)).toHaveLength(1); // one progress line, not 30
+    expect(h.host.opened[0]!.description).toContain('fails on main too (2), not this change');
+    // The base branch was checked once, in its own copy, then cached.
+    expect(h.process.calls.filter((c) => c.command === 'npm test' && c.cwd.includes('.baseline'))).toHaveLength(1);
+  });
+
+  it('a failure the change added gets a fix round that names just the new failures', async () => {
+    const h = harness({ process: { 'npm test': (n, cwd) => (cwd.includes('.baseline') ? { exitCode: 1, stdout: karma(2, base) } : n <= 2 ? { exitCode: 1, stdout: karma(3, [...base, 'Details saves only changed arrows']) } : { exitCode: 1, stdout: karma(2, base) }) } });
+    h.git.remote.set('r-app:main', 'base-1');
+    const t = await h.approveAll((await h.start()).id);
+    const fixes = h.agent.calls.filter((c) => c.prompt.startsWith('Verification failed'));
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]!.prompt).toContain('New failures (they pass on main): Details saves only changed arrows');
+    expect(fixes[0]!.prompt).toContain('are not this change\'s: leave them');
+    expect(t).toMatchObject({ state: 'PR_OPEN', needsAttention: false });
+  });
+});
+
 describe('workflow: checks the owner skips', () => {
   it('skips a failing check on an open PR: checked again without it, no new Copilot run, and the PR says so', async () => {
     const h = harness({ process: { 'npm test': { exitCode: 1, stdout: 'No binary for Chrome browser on your platform.' } } });
@@ -513,10 +551,18 @@ describe('workflow: checks the owner skips', () => {
 });
 
 describe('workflow: resilience', () => {
+  it('a low review finding is listed on the PR, not fixed with another Copilot run', async () => {
+    const h = harness({ script: { review: () => ({ value: { findings: [{ severity: 'low', category: 'other', repo: 'app', title: 'Name could be clearer', detail: 'Nit.' }] } }) } });
+    const t = await h.approveAll((await h.start()).id);
+    expect(t.state).toBe('PR_OPEN');
+    expect((await h.store.runs.listFor({ taskId: t.id })).map((r) => r.kind)).not.toContain('fix');
+    expect(h.host.opened[0]!.description).toContain('Name could be clearer');
+  });
+
   it('a review fix stopped at the credit limit keeps its edits: committed and checked on resume, not left to block the rebase', async () => {
     const h = harness({
       script: {
-        review: () => ({ value: { findings: [{ severity: 'low', category: 'criteria', repo: 'app', title: 'Save button not tested', detail: 'Add a test.' }] } }),
+        review: () => ({ value: { findings: [{ severity: 'medium', category: 'criteria', repo: 'app', title: 'Save button not tested', detail: 'Add a test.' }] } }),
       },
     });
     const started = await h.start();

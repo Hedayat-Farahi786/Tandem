@@ -58,6 +58,17 @@ describe('size', () => {
   });
 });
 
+describe('shell policy: the repo command as configured', () => {
+  it('allows the owner\'s configured command even when it sets a variable, and nothing else that does', () => {
+    const policy = { configured: ['CHROME_BIN=/opt/chrome npx ng test --watch=false --browsers=ChromeHeadless'] };
+    expect(checkShell('CHROME_BIN=/opt/chrome npx ng test --watch=false --browsers=ChromeHeadless', policy).allowed).toBe(true);
+    expect(checkShell('CHROME_BIN=/opt/chrome npx ng test --watch=false --browsers=ChromeHeadless --include src/app', policy).allowed).toBe(true);
+    expect(checkShell('CHROME_BIN=/tmp/evil npx ng test', policy).allowed).toBe(false);
+    expect(checkShell('npx ng test --watch=false', policy).allowed).toBe(true);
+    expect(checkShell('npx ng deploy', policy).allowed).toBe(false);
+  });
+});
+
 describe('shell policy', () => {
   const policy = { configured: ['npm test', 'npm run lint', 'npm run typecheck', 'npm run build', 'pnpm vitest run'] };
   const cases: Array<[string, boolean]> = [

@@ -4,6 +4,7 @@ import type { CommandKind, CommandResult, CriterionTest, Project, Repo, Task, Ve
 import { redactor } from '../policies/redact.js';
 import { worktreeOf, type WorkflowDeps } from './context.js';
 import { checkKey, trackCheck } from './live-checks.js';
+import { baselineFor, compactOutput, newFailures, summarizeFailures } from './baseline.js';
 import { assertDiskSpace, detachDependencies, installKey, restoreDependencies, saveDependencies } from './deps.js';
 
 const ORDER: ReadonlyArray<[CommandKind, keyof Repo['commands']]> = [
@@ -62,9 +63,11 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
       task.skippedChecks = await skippedNow();
       return skippedResult(repo, kind, command, r.durationMs);
     }
-    const output = redactor.redact(`${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`);
+    const raw = redactor.redact(`${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`);
     const logPath = join(logDir, `${attempt}-${repo?.name ?? 'project'}-${kind}-${results.length}.log`);
-    await writeFile(logPath, `$ ${command}\n${output}\n`);
+    await writeFile(logPath, `$ ${command}\n${raw}\n`);
+    // What people and Copilot read: the failures, without colour codes and progress lines.
+    const output = compactOutput(raw);
     const res: CommandResult = {
       ...(repo ? { repoId: repo.id } : {}),
       kind,
@@ -79,7 +82,8 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
     return res;
   };
 
-  const ok = (r: CommandResult) => r.skipped === true || (r.exitCode === 0 && !r.timedOut);
+  const ok = (r: CommandResult) => r.skipped === true || r.preexisting !== undefined || (r.exitCode === 0 && !r.timedOut);
+  const failingNames = new Map<string, string[]>();
   /** Install from the dependency cache when the lockfile matches; else install for real and cache it. */
   const install = async (repo: Repo, cmd: string, cwd: string): Promise<CommandResult> => {
     const key = await installKey(cwd, cmd).catch(() => undefined);
@@ -114,6 +118,27 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
       if (kind === 'test' && !r.skipped) suitePassed.set(repo.id, ok(r));
     }
     if (!healthy) suitePassed.set(repo.id, false);
+    // A failing check may fail on the base branch too: then only what this change adds is the task's.
+    if (healthy) {
+      for (const r of results.filter((x) => x.repoId === repo.id && x.kind !== 'install' && !ok(x))) {
+        deps.events?.emit({ type: 'verify.output', taskId: task.id, repoId: repo.id, kind: r.kind, line: `Checking whether this already fails on ${repo.defaultBranch}…` });
+        const base = await baselineFor(deps, task, repo, r.command, timeoutMs);
+        if (!base) continue;
+        const mine = summarizeFailures(r.outputTail);
+        const cmp = newFailures(mine, base);
+        if (!cmp.isNew) {
+          r.preexisting = { base: repo.defaultBranch, ...(base.failures !== undefined ? { failures: base.failures } : {}) };
+          r.outputTail = `Also fails on ${repo.defaultBranch} before this change${base.failures !== undefined ? ` (${base.failures} failing there)` : ''}; this change adds no failures.\n\n${r.outputTail}`;
+          if (r.kind === 'test') {
+            suitePassed.delete(repo.id);
+            if (mine.names?.length) failingNames.set(repo.id, mine.names);
+          }
+        } else if (base.failed) {
+          const what = cmp.names?.length ? `New failures (they pass on ${repo.defaultBranch}): ${cmp.names.join('; ')}` : `${cmp.count ?? 'Some'} more failing than on ${repo.defaultBranch}`;
+          r.outputTail = `${what}. ${base.failures ?? 'Other'} failures also happen on ${repo.defaultBranch} and are not this change's: leave them.\n\n${r.outputTail}`;
+        }
+      }
+    }
     // A repo's own checks may change files (lint --fix, a formatter): keep that like a developer
     // would, or the uncommitted changes block the next rebase.
     if (await deps.git.commitTracked(cwd, `style(${task.key}): keep what ${repo.name}'s checks changed`).catch(() => undefined))
@@ -129,7 +154,9 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
       const r = await exec(repo, 'test-single', singleTestCommand(repo.commands.testSingle, t.file, t.name), worktreeOf(deps, task, repo));
       tests.push({ ...t, scope: 'single', result: r.skipped ? 'not-run' : ok(r) ? 'pass' : 'fail' });
     } else {
-      tests.push({ ...t, scope: 'suite', result: suite === undefined ? 'not-run' : suite ? 'pass' : 'fail' });
+      // A suite that fails on the base branch too: a test passes unless it is among the failures.
+      const failing = failingNames.get(t.repoId);
+      tests.push({ ...t, scope: 'suite', result: suite !== undefined ? (suite ? 'pass' : 'fail') : failing ? (failing.some((n) => n.includes(t.name)) ? 'fail' : 'pass') : 'not-run' });
     }
   }
   await deps.store.criterionTests.replace(task.id, tests);
@@ -146,7 +173,7 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
 }
 
 export function failuresOf(run: VerifyRun): CommandResult[] {
-  return run.results.filter((r) => !r.skipped && (r.exitCode !== 0 || r.timedOut));
+  return run.results.filter((r) => !r.skipped && !r.preexisting && (r.exitCode !== 0 || r.timedOut));
 }
 
 /** Checks the owner skipped in this run, for the pull request and the task's history. */

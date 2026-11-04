@@ -67,7 +67,7 @@ export function buildPrDescription(i: PrDescriptionInput): string {
   });
   parts.push(`## Acceptance criteria\n\n| Criterion | Test | Result |\n| --- | --- | --- |\n${rows.join('\n') || '| - | - | - |'}`);
 
-  const ver = i.verification.map((r) => `| ${r.kind} | \`${esc(short(r.command, 80))}\` | ${r.skipped ? `⏭️ skipped by the owner${r.outputTail.startsWith('Skipped by the owner:') ? ` (${esc(short(r.outputTail.replace(/^Skipped by the owner:\s*/, ''), 100))})` : ''}` : r.exitCode === 0 && !r.timedOut ? '✅ pass' : r.timedOut ? '⏱️ timed out' : '❌ fail'} | ${(r.durationMs / 1000).toFixed(1)} s |`);
+  const ver = i.verification.map((r) => `| ${r.kind} | \`${esc(short(r.command, 80))}\` | ${r.preexisting ? `⚠️ fails on ${esc(r.preexisting.base)} too${r.preexisting.failures !== undefined ? ` (${r.preexisting.failures})` : ''}, not this change` : r.skipped ? `⏭️ skipped by the owner${r.outputTail.startsWith('Skipped by the owner:') ? ` (${esc(short(r.outputTail.replace(/^Skipped by the owner:\s*/, ''), 100))})` : ''}` : r.exitCode === 0 && !r.timedOut ? '✅ pass' : r.timedOut ? '⏱️ timed out' : '❌ fail'} | ${(r.durationMs / 1000).toFixed(1)} s |`);
   parts.push(`## Verification\n\n| Check | Command | Result | Time |\n| --- | --- | --- | --- |\n${ver.join('\n') || '| - | - | - | - |'}`);
 
   if (i.openFindings.length) {
