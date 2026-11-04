@@ -11,6 +11,8 @@ export type TandemEvent =
   /** A step of an agent run was saved (see AgentStep); the page reloads the run's activity. */
   | { type: 'agent.step'; taskId?: string; threadId?: string; runId: string }
   | { type: 'chat.done'; threadId: string; messageId: string }
+  /** A chat's draft or questions changed while the agent works; the page reloads the thread. */
+  | { type: 'thread.updated'; threadId: string }
   | { type: 'verify.output'; taskId: string; repoId?: string; kind: string; line: string }
   | { type: 'doctor.check'; id: string; status: 'pass' | 'warn' | 'fail' | 'skipped'; message: string };
 

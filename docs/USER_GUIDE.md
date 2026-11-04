@@ -57,8 +57,15 @@ doctor are at the bottom.
 
 A new chat starts in one of two modes:
 
-- **Request**: describe a change. Tandem asks until the request is clear
-  and testable. The panel beside the chat shows the Definition of Ready:
+- **Request**: describe a change. When Copilot needs to know something, a
+  **Copilot needs you** card asks it: one short question at a time, with
+  likely answers to pick (one, or any that apply) and **Other** for your own
+  words. Number keys pick an answer and Enter goes on; **Answer in chat**,
+  or simply typing a reply, works too.
+
+  Beside the chat, the **Task draft** fills in live as Copilot learns: the
+  item it is working on shimmers, finished ones tick and show what was
+  filled in. It tracks the Definition of Ready:
   - a clear goal
   - at least 2 acceptance criteria in Given / When / Then form
   - example data
@@ -66,7 +73,9 @@ A new chat starts in one of two modes:
   - what is out of scope
   - no open questions
 
-  When every item is checked, **Create task**.
+  When the draft is ready, **Create task** appears with a summary
+  (criteria, repositories, size), and the page moves straight into the new
+  task's conversation.
 - **Ask**: questions about the code. Answers are read-only and cite files
   and lines.
 

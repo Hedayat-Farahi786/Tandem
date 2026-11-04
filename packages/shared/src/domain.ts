@@ -293,6 +293,20 @@ export type PullRequest = z.infer<typeof PullRequest>;
 export const ChatMode = z.enum(['ask', 'request', 'task']);
 export type ChatMode = z.infer<typeof ChatMode>;
 
+/** A question the agent asks the owner in a request chat, with likely answers to pick from. */
+export const OwnerQuestion = z.object({
+  id: z.string(),
+  header: z.string(),
+  question: z.string(),
+  options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+  multiSelect: z.boolean().default(false),
+});
+export type OwnerQuestion = z.infer<typeof OwnerQuestion>;
+
+/** The owner's answer to one question: the options picked and/or their own words. */
+export const OwnerAnswer = z.object({ questionId: z.string(), header: z.string(), question: z.string(), answers: z.array(z.string()).min(1) });
+export type OwnerAnswer = z.infer<typeof OwnerAnswer>;
+
 export const ChatThread = z.object({
   id: Id,
   projectId: Id,
@@ -313,6 +327,8 @@ export const ChatThread = z.object({
   pendingSpecChange: z.object({ kind: z.enum(['redraft', 'edit']), feedback: z.string().optional(), markdown: z.string().optional(), summary: z.string() }).optional(),
   /** Task chat: how the agent proposes to continue a stuck task, waiting for the owner to confirm. */
   pendingContinue: z.object({ summary: z.string(), guidance: z.string() }).optional(),
+  /** Request chat: questions the agent asked, waiting for the owner's answers. */
+  pendingQuestions: z.object({ questions: z.array(OwnerQuestion), askedAt: Iso }).optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -327,6 +343,8 @@ export const ChatMessage = z.object({
   refs: z.array(FileRef).default([]),
   /** For an answer: the agent run that wrote it (its steps show above the answer). */
   runId: Id.optional(),
+  /** For the owner's message: the answers they picked to the agent's questions. */
+  answers: z.array(OwnerAnswer).optional(),
   createdAt: Iso,
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

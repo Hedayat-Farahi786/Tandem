@@ -669,11 +669,16 @@ interface Tracker {
   The answer streams. File references in the form `path:line` are checked
   against the checkout and rendered as links into a file viewer; unknown
   paths are shown as plain text.
-- **Request** (per project): a session with the custom tool
-  `tandem_update_draft` (structured requirement fields). After every turn,
-  code runs the readiness check on the draft and feeds back what is
-  missing, so the agent's next message asks about exactly that. When the
-  draft passes, the chat shows the readiness checklist with Create task.
+- **Request** (per project): a session with the custom tools
+  `tandem_update_draft` (structured requirement fields) and
+  `tandem_ask_owner` (1 to 3 questions, each with a short header and 2 to 4
+  options, single or multiple choice). Questions are stored on the thread
+  (`pendingQuestions`) and shown as a card; the owner's reply carries the
+  picked `answers` on the message and closes them, as does any typed reply.
+  Both tools emit `thread.updated`, so the draft panel fills in live. After
+  every turn, code runs the readiness check on the draft and feeds back
+  what is missing, so the agent's next questions cover exactly that. When
+  the draft passes, the panel offers Create task.
 - **Task chat** (per task): read-only session over the task folder (or
   reference checkouts before build) with the spec, timeline, diff summary,
   and last verify output as context. The custom tool

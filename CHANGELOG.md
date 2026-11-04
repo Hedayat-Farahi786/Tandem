@@ -55,6 +55,18 @@ All notable changes to Tandem. The format follows
 
 ### Changed
 
+- **Questions you can answer with a click.** In a request chat, Copilot
+  asks through a "Copilot needs you" card: short questions, one at a time,
+  with likely answers to pick (single or multiple choice) and "Other" for
+  your own. Number keys and Enter work. Your answers show as a tidy
+  question-and-answer message, and Copilot gets them in plain words.
+- **A live task draft.** The Definition of Ready beside a request chat
+  fills in while Copilot works (the item it's on shimmers, done ones tick
+  and show what was filled in), then becomes the task to create with a
+  short summary. Creating it moves smoothly into the task's conversation,
+  and a task's side panel follows it to what needs you: the spec to review,
+  failing checks, the pull requests.
+
 - **A task as a conversation.** A task now opens in a Chat view: the
   request, every step, what Copilot did, the spec, approvals, checks and
   pull requests in one stream, with what needs you right above the message

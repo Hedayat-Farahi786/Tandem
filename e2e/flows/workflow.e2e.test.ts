@@ -23,10 +23,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function fromChat(projectId: string, request = REQUEST): Promise<{ id: string; key: string }> {
   const first = await h.request(projectId, [request]);
   expect(first.ready).toEqual([false]);
-  expect(first.replies[0]).toMatch(/\?/);
+  // Copilot asks its questions as choices; the person picks one per question, plus their own words.
+  type Asked = { thread: { pendingQuestions?: { questions: Array<{ id: string; header: string; question: string; options: Array<{ label: string }> }> } } };
+  const asked = (await h.api<Asked>('GET', `/api/threads/${first.threadId}`)).thread.pendingQuestions?.questions ?? [];
+  expect(asked.length).toBeGreaterThan(0);
+  expect(asked.every((q) => q.options.length >= 2 && q.question.endsWith('?'))).toBe(true);
   await expect(h.api('POST', `/api/threads/${first.threadId}/create-task`)).rejects.toThrow(/Not ready yet/);
-  const second = await h.request(projectId, [ANSWER], first.threadId);
-  expect(second.ready).toEqual([true]);
+  const answers = asked.map((q) => ({ questionId: q.id, header: q.header, question: q.question, answers: [q.options[0]!.label] }));
+  const text = `${answers.map((a) => `${a.header}: ${a.answers.join(', ')}`).join('\n')}\n${ANSWER}`;
+  const second = await h.api<{ readiness?: { ready: boolean } }>('POST', `/api/threads/${first.threadId}/messages`, { text, answers });
+  expect(second.readiness?.ready).toBe(true);
+  expect((await h.api<Asked>('GET', `/api/threads/${first.threadId}`)).thread.pendingQuestions).toBeUndefined();
   const task = await h.api<{ id: string; key: string; source: string; state: string }>('POST', `/api/threads/${first.threadId}/create-task`);
   expect(task.source).toBe('chat');
   return task;

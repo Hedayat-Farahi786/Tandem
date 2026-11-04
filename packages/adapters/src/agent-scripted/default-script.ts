@@ -237,12 +237,36 @@ function chatReply(call: ScriptCall): ScriptReply {
     if (/Still missing/.test(p) && !/^1\. Given/m.test(draft)) {
       if (!health)
         return {
-          text: 'Thanks. Two questions: what should people see while it loads, or if something goes wrong? And is anything out of scope for now?',
-          tools: [{ name: 'tandem_update_draft', args: { title: titleFrom(owner), goal: owner.slice(0, 300), criteria: [{ given: 'someone uses the app', when: 'they do what this request describes', then: firstSentence(owner) }] } }],
+          intent: 'Shaping the request',
+          text: 'A couple of questions before I write this up.',
+          tools: [
+            { name: 'tandem_update_draft', args: { title: titleFrom(owner), goal: owner.slice(0, 300), criteria: [{ given: 'someone uses the app', when: 'they do what this request describes', then: firstSentence(owner) }] } },
+            {
+              name: 'tandem_ask_owner',
+              args: {
+                questions: [
+                  { header: 'While waiting', question: 'What should people see while it loads, or if something goes wrong?', options: [{ label: 'Text messages', description: 'A short loading line, then a clear error message if it fails' }, { label: 'Spinner and banner', description: 'A small spinner while loading, an error banner if it fails' }, { label: 'Nothing special', description: 'Keep the page as it is while it loads' }] },
+                  { header: 'Out of scope', question: 'What should this change leave out for now?', multiSelect: true, options: [{ label: 'Authentication', description: 'No sign-in changes' }, { label: 'Mobile layout', description: 'Desktop only for now' }, { label: 'Analytics', description: 'No tracking events' }] },
+                ],
+              },
+            },
+          ],
         };
       return {
-        text: 'Thanks. Two questions: what should the page show while the status loads or if the backend is down? And is anything out of scope, such as authentication?',
-        tools: [{ name: 'tandem_update_draft', args: { title: 'Add a GET /health endpoint', goal: owner.slice(0, 300) || 'Expose service health', criteria: [{ given: 'the backend is running', when: 'GET /health is called', then: 'it returns 200 {"status":"ok"}' }] } }],
+        intent: 'Shaping the request',
+        text: 'A couple of questions before I write this up.',
+        tools: [
+          { name: 'tandem_update_draft', args: { title: 'Add a GET /health endpoint', goal: owner.slice(0, 300) || 'Expose service health', criteria: [{ given: 'the backend is running', when: 'GET /health is called', then: 'it returns 200 {"status":"ok"}' }] } },
+          {
+            name: 'tandem_ask_owner',
+            args: {
+              questions: [
+                { header: 'Loading & errors', question: 'What should the page show while the status loads, or if the backend is down?', options: [{ label: 'Text status', description: 'Show "Checking status…" while loading and "Status unavailable" if it fails' }, { label: 'Spinner and banner', description: 'A small spinner while loading, an error banner if it fails' }, { label: 'Hide until ready', description: 'Show nothing until the status arrives' }] },
+                { header: 'Out of scope', question: 'What should this change leave out for now?', multiSelect: true, options: [{ label: 'Authentication', description: 'The endpoint stays public' }, { label: 'Metrics', description: 'No uptime history or charts' }, { label: 'Alerting', description: 'No notifications when it goes down' }] },
+              ],
+            },
+          },
+        ],
       };
     }
     if (!health)

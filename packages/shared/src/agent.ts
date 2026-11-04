@@ -59,6 +59,28 @@ export const DraftUpdateArgs = z.object({
 });
 export type DraftUpdateArgs = z.infer<typeof DraftUpdateArgs>;
 
+/**
+ * Request mode: the agent asks the owner 1 to 3 short questions with likely answers to pick from.
+ * The owner can always write their own answer instead, so the options never include "Other".
+ */
+export const AskOwnerArgs = z.object({
+  questions: z
+    .array(
+      z.object({
+        /** One to three words, shown as a chip, e.g. "Loading state". */
+        header: z.string(),
+        /** One short, clear question. */
+        question: z.string(),
+        options: z.array(z.object({ label: z.string(), description: z.string().optional() })).min(2).max(4),
+        /** True when several answers can apply. */
+        multiSelect: z.boolean().optional(),
+      }),
+    )
+    .min(1)
+    .max(3),
+});
+export type AskOwnerArgs = z.infer<typeof AskOwnerArgs>;
+
 /** Task chat: the agent proposes a spec change; the owner confirms it in the UI. */
 export const SpecChangeArgs = z.object({
   kind: z.enum(['redraft', 'edit']),

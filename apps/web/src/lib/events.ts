@@ -44,6 +44,18 @@ export function useLiveInvalidation() {
       void qc.invalidateQueries({ queryKey: ['task', e.taskId] });
     }
     if (e.type === 'chat.done') void qc.invalidateQueries({ queryKey: ['thread', e.threadId] });
+    // The draft fills in and questions arrive while Copilot works: reload the chat, at most every 300 ms.
+    if (e.type === 'thread.updated') {
+      const key = `thread:${e.threadId}`;
+      if (!pending.has(key))
+        pending.set(
+          key,
+          setTimeout(() => {
+            pending.delete(key);
+            void qc.invalidateQueries({ queryKey: ['thread', e.threadId] });
+          }, 300),
+        );
+    }
     // A busy run saves many steps: reload a task's activity at most every half second.
     if (e.type === 'agent.step' && e.taskId) {
       const key = e.taskId;

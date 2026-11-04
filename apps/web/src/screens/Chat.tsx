@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
-import type { AgentStep, ChatMessage, ChatThread } from '@tandem/shared';
+import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler } from 'lucide-react';
+import type { AgentStep, ChatMessage, ChatThread, OwnerAnswer } from '@tandem/shared';
 import { ActivitySummary, LiveActivity } from '../ui/agent-steps';
 import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
@@ -10,9 +10,10 @@ import { relativeTime } from '../lib/format';
 import { useRouter } from '../lib/router';
 import { useChatProject } from '../lib/project';
 import type { Bootstrap, ThreadView } from '../lib/types';
-import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Pill, Select, Spinner, cx, useToast } from '../ui/kit';
+import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Select, Spinner, cx, useToast } from '../ui/kit';
 import { ModelPicker, useModels } from '../ui/model-picker';
-import { ReadinessChecklist } from './Tasks';
+import { RequestDraft } from './RequestDraft';
+import { AnswersBubble, QuestionCard } from '../ui/questions';
 
 /** Your message animates once, as you send it; replies animate as they arrive (not on reload). */
 const isFresh = (m: ChatMessage) => m.role === 'assistant' && Date.now() - Date.parse(m.createdAt) < 5_000;
@@ -52,7 +53,7 @@ function Message({ m, repoName, steps, enter = isFresh(m) }: { m: ChatMessage; r
     <div className={cx('group/msg flex', enter && 'animate-rise', mine ? 'justify-end' : 'justify-start')}>
       <div className={cx('max-w-[min(680px,92%)]', mine ? 'rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5' : 'px-1')}>
         {!mine && steps && <ActivitySummary steps={steps} />}
-        {mine ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p> : <Markdown source={m.content} />}
+        {mine ? m.answers?.length ? <AnswersBubble answers={m.answers} /> : <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</p> : <Markdown source={m.content} />}
         {!mine && <CopyAnswer text={m.content} />}
         {m.refs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -98,7 +99,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const view = useQuery({ queryKey: ['thread', threadId], queryFn: () => api<ThreadView>(`/api/threads/${threadId}`) });
   const [text, setText] = useState('');
   const [stream, setStream] = useState('');
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ content: string; answers?: OwnerAnswer[] } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   // Live: the answer as it streams, and Copilot's steps as it takes them.
   const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
@@ -117,9 +118,9 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
     }
   });
   const send = useMutation({
-    mutationFn: (t: string) => post(`/api/threads/${threadId}/messages`, { text: t }),
-    onMutate: (t) => {
-      setPending(t);
+    mutationFn: (m: { content: string; answers?: OwnerAnswer[] }) => post(`/api/threads/${threadId}/messages`, { text: m.content, ...(m.answers ? { answers: m.answers } : {}) }),
+    onMutate: (m) => {
+      setPending(m);
       setStream('');
       setLiveSteps([]);
       setSince(Date.now());
@@ -213,7 +214,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   useEffect(() => {
     if (!initialMessage || sentInitial.current || !view.data || view.data.messages.length > 0) return;
     sentInitial.current = true;
-    send.mutate(initialMessage);
+    send.mutate({ content: initialMessage });
     onInitialSent?.();
   }, [initialMessage, view.data, send, onInitialSent]);
   const repoName = (id?: string) => repos.find((r) => r.id === id)?.name ?? 'repo';
@@ -223,19 +224,23 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
     const t = text.trim();
     if (!t || send.isPending) return;
     setText('');
-    send.mutate(t);
+    send.mutate({ content: t });
   };
 
   if (view.isLoading) return <Loading />;
   if (view.isError || !view.data) return <ErrorState error={view.error} retry={() => void view.refetch()} />;
   const messages = view.data.messages;
   // The conversation: chat messages and the task's events, in the order they happened.
+  // The chat reloads live while Copilot works, so the message being sent may already be saved.
+  const lastMine = messages.filter((m) => m.role === 'user').at(-1);
+  const showPending = pending && !(lastMine && lastMine.content === pending.content && Date.parse(lastMine.createdAt) >= since - 5_000);
+  const questions = thread?.pendingQuestions && !send.isPending ? thread.pendingQuestions.questions : null;
   const entries: TimelineItem[] = [...(timeline ?? []), ...messages.map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
-    <div className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[1fr_280px]')}>
+    <div className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[minmax(0,1fr)_320px]')}>
       <div className="flex min-h-[420px] flex-col">
         <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={send.isPending}>
-          {entries.length === 0 && !pending && (
+          {entries.length === 0 && !showPending && (
             <div className="py-10 text-center text-[13.5px] text-muted">
               {thread?.mode === 'request' ? 'Describe what you want. Tandem asks until the request is clear and testable, then creates the task.' : thread?.mode === 'task' ? 'Ask about the spec, the build, the diff or failing checks. Ask for a spec change and Tandem proposes it for you to confirm.' : 'Ask anything about the code. Answers cite files and lines.'}
             </div>
@@ -247,7 +252,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               <div key={e.key}>{e.node}</div>
             ),
           )}
-          {pending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
+          {showPending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending.content, refs: [], ...(pending.answers ? { answers: pending.answers } : {}), createdAt: '' }} repoName={repoName} />}
           {send.isPending && (
             <div className="flex flex-col">
               <LiveActivity steps={liveSteps} since={since} answering={Boolean(stream)} />
@@ -259,6 +264,15 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             </div>
           )}
           {send.isError && <ErrorState title="The message was not answered" error={send.error} />}
+          {questions && (
+            <QuestionCard
+              key={thread?.pendingQuestions?.askedAt}
+              questions={questions}
+              busy={send.isPending}
+              onSubmit={(content, answers) => send.mutate({ content, answers })}
+              onWriteOwn={() => input.current?.focus()}
+            />
+          )}
           {thread?.pendingContinue && (
             <Callout
               tone="accent"
@@ -326,7 +340,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               rows={1}
               value={text}
               disabled={done}
-              placeholder={done ? 'This request became a task. Continue in the task chat.' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
+              placeholder={done ? 'This request became a task. Continue in the task chat.' : questions ? 'Or write your own answer…' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
               onChange={(e) => {
                 setText(e.target.value);
                 e.target.style.height = 'auto';
@@ -368,22 +382,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
         </form>
       </div>
       {thread?.mode === 'request' && view.data.readiness && !compact && (
-        <aside className="h-fit rounded-2xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-6">
-          <p className="mb-1 flex items-center justify-between text-[13.5px] font-semibold">
-            Ready to build?
-            <Pill tone={view.data.readiness.ready ? 'ok' : 'neutral'}>{view.data.readiness.ready ? 'Ready' : `${view.data.readiness.missing.length} to go`}</Pill>
-          </p>
-          <p className="mb-4 text-[13px] text-muted">{thread.draftTitle ?? 'The task takes shape as you answer.'}</p>
-          <ReadinessChecklist readiness={view.data.readiness} compact />
-          {createTask.isError && (
-            <div className="mt-3">
-              <ErrorState error={createTask.error} />
-            </div>
-          )}
-          <Button variant="primary" className="mt-4 w-full" icon={Sparkles} disabled={!view.data.readiness.ready || done} busy={createTask.isPending} onClick={() => createTask.mutate()}>
-            {done ? 'Task created' : 'Create task'}
-          </Button>
-        </aside>
+        <RequestDraft thread={thread} readiness={view.data.readiness} repos={repos} working={send.isPending} creating={createTask.isPending} done={done} error={createTask.isError ? createTask.error : null} onCreate={() => createTask.mutate()} />
       )}
     </div>
   );
@@ -552,7 +551,14 @@ export function ChatScreen() {
               threadId={current.id}
               repos={repos}
               placeholder={current.mode === 'request' ? 'Reply…' : 'Ask a follow-up…'}
-              onTaskCreated={(id) => navigate(`/tasks/${id}`)}
+              onTaskCreated={(id) => {
+                // Load the task and its conversation first, so the page glides straight into it.
+                const ready = Promise.all([
+                  qc.prefetchQuery({ queryKey: ['task', id], queryFn: () => api(`/api/tasks/${id}`) }),
+                  qc.fetchQuery({ queryKey: ['task-thread', id], queryFn: () => api<{ id: string }>(`/api/tasks/${id}/thread`) }).then((t) => qc.prefetchQuery({ queryKey: ['thread', t.id], queryFn: () => api(`/api/threads/${t.id}`) })),
+                ]).catch(() => undefined);
+                void Promise.race([ready, new Promise((r) => setTimeout(r, 1500))]).then(() => withTransition(() => navigate(`/tasks/${id}`)));
+              }}
               {...(firstMessage?.threadId === current.id ? { initialMessage: firstMessage.text, onInitialSent: () => setFirstMessage(null) } : {})}
             />
           </>

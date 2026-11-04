@@ -33,12 +33,53 @@ describe('Chat', () => {
     expect(await screen.findByText('What should the page show while loading?')).toBeTruthy();
     expect(screen.getByText(/shop\/src\/app\.ts:12/)).toBeTruthy();
     expect(api.calls.find((c) => c.path === '/api/threads/t1/messages')?.body).toEqual({ text: 'Add a GET /health endpoint' });
-    const create = screen.getByRole('button', { name: /Create task/ });
-    expect((create as HTMLButtonElement).disabled).toBe(true);
+    // The task draft fills in beside the chat; it can be created once it is ready.
+    const draft = screen.getByRole('complementary', { name: 'Task draft' });
+    expect(within(draft).getByText('Health endpoint')).toBeTruthy();
+    expect(within(draft).queryByRole('button', { name: /Create task/ })).toBeNull();
     await user.type(screen.getByLabelText('Message'), 'Show a spinner{Enter}');
-    await waitFor(() => expect((screen.getByRole('button', { name: /Create task/ }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((within(draft).getByRole('button', { name: /Create task/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(within(draft).getByText('Ready')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /Create task/ }));
     await waitFor(() => expect(window.location.pathname).toBe('/tasks/task1'));
+  });
+
+  it("asks Copilot's questions as choices, one at a time, with room for your own answer", async () => {
+    const pendingQuestions = {
+      askedAt: '2026-11-03T10:00:00Z',
+      questions: [
+        { id: 'q1', header: 'Loading & errors', question: 'What should the page show while it loads?', multiSelect: false, options: [{ label: 'Text status', description: 'Show "Checking status…"' }, { label: 'Spinner' }] },
+        { id: 'q2', header: 'Out of scope', question: 'What should this leave out?', multiSelect: true, options: [{ label: 'Authentication' }, { label: 'Metrics' }] },
+      ],
+    };
+    const api = mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/projects/p1/threads': [thread],
+      'GET /api/threads/t1': { thread: { ...thread, pendingQuestions }, model: '', messages: [{ id: 'a1', threadId: 't1', role: 'assistant', content: 'A couple of questions.', refs: [], createdAt: '2026-11-03T10:00:00Z' }], readiness: readiness(false) },
+      'POST /api/threads/t1/messages': { ok: true },
+    });
+    const user = userEvent.setup();
+    renderApp('/chat?project=p1&thread=t1');
+    const card = await screen.findByRole('region', { name: 'Copilot needs you' });
+    expect(within(card).getByText('What should the page show while it loads?')).toBeTruthy();
+    const next = within(card).getByRole('button', { name: 'Next' }) as HTMLButtonElement;
+    expect(next.disabled).toBe(true);
+    await user.click(within(card).getByRole('radio', { name: /Text status/ }));
+    await user.click(next);
+    // Second question: pick several, and add your own.
+    expect(within(card).getByText('What should this leave out?')).toBeTruthy();
+    await user.click(within(card).getByRole('checkbox', { name: /Metrics/ }));
+    await user.click(within(card).getByRole('checkbox', { name: /Other/ }));
+    await user.type(within(card).getByLabelText('Your answer: Out of scope'), 'Dark mode');
+    await user.click(within(card).getByRole('button', { name: 'Send answers' }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === '/api/threads/t1/messages')).toBeTruthy());
+    expect(api.calls.find((c) => c.path === '/api/threads/t1/messages')!.body).toEqual({
+      text: 'Loading & errors: Text status\nOut of scope: Metrics, Dark mode',
+      answers: [
+        { questionId: 'q1', header: 'Loading & errors', question: 'What should the page show while it loads?', answers: ['Text status'] },
+        { questionId: 'q2', header: 'Out of scope', question: 'What should this leave out?', answers: ['Metrics', 'Dark mode'] },
+      ],
+    });
   });
 
   it('lists recent conversations in the main sidebar and opens one; New chat goes back to the composer', async () => {

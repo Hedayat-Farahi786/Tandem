@@ -1718,6 +1718,19 @@ export function TaskDetailScreen({ id }: { id: string }) {
     if (q.data.task.state === "SPEC_REVIEW") setTab("spec");
     setPanel(defaultPanel(q.data));
   }, [q.data]);
+  // When the task reaches a point that needs you, show that part beside the conversation (unless the
+  // panel was closed): the spec to review, failing checks, the pull requests.
+  const seenState = useRef<string | null>(null);
+  const state = q.data?.task.state;
+  const failing = q.data?.verifyRuns.at(-1)?.passed === false;
+  useEffect(() => {
+    if (!state) return;
+    const before = seenState.current;
+    seenState.current = state;
+    if (!before || before === state) return;
+    const next: PanelTab | null = state === "SPEC_REVIEW" ? "spec" : state === "PR_OPEN" ? "prs" : failing && state === "BUILDING" ? "checks" : null;
+    if (next) setPanel((p) => (p === null ? p : next));
+  }, [state, failing]);
   if (q.isLoading) return <Loading rows={5} />;
   if (q.isError || !q.data)
     return <ErrorState error={q.error} retry={() => void q.refetch()} />;

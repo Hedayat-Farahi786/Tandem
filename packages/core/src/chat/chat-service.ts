@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ContinueArgs, DraftUpdateArgs, Requirement, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
+import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, Requirement, type OwnerAnswer, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
@@ -20,7 +20,8 @@ You answer questions about the code in the workspace (one folder per repo). Be c
 
 const REQUEST_RULES = `${READ_ONLY_RULES}
 You help the owner turn a request into a task that meets Tandem's Definition of Ready: a clear goal, a user story, at least 2 acceptance criteria written as Given/When/Then, example data, affected areas, what is out of scope, and no open questions.
-Read the code to ground your questions and to name real files and endpoints. Ask at most 3 short, specific questions per reply.
+Read the code to ground your questions and to name real files and endpoints.
+To ask the owner something, call tandem_ask_owner with 1 to 3 questions: a header of one to three words, one short plain question, and 2 to 4 distinct, realistic answers as options (a label of a few words and a one-line description, grounded in the code). Set multiSelect when several answers can apply. The owner can always write their own answer, so never add an "Other" option. Ask only what you cannot find in the code, most important first. After asking, reply with one short sentence and do not repeat the questions.
 Every time you learn something, call tandem_update_draft with the fields you can now fill (only send what changed). Estimate size too: changed lines across repos including tests, and the independent features (useful shipped on their own; an endpoint and the page that shows it are one feature).
 Do not invent requirements; ask. Never write code.`;
 
@@ -51,6 +52,14 @@ export function extractRefs(text: string, root: string, repos: readonly Repo[]):
 
 /** Chat: Ask (read-only questions), Request (clarify until ready, then create the task), task chat. */
 /** A thread title from a question: its first line, cut at a word boundary. */
+/** A question's header is shown as a chip: at most 24 characters, cut between words. */
+function chipText(header: string): string {
+  const h = header.trim().replace(/\s+/g, ' ');
+  if (h.length <= 24) return h;
+  const cut = h.slice(0, 25);
+  return (cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : h.slice(0, 24)).replace(/[\s,;:.-]+$/, '');
+}
+
 export function shortTitle(text: string, max = 60): string {
   const line = text.trim().split('\n')[0]!.replace(/\s+/g, ' ');
   if (line.length <= max) return line;
@@ -118,19 +127,27 @@ export class ChatService {
     return t;
   }
 
-  private async say(threadId: string, role: ChatMessage['role'], content: string, refs: ChatMessage['refs'] = [], runId?: string): Promise<ChatMessage> {
-    const m: ChatMessage = { id: this.deps.ids(), threadId, role, content, refs, ...(runId ? { runId } : {}), createdAt: this.deps.clock.iso() };
+  private async say(threadId: string, role: ChatMessage['role'], content: string, refs: ChatMessage['refs'] = [], runId?: string, answers?: OwnerAnswer[]): Promise<ChatMessage> {
+    const m: ChatMessage = { id: this.deps.ids(), threadId, role, content, refs, ...(runId ? { runId } : {}), ...(answers?.length ? { answers } : {}), createdAt: this.deps.clock.iso() };
     await this.deps.store.messages.add(m);
     return m;
   }
 
-  /** Sends a message and streams the reply (agent.delta events and onEvent). */
-  async send(threadId: string, text: string, onEvent?: (e: AgentEvent) => void): Promise<ChatReply> {
+  /**
+   * Sends a message and streams the reply (agent.delta events and onEvent). `answers` are the
+   * owner's picks for the agent's questions; any message (answers or not) closes those questions.
+   */
+  async send(threadId: string, text: string, onEvent?: (e: AgentEvent) => void, answers?: OwnerAnswer[]): Promise<ChatReply> {
     const content = text.trim();
     if (!content) throw new ActionError('Write a message first.');
     let thread = await this.thread(threadId);
     if (thread.mode === 'request' && thread.createdTaskId) throw new ActionError('This request already became a task. Use the task chat for changes.');
-    await this.say(threadId, 'user', content);
+    if (thread.pendingQuestions) {
+      const { pendingQuestions: _answered, ...rest } = thread;
+      thread = rest;
+      await this.deps.store.threads.upsert(thread);
+    }
+    await this.say(threadId, 'user', content, [], undefined, answers);
     const project = await loadProject(this.deps, thread.projectId);
     const task = thread.taskId ? await this.deps.store.tasks.get(thread.taskId) : undefined;
     const repos = await affectedRepos(this.deps, task ?? ({ affectedRepoIds: [] } as unknown as Task), project);
@@ -140,7 +157,7 @@ export class ChatService {
     const root = taskDir && existsSync(taskDir) ? taskDir : await refreshReferences(this.deps, project, repos);
 
     const tools: AgentTool<never>[] = [];
-    if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>);
+    if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>, this.askTool(threadId) as AgentTool<never>);
     if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId) as AgentTool<never>);
     const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
     const session = await openSession(this.deps, {
@@ -214,8 +231,31 @@ export class ChatService {
         });
         const ids = a.affectedRepos ? repos.filter((r) => a.affectedRepos!.includes(r.name)).map((r) => r.id) : undefined;
         await this.deps.store.threads.upsert({ ...t, draft, ...(a.title ? { draftTitle: a.title } : {}), ...(ids?.length ? { draftRepoIds: ids } : {}), ...(a.size ? { draftSize: a.size } : {}), updatedAt: this.deps.clock.iso() });
+        this.deps.events?.emit({ type: 'thread.updated', threadId });
         const r = checkReadiness(draft);
         return r.ready ? 'Draft updated. It now meets the Definition of Ready.' : `Draft updated. Still missing: ${r.missing.map((m) => m.label).join('; ')}.`;
+      },
+    };
+  }
+
+  /** Request mode: questions for the owner, shown as a card with answers to pick from. */
+  private askTool(threadId: string): AgentTool<AskOwnerArgs> {
+    return {
+      name: 'tandem_ask_owner',
+      description: 'Ask the owner 1 to 3 short questions, each with 2 to 4 likely answers to pick from. The owner can also write their own answer.',
+      schema: AskOwnerArgs,
+      handler: async (a) => {
+        const t = await this.thread(threadId);
+        const questions = a.questions.map((q, i) => ({
+          id: `q${i + 1}`,
+          header: chipText(q.header) || `Question ${i + 1}`,
+          question: q.question.trim(),
+          options: q.options.filter((o) => o.label.trim() && !/^other\b/i.test(o.label.trim())).map((o) => ({ label: o.label.trim(), ...(o.description?.trim() ? { description: o.description.trim() } : {}) })),
+          multiSelect: Boolean(q.multiSelect),
+        }));
+        await this.deps.store.threads.upsert({ ...t, pendingQuestions: { questions, askedAt: this.deps.clock.iso() }, updatedAt: this.deps.clock.iso() });
+        this.deps.events?.emit({ type: 'thread.updated', threadId });
+        return 'The owner sees your questions as a card with the options, and can also write their own answer. Reply with one short sentence; do not repeat the questions.';
       },
     };
   }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { AgentStep } from '@tandem/shared';
+import { OwnerAnswer, type AgentStep } from '@tandem/shared';
 import type { ServerContext } from '../app.js';
 
 const id = (req: { params: unknown }) => (req.params as { id: string }).id;
@@ -27,7 +27,10 @@ export function registerChatRoutes(app: FastifyInstance, ctx: ServerContext) {
     return { thread, model: await chat.modelOf(thread) };
   });
   /** Sends a message. The reply streams as agent.delta events (threadId) and comes back here when done. */
-  app.post('/api/threads/:id/messages', async (req) => chat.send(id(req), z.object({ text: z.string() }).parse(req.body).text));
+  app.post('/api/threads/:id/messages', async (req) => {
+    const body = z.object({ text: z.string(), answers: z.array(OwnerAnswer).optional() }).parse(req.body);
+    return chat.send(id(req), body.text, undefined, body.answers);
+  });
   app.post('/api/threads/:id/create-task', async (req) => chat.createTask(id(req)));
   app.post('/api/threads/:id/spec-change/apply', async (req) => chat.applySpecChange(id(req)));
   /** Task chat: continue the task with the owner's message (text) or with what the agent proposed. */

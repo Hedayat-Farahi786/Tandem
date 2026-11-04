@@ -92,6 +92,48 @@ describe('chat: Request', () => {
   });
 });
 
+describe('chat: questions for the owner', () => {
+  it('shows the agent questions as choices, keeps the answers, and closes them on reply', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    h.overrides.chat = () => ({
+      text: 'Two quick questions.',
+      tools: [
+        {
+          name: 'tandem_ask_owner',
+          args: {
+            questions: [
+              { header: 'When it fails, what should the page show in its place', question: 'What should the page show if the backend is down?', options: [{ label: 'Status unavailable', description: 'A short line' }, { label: 'Other', description: 'dropped' }, { label: 'An error banner' }] },
+              { header: 'Out of scope', question: 'What should this leave out?', multiSelect: true, options: [{ label: 'Auth' }, { label: 'Metrics' }] },
+            ],
+          },
+        },
+      ],
+    });
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await c.send(t.id, 'Add a health endpoint.');
+    expect(h.agent.calls.at(-1)!.opts.tools?.map((x) => x.name)).toContain('tandem_ask_owner');
+    // The page reloads the chat as soon as the questions arrive.
+    expect(h.events.events.some((e) => e.type === 'thread.updated' && e.threadId === t.id)).toBe(true);
+    const asked = (await c.thread(t.id)).pendingQuestions!;
+    expect(asked.questions).toHaveLength(2);
+    // Headers are kept short; an "Other" option is dropped (the owner can always write their own).
+    expect(asked.questions[0]!).toMatchObject({ id: 'q1', header: 'When it fails, what', options: [{ label: 'Status unavailable', description: 'A short line' }, { label: 'An error banner' }], multiSelect: false });
+    expect(asked.questions[1]!.multiSelect).toBe(true);
+
+    h.overrides.chat = () => ({ text: 'Thanks.' });
+    const answers = [
+      { questionId: 'q1', header: 'Fails', question: 'What should the page show if the backend is down?', answers: ['Status unavailable'] },
+      { questionId: 'q2', header: 'Out of scope', question: 'What should this leave out?', answers: ['Auth', 'Metrics'] },
+    ];
+    await c.send(t.id, 'Fails: Status unavailable\nOut of scope: Auth, Metrics', undefined, answers);
+    expect((await c.thread(t.id)).pendingQuestions).toBeUndefined();
+    expect((await c.messages(t.id)).filter((m) => m.role === 'user').at(-1)).toMatchObject({ content: 'Fails: Status unavailable\nOut of scope: Auth, Metrics', answers });
+    expect(h.agent.calls.at(-1)!.prompt).toContain('Out of scope: Auth, Metrics');
+  });
+});
+
 describe('chat: task thread', () => {
   it('proposes a spec redraft that the owner confirms', async () => {
     const h = harness();

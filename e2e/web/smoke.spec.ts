@@ -77,14 +77,25 @@ test('chat: a request becomes a ready task', async () => {
   await expect(page.getByRole('combobox', { name: 'Model: Scripted Swift' })).toBeFocused();
   await page.getByLabel('Describe your request').fill('Add a GET /health endpoint returning {status: "ok"} and show the status on the main page.');
   await page.keyboard.press('Enter');
-  await expect(page.getByText('Two questions')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('button', { name: 'Create task' })).toBeDisabled();
-  await page.getByLabel('Message').fill('Show "Checking status…" while loading and "Status unavailable" if it fails. Auth is out of scope.');
+  // Copilot asks its questions as choices, one at a time; keys pick, Enter goes on.
+  const card = page.getByRole('region', { name: 'Copilot needs you' });
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  const draft = page.getByRole('complementary', { name: 'Task draft' });
+  await expect(draft.getByRole('button', { name: 'Create task' })).toHaveCount(0);
+  await checkScreen(page, '06c-chat-question');
+  await page.keyboard.press('1');
   await page.keyboard.press('Enter');
+  await expect(card.getByText('What should this change leave out for now?')).toBeVisible();
+  await card.getByText('Authentication', { exact: true }).click();
+  await card.getByText('Metrics', { exact: true }).click();
+  await expect(card.getByRole('checkbox', { name: /Authentication/ })).toBeChecked();
+  await expect(card.getByRole('checkbox', { name: /Metrics/ })).toBeChecked();
+  await card.getByRole('button', { name: 'Send answers' }).click();
   await expect(page.getByText('meets the Definition of Ready')).toBeVisible({ timeout: 60_000 });
+  await expect(draft.getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Conversations' }).getByText('Add a GET /health endpoint')).toBeVisible();
   await checkScreen(page, '07-chat-ready');
-  await page.getByRole('button', { name: 'Create task' }).click();
+  await draft.getByRole('button', { name: 'Create task' }).click();
   await expect(page).toHaveURL(/\/tasks\/[\w-]+$/);
 });
 
