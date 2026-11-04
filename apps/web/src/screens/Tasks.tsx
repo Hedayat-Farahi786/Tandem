@@ -4,7 +4,7 @@ import { CheckCircle2, Circle, GitPullRequest, ListTodo, MessageSquare, Plus, Se
 import { StatusIcon } from '../ui/visual';
 import type { Criterion, Requirement } from '@tandem/shared';
 import { api, post } from '../lib/api';
-import { STATE_LABEL, STATE_TONE, relativeTime, stepLabel } from '../lib/format';
+import { STATE_LABEL, STATE_TONE, relativeTime, shortReason, stepLabel } from '../lib/format';
 import { Link, useRouter } from '../lib/router';
 import type { Bootstrap, Readiness, TaskListItem } from '../lib/types';
 import { Button, Checkbox, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, Pill, Select, Textarea, controlBase, cx } from '../ui/kit';
@@ -47,10 +47,26 @@ export function CriteriaEditor({ value, onChange }: { value: Criterion[]; onChan
               Remove
             </Button>
           </div>
-          <div className="grid gap-2 md:grid-cols-3">
-            <Input label="Given" value={c.given} onChange={(e) => set(i, 'given', e.target.value)} placeholder="the backend is running" />
-            <Input label="When" value={c.when} onChange={(e) => set(i, 'when', e.target.value)} placeholder="GET /health is called" />
-            <Input label="Then" value={c.then} onChange={(e) => set(i, 'then', e.target.value)} placeholder="it returns 200 {status: 'ok'}" />
+          {/* One clause per line, each growing with its text: criteria are sentences, not short fields. */}
+          <div className="flex flex-col gap-2">
+            {(
+              [
+                ['given', 'Given', 'the backend is running'],
+                ['when', 'When', 'GET /health is called'],
+                ['then', 'Then', "it returns 200 {status: 'ok'}"],
+              ] as const
+            ).map(([k, label, placeholder]) => (
+              <label key={k} className="grid items-start gap-x-3 gap-y-1 sm:grid-cols-[48px_minmax(0,1fr)]">
+                <span className="text-[12.5px] font-medium text-muted sm:pt-2">{label}</span>
+                <textarea
+                  rows={1}
+                  value={c[k]}
+                  onChange={(e) => set(i, k, e.target.value)}
+                  placeholder={placeholder}
+                  className={cx(controlBase, 'resize-none px-3 py-1.5 leading-relaxed [field-sizing:content]')}
+                />
+              </label>
+            ))}
           </div>
         </div>
       ))}
@@ -280,7 +296,7 @@ export function TasksScreen() {
       ) : (
         <ul aria-label="Tasks" className="divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-panel">
           {list.map((t) => {
-            const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? t.blockedMessage?.split('\n')[0] : t.needsAttention ? 'Needs attention' : undefined;
+            const note = t.state === 'BLOCKED' || t.state === 'FAILED' ? (t.blockedMessage ? shortReason(t.blockedMessage) : undefined) : t.needsAttention && t.state !== 'DONE' && t.state !== 'CANCELLED' ? 'Needs attention' : undefined;
             const status = RUNNING.has(t.state) && t.step ? stepLabel(t.step) : STATE_LABEL[t.state];
             return (
               <li key={t.id}>
@@ -294,14 +310,21 @@ export function TasksScreen() {
                     </p>
                   </div>
                   <div className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
-                    {multiProject && projectName(t.projectId) && <span className="max-w-32 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-muted">{projectName(t.projectId)}</span>}
-                    {t.prCount > 0 && (
-                      <span className="flex items-center gap-1" title={`${t.prCount} pull request${t.prCount > 1 ? 's' : ''}`}>
-                        <GitPullRequest aria-hidden className="size-3.5" />
-                        {t.prCount}
+                    {multiProject && (
+                      <span className="flex w-32 justify-end">
+                        {projectName(t.projectId) && <span className="max-w-full truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-muted">{projectName(t.projectId)}</span>}
                       </span>
                     )}
-                    <span className="w-14 font-mono text-[12px]">{t.key}</span>
+                    <span className="flex w-8 items-center gap-1" title={t.prCount ? `${t.prCount} pull request${t.prCount > 1 ? 's' : ''}` : undefined}>
+                      {t.prCount > 0 && (
+                        <>
+                          <GitPullRequest aria-hidden className="size-3.5" />
+                          <span className="tabular-nums">{t.prCount}</span>
+                          <span className="sr-only"> pull request{t.prCount > 1 ? 's' : ''}</span>
+                        </>
+                      )}
+                    </span>
+                    <span className="w-16 font-medium tracking-wide text-muted tabular-nums">{t.key}</span>
                   </div>
                   <span className="w-16 shrink-0 text-right text-[12px] text-faint tabular-nums">{relativeTime(t.updatedAt)}</span>
                 </Link>

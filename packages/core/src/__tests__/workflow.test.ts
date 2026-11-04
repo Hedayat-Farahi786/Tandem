@@ -645,6 +645,17 @@ describe('workflow: resilience', () => {
     expect(resumed.at(-1)!.prompt).toContain('may already exist from an interrupted run');
   });
 
+  it('re-checking a task that waits for spec review after a restart leaves its time alone', async () => {
+    const h = harness();
+    const t = await h.start();
+    expect(t.state).toBe('SPEC_REVIEW');
+    h.clock.advance(60 * 60_000);
+    const r = h.makeRunner('boot-4');
+    await r.recover();
+    await r.runUntilIdle();
+    expect((await h.get(t.id)).updatedAt).toBe(t.updatedAt);
+  });
+
   it('creates jobs on boot for active tasks that lost theirs', async () => {
     const h = harness();
     const t = await h.start();

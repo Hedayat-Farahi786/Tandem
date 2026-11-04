@@ -36,14 +36,17 @@ const When = ({ at }: { at: string }) => (
 );
 
 /** A quiet line for something that happened: a state change, an approval. */
-function Milestone({ icon, title, body, at }: { icon: ReactNode; title: string; body?: string; at: string }) {
+/** A tracker comment in one line: its first line ("Pull requests for X are ready for review"); the links and lists are on the cards. */
+const commentLine = (body: string) => body.trim().split('\n')[0]!.replace(/:\s*$/, '.');
+
+function Milestone({ icon, title, body, full, at }: { icon: ReactNode; title: string; body?: string; full?: string; at: string }) {
   return (
     <div className="flex items-start gap-2.5 px-1 text-[13px]">
       <span aria-hidden className="mt-[3px] grid size-4 shrink-0 place-items-center">
         {icon}
       </span>
       {/* Long notes (a list of links, say) stay to two lines here; the full text is on hover. */}
-      <p className="line-clamp-2 min-w-0 flex-1 leading-relaxed break-words" title={body ? `${title} · ${body}` : title}>
+      <p className="line-clamp-2 min-w-0 flex-1 leading-relaxed break-words" title={(full ?? body) ? `${title} · ${full ?? body}` : title}>
         <span className="font-medium text-fg">{title}</span>
         {body && <span className="text-muted"> · {body}</span>}
       </p>
@@ -62,14 +65,24 @@ function ArtifactCard({ icon: Icon, logo, title, sub, at, badge, open, openLabel
         {logo ?? (Icon && <Icon className="size-4" strokeWidth={1.9} />)}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2">
-          <span className="truncate text-[13.5px] font-medium">{title}</span>
-          {badge}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
+          <span className="max-w-full min-w-0 truncate text-[13.5px] font-medium">{title}</span>
+          {badge && <span className="shrink-0">{badge}</span>}
         </p>
-        <p className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-          <span className="min-w-0 truncate">{sub}</span>
-          <span aria-hidden className="text-faint">·</span>
-          <When at={at} />
+        <p className="mt-0.5 text-[13px] leading-snug text-muted">
+          {/* Each part stays whole when the line wraps ("1 skipped", never "1 / skipped"). */}
+          {typeof sub === 'string'
+            ? sub.split(' · ').map((part, i) => (
+                <span key={i} className="whitespace-nowrap">
+                  {i > 0 && <span aria-hidden className="mx-1.5 text-faint">·</span>}
+                  {part}
+                </span>
+              ))
+            : sub}
+          <span aria-hidden className="mx-1.5 text-faint">·</span>
+          <span className="whitespace-nowrap">
+            <When at={at} />
+          </span>
         </p>
       </div>
       {extra}
@@ -173,7 +186,9 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
       items.push({ at: a.createdAt, key: `ap-${a.id}`, node: <Milestone icon={<ThumbsUp className="size-3.5 text-ok" strokeWidth={2} />} title={`${a.name} approved spec v${a.specVersion}`} body={a.role === 'pm' ? `as PM${a.method === 'jira' ? ', in Jira' : ''}` : 'as owner'} at={a.createdAt} /> });
     for (const v of d.verifyRuns) {
       const passed = v.results.filter((r) => !r.skipped && !r.preexisting && r.exitCode === 0 && !r.timedOut).length;
-      const extra = [v.results.filter((r) => r.preexisting).length ? `${v.results.filter((r) => r.preexisting).length} failing before this change too` : '', v.results.filter((r) => r.skipped).length ? `${v.results.filter((r) => r.skipped).length} skipped` : ''].filter(Boolean).join(', ');
+      const pre = v.results.filter((r) => r.preexisting).length;
+      const skipped = v.results.filter((r) => r.skipped).length;
+      const extra = [pre ? `${pre} already failing` : '', skipped ? `${skipped} skipped` : ''].filter(Boolean).join(' · ');
       items.push({
         at: v.createdAt,
         key: `vr-${v.id}`,
@@ -182,7 +197,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
             icon={v.passed ? CheckCircle2 : AlertTriangle}
             title={v.passed ? 'Checks passed' : 'Checks failed'}
             badge={v.attempt > 0 ? <span className="text-[12px] text-faint">{roundLabel(v.attempt)}</span> : undefined}
-            sub={`${passed} of ${v.results.length} command${v.results.length === 1 ? '' : 's'} passed${extra ? ` · ${extra}` : ''}`}
+            sub={passed === v.results.length ? `All ${passed} command${passed === 1 ? '' : 's'} passed` : `${passed} of ${v.results.length} passed${extra ? ` · ${extra}` : ''}`}
             at={v.createdAt}
             open={() => openPanel('checks')}
             openLabel="View checks"
@@ -200,8 +215,12 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
           <ArtifactCard
             logo={repo ? <BrandLogo brand={hostBrand(repo.host.kind)} size={17} /> : undefined}
             title={pr.title || 'Pull request'}
-            badge={<Pill tone={st.tone}>{st.label}</Pill>}
-            sub={repo?.name ?? 'repo'}
+            sub={
+              <span className="whitespace-nowrap">
+                <Pill tone={st.tone}>{st.label}</Pill>
+                <span className="ml-1.5">{repo?.name ?? 'repo'}</span>
+              </span>
+            }
             at={pr.createdAt}
             open={() => openPanel('prs')}
             openLabel="View"
@@ -216,7 +235,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
         ),
       });
     }
-    for (const c of d.comments) items.push({ at: c.createdAt, key: `c-${c.id}`, node: <Milestone icon={<MessageSquareText className="size-3.5 text-muted" strokeWidth={2} />} title={c.authorName} body={c.body} at={c.createdAt} /> });
+    for (const c of d.comments) items.push({ at: c.createdAt, key: `c-${c.id}`, node: <Milestone icon={<MessageSquareText className="size-3.5 text-muted" strokeWidth={2} />} title={c.authorName} body={commentLine(c.body)} full={c.body} at={c.createdAt} /> });
     return items;
   }, [d, threadId, activity.data, openPanel]);
   return { items, copilotWorking: Boolean(activity.data?.some((r) => r.status === 'running' && !CHAT_RUNS.has(r.kind))) };

@@ -20,7 +20,6 @@ import {
   Sun,
   type LucideIcon,
 } from "lucide-react";
-import type { ChatThread } from "@tandem/shared";
 import type { TaskListItem } from "./lib/types";
 import { NEEDS_YOU } from "./lib/tasks";
 import { useTheme } from "./lib/theme";

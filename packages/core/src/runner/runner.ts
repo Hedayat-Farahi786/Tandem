@@ -233,7 +233,8 @@ export class Runner {
           return;
         }
         case 'idle':
-          await tx.tasks.upsert(withPatch(outcome.patch));
+          // Waiting with nothing new (a restart re-checking a spec review, say) isn't an update: the task keeps its time.
+          await tx.tasks.upsert(outcome.patch ? withPatch(outcome.patch) : base);
           await tx.jobs.delete(task.id);
           return;
       }

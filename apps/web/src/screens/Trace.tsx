@@ -6,6 +6,7 @@ import type { Trace } from '../lib/types';
 import { CopyButton, ErrorState, LinkButton, Loading, cx } from '../ui/kit';
 import { CreditsInfo } from '../ui/credits-info';
 import { BrandLogo, providerOf, type Brand } from '../ui/brands';
+import { CriterionText, FilePath } from '../ui/text';
 
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 
@@ -167,14 +168,12 @@ export function TraceTab({ taskId }: { taskId: string }) {
                       <span className="w-4 shrink-0 pt-px font-mono text-[12px] text-faint">{c.n}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] leading-snug">
-                          <span className="text-faint">Given</span> {c.given}, <span className="text-faint">when</span> {c.when}, <span className="text-faint">then</span> {c.then}
+                          <CriterionText c={c} keywordClass="text-faint" />
                         </p>
                         {c.tests.map((x, i) => (
                           <div key={i} className="mt-1.5 min-w-0">
                             <p className="text-[12.5px] leading-snug text-muted">{x.name}</p>
-                            <p className="truncate font-mono text-[11.5px] text-faint" title={`${x.repo}: ${x.file}`}>
-                              {x.repo}: {x.file}
-                            </p>
+                            <FilePath path={x.file} prefix={`${x.repo}: `} className="text-[11.5px] text-faint" />
                           </div>
                         ))}
                       </div>

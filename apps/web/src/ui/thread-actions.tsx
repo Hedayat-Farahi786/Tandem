@@ -54,7 +54,6 @@ export function ActionMenu({ label, items, className, onOpenChange }: { label: s
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -65,7 +64,6 @@ export function ActionMenu({ label, items, className, onOpenChange }: { label: s
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {

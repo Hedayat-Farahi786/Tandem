@@ -71,6 +71,7 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   if (process.env.TANDEM_TEST_REMOTE_ROOT) logger.warn('test mode: CodeCommit repos are served from local copies', { root: process.env.TANDEM_TEST_REMOTE_ROOT });
   const recovered = await tandem.runner.recover();
   const chat = new ChatService(tandem.deps, tandem.service);
+  await chat.nameUntitled().catch((err: unknown) => logger.warn('could not name untitled chats', { error: String(err) }));
   // When a task gets stuck, Tandem asks for help in the task's chat.
   bus.subscribe(({ event: e }) => {
     const stuck = e.type === 'task.blocked' || (e.type === 'task.transition' && (e.to === 'FAILED' || e.to === 'PR_OPEN'));

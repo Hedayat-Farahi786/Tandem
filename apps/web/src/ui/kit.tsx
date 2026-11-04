@@ -119,7 +119,7 @@ export function Tooltip({ label, children, side = 'top' }: { label: string; chil
 /* ================================================================== fields */
 
 export const controlBase =
-  'w-full rounded-[9px] border border-line-strong bg-surface text-[13.5px] text-fg shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-[border-color,box-shadow] duration-150 hover:border-faint/70 focus:border-fg/60 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_12%,transparent)] focus-visible:outline-none aria-[invalid=true]:border-danger';
+  'w-full rounded-[9px] border border-line-strong bg-surface text-[13.5px] text-fg shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-[border-color,box-shadow] duration-150 hover:border-faint/70 focus:border-fg/60 focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_12%,transparent)] focus-visible:outline-none aria-[invalid=true]:border-danger disabled:cursor-not-allowed disabled:border-line disabled:bg-surface-2 disabled:text-muted disabled:shadow-none';
 
 export function Field({ label, help, error, children, htmlFor, optional, hideLabel }: { label?: string; help?: ReactNode; error?: string | undefined; children: ReactNode; htmlFor: string; optional?: boolean; hideLabel?: boolean }) {
   return (
@@ -432,7 +432,7 @@ export function SettingsSection({ id: anchor, icon, title, description, actions,
 export function Row({ label, htmlFor, description, children, wide }: { label: ReactNode; htmlFor?: string; description?: ReactNode; children?: ReactNode; wide?: boolean }) {
   return (
     <div className={cx('grid gap-x-8 gap-y-2.5 py-4', children ? (wide ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]') : '')}>
-      <div className="min-w-0">
+      <div className="min-w-0 sm:self-center">
         {htmlFor ? (
           <label htmlFor={htmlFor} className="text-[13.5px] font-medium">
             {label}

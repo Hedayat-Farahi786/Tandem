@@ -373,7 +373,7 @@ function Overview({ d }: { d: TaskDetail }) {
                 </dd>
               </div>
             </dl>
-            <dl className="grid gap-4 @xl:grid-cols-3">
+            <dl className="grid gap-4">
               {(
                 [
                   ["Example data", r.exampleData],
@@ -465,10 +465,11 @@ function SpecTab({ d }: { d: TaskDetail }) {
   return (
     <div className="grid gap-6 @3xl:grid-cols-[1fr_280px]">
       <div className="min-w-0">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div className="w-52">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="w-44">
             <Select
               label="Version"
+              hideLabel
               value={version}
               onChange={setVersion}
               options={[...d.specs]
@@ -482,7 +483,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <CopyButton
-              label="Copy as Markdown"
+              label="Copy Markdown"
               text={() =>
                 fetchText(`/api/tasks/${d.task.id}/spec/${version}?format=md`)
               }
@@ -492,8 +493,9 @@ function SpecTab({ d }: { d: TaskDetail }) {
               download
               size="sm"
               icon={Download}
+              aria-label="Download the spec as PDF"
             >
-              Export as PDF
+              PDF
             </LinkButton>
             {editable && viewingLatest && !editing && (
               <Button
@@ -571,10 +573,11 @@ function SpecTab({ d }: { d: TaskDetail }) {
           </Card>
         )}
       </div>
-      <aside className="flex h-fit flex-col gap-4 @3xl:sticky @3xl:top-6">
+      {/* While the spec awaits approval, a narrow panel shows the approvals first: no scrolling past the spec to find Approve. */}
+      <aside className={cx("flex h-fit flex-col gap-4 @3xl:sticky @3xl:top-6", inReview && "order-first @3xl:order-none")}>
         <Card
           title="Approvals"
-          description={`For version ${latest}. Both keys are needed before any code is written.`}
+          description={d.project.pmGate === "off" ? `For version ${latest}. Your approval is all it needs before any code is written.` : `For version ${latest}. Both keys are needed before any code is written.`}
         >
           <ul className="flex flex-col gap-3">
             {[
@@ -688,7 +691,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
         open={dialog === "pm"}
         onClose={() => setDialog(null)}
         title="Record PM approval"
-        description={`Share the spec (Copy as Markdown or Export as PDF), then record where the PM approved version ${latest}.`}
+        description={`Share the spec (copy it as Markdown or download the PDF), then record where the PM approved version ${latest}.`}
         footer={
           <>
             <Button onClick={() => setDialog(null)}>Cancel</Button>

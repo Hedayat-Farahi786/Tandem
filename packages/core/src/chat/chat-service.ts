@@ -66,8 +66,12 @@ function chipText(header: string): string {
   return (cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : h.slice(0, 24)).replace(/[\s,;:.-]+$/, '');
 }
 
+/** What a chat is called until its first message names it. */
+const DEFAULT_TITLE: Record<ChatMode, string> = { ask: 'Question', request: 'New request', task: 'Task chat' };
+
 export function shortTitle(text: string, max = 60): string {
-  const line = text.trim().split('\n')[0]!.replace(/\s+/g, ' ');
+  const first = text.trim().split('\n')[0]!.replace(/\s+/g, ' ');
+  const line = first.charAt(0).toUpperCase() + first.slice(1);
   if (line.length <= max) return line;
   const cut = line.slice(0, max);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 15)).trimEnd()}…`;
@@ -83,7 +87,7 @@ export class ChatService {
     await loadProject(this.deps, input.projectId);
     const model = await checkModel(this.deps, input.model ?? '');
     const now = this.deps.clock.iso();
-    const t: ChatThread = { id: this.deps.ids(), projectId: input.projectId, mode: input.mode, title: input.title?.trim() || (input.mode === 'ask' ? 'Question' : 'New request'), ...(model ? { model } : {}), createdAt: now, updatedAt: now };
+    const t: ChatThread = { id: this.deps.ids(), projectId: input.projectId, mode: input.mode, title: input.title?.trim() || DEFAULT_TITLE[input.mode], ...(model ? { model } : {}), createdAt: now, updatedAt: now };
     await this.deps.store.threads.upsert(t);
     return t;
   }
@@ -123,6 +127,24 @@ export class ChatService {
   }
 
   /** Renames a chat. A task's chat is named after its task: rename the task instead. */
+  /** Chats that never got a name (their first message went unanswered) take it from that message. */
+  async nameUntitled(): Promise<number> {
+    let named = 0;
+    for (const project of await this.deps.store.projects.list()) {
+      for (const t of await this.deps.store.threads.listFor({ projectId: project.id })) {
+        if (t.mode === 'task') continue;
+        const first = (await this.deps.store.messages.list(t.id)).find((m) => m.role === 'user');
+        if (!first) continue;
+        const name = shortTitle(first.content);
+        // Untitled, or named from the first message before names started with a capital.
+        if (t.title !== DEFAULT_TITLE[t.mode] && !(t.title !== name && t.title.toLowerCase() === name.toLowerCase())) continue;
+        await this.deps.store.threads.upsert({ ...t, title: name });
+        named++;
+      }
+    }
+    return named;
+  }
+
   async renameThread(id: string, title: string): Promise<ChatThread> {
     const t = await this.thread(id);
     if (t.mode === 'task') throw new ActionError("A task's chat carries the task's name. Rename the task instead.");
@@ -205,6 +227,12 @@ export class ChatService {
     this.deps.events?.emit({ type: 'thread.updated', threadId });
     try {
       await this.say(threadId, 'user', content, [], undefined, answers);
+      // Name the chat from its first message at once, so it reads well in Recents even if Copilot never answers.
+      if (thread.title === DEFAULT_TITLE[thread.mode]) {
+        thread = { ...thread, title: shortTitle(content) };
+        await this.deps.store.threads.upsert(thread);
+        this.deps.events?.emit({ type: 'thread.updated', threadId });
+      }
       const project = await loadProject(this.deps, thread.projectId);
       const task = thread.taskId ? await this.deps.store.tasks.get(thread.taskId) : undefined;
       const repos = await affectedRepos(this.deps, task ?? ({ affectedRepoIds: [] } as unknown as Task), project);
@@ -243,7 +271,10 @@ export class ChatService {
         await session.stop();
       }
       thread = await this.thread(threadId);
-      const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
+      // A request takes Copilot's short name for the change, unless the owner renamed the chat themselves.
+      const first = (await this.deps.store.messages.list(threadId)).find((m) => m.role === 'user');
+      const provisional = thread.title === DEFAULT_TITLE[thread.mode] || (first ? thread.title === shortTitle(first.content) : false);
+      const title = thread.mode === 'request' && provisional && thread.draftTitle ? thread.draftTitle : undefined;
       const { busy: _done, ...settled } = thread;
       thread = { ...settled, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
       await this.deps.store.threads.upsert(thread);
@@ -562,7 +593,8 @@ export class ChatService {
       await this.say(threadId, 'system', `Saved as ${task.key}${spec ? ' with its spec' : ''}. It starts when you choose Start task on its page.`);
       return task;
     }
-    await this.say(threadId, 'system', spec ? `Created ${task.key} with the spec above, approved by you. Copilot starts building it now.` : `Created ${task.key}. Tandem is checking readiness and size, then drafts the spec.`);
+    const pmFirst = spec ? (await loadProject(this.deps, task.projectId)).pmGate !== 'off' : false;
+    await this.say(threadId, 'system', spec ? `Created ${task.key} from this spec, approved by you. ${pmFirst ? 'Copilot builds it once your PM approves it too.' : 'Copilot starts building it now.'}` : `Created ${task.key}. Tandem is checking readiness and size, then drafts the spec.`);
     return this.tasks.submit(task.id);
   }
 

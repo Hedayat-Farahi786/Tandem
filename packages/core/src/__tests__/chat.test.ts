@@ -77,6 +77,26 @@ describe('chat: answering survives reloads and navigation', () => {
     expect((await c.messages(t.id)).at(-1)).toMatchObject({ role: 'system', content: expect.stringContaining("Copilot couldn't answer: Copilot is unavailable right now.") });
   });
 
+  it('a chat is named from its first message at once, so an unanswered one does not stay "New request"', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    h.overrides.chat = () => {
+      throw new Error("Today's Copilot credits are used up.");
+    };
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await expect(c.send(t.id, 'add a welcome message to the main page\nmore detail')).rejects.toThrow(/used up/);
+    expect((await c.thread(t.id)).title).toBe('Add a welcome message to the main page');
+    // Chats from before this was in place get their name on startup; named chats keep theirs.
+    const old = await c.createThread({ projectId: 'p1', mode: 'ask' });
+    await h.store.messages.add({ id: 'm-old', threadId: old.id, role: 'user', content: 'where is the router?', refs: [], createdAt: h.clock.iso() });
+    const named = await c.createThread({ projectId: 'p1', mode: 'ask', title: 'Mine' });
+    await h.store.messages.add({ id: 'm-named', threadId: named.id, role: 'user', content: 'something else', refs: [], createdAt: h.clock.iso() });
+    expect(await c.nameUntitled()).toBe(1);
+    expect((await c.thread(old.id)).title).toBe('Where is the router?');
+    expect((await c.thread(named.id)).title).toBe('Mine');
+  });
+
   it('after a restart, no chat is left answering forever', async () => {
     const h = harness();
     await h.ready;
@@ -439,7 +459,7 @@ describe('chat: the request chat writes the spec once', () => {
     const v1 = await h.store.specs.latest(task.id);
     expect(v1).toMatchObject({ version: 1, source: 'chat' });
     expect((await h.store.approvals.list(task.id)).map((a) => [a.role, a.specVersion])).toEqual([['owner', 1]]);
-    expect((await c.messages(t.id)).at(-1)!.content).toMatch(/with the spec above, approved by you/);
+    expect((await c.messages(t.id)).at(-1)!.content).toMatch(/from this spec, approved by you/);
     const before = h.agent.calls.length;
     await h.runner.runUntilIdle();
     const after = h.agent.calls.slice(before);

@@ -32,3 +32,16 @@ export function CriterionText({ c, keywordClass = 'text-muted' }: { c: { given: 
     </>
   );
 }
+
+/** A file path that keeps its file name when space runs out: the folders shorten first ("src/app/…/image-measure.component.spec.ts"). */
+export function FilePath({ path, prefix, className }: { path: string; prefix?: string; className?: string }) {
+  const cut = path.lastIndexOf('/');
+  const dir = cut >= 0 ? path.slice(0, cut + 1) : '';
+  const base = cut >= 0 ? path.slice(cut + 1) : path;
+  return (
+    <span className={`flex min-w-0 font-mono ${className ?? ''}`} title={`${prefix ?? ''}${path}`}>
+      {(prefix || dir) && <span className="min-w-0 truncate">{prefix}{dir}</span>}
+      <span className="shrink-0">{base}</span>
+    </span>
+  );
+}

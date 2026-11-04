@@ -6,7 +6,7 @@ import { post } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import type { TaskDetail } from '../lib/types';
 import { Button, Pill, cx, useToast } from '../ui/kit';
-import { CriterionText } from '../ui/text';
+import { CriterionText, FilePath } from '../ui/text';
 import { SkipCheckButton } from './SkipCheck';
 
 type Tone = 'ok' | 'danger' | 'warn' | 'neutral';
@@ -149,7 +149,7 @@ export function ChecksTab({ d }: { d: TaskDetail }) {
       <div className="grid grid-cols-1 gap-2.5 @lg:grid-cols-3">
         <Stat icon={ListChecks} label={allSkipped ? 'Criteria tests' : 'Criteria proven'} value={!criteria.length ? 'None' : allSkipped && proven === 0 ? 'Skipped' : `${proven} of ${criteria.length}`} tone={!criteria.length ? 'neutral' : proven === criteria.length ? 'ok' : criteria.some((x) => x.result === 'fail') ? 'danger' : 'neutral'} />
         <Stat icon={ShieldCheck} label="Checks passing" value={last ? `${passing} of ${cmds.length}` : 'Not run yet'} tone={!last ? 'neutral' : last.passed ? 'ok' : 'danger'} />
-        <Stat icon={SearchCheck} label="Findings open" value={d.findings.length ? `${openFindings.length} of ${d.findings.length}` : d.task.progress.reviewed ? 'None' : 'Not yet'} tone={openFindings.some((f) => f.severity === 'high') ? 'danger' : openFindings.length ? 'warn' : d.task.progress.reviewed ? 'ok' : 'neutral'} />
+        <Stat icon={SearchCheck} label="Review findings" value={openFindings.length ? `${openFindings.length} open` : d.findings.length ? 'All resolved' : d.task.progress.reviewed ? 'None' : 'Not yet'} tone={openFindings.some((f) => f.severity === 'high') ? 'danger' : openFindings.length ? 'warn' : d.task.progress.reviewed ? 'ok' : 'neutral'} />
       </div>
 
       <Section icon={ListChecks} title="Acceptance criteria and tests" sub="Each criterion is proven by a test Copilot recorded and Tandem ran.">
@@ -173,10 +173,7 @@ export function ChecksTab({ d }: { d: TaskDetail }) {
                         <FlaskConical aria-hidden className="mt-[3px] size-3.5 shrink-0 text-faint" strokeWidth={1.9} />
                         <div className="min-w-0">
                           <p className="text-[12.5px] leading-snug text-fg">{t.name}</p>
-                          <p className="truncate font-mono text-[11.5px] text-faint" title={`${repoName(t.repoId)}/${t.file}${t.scope === 'suite' ? ' (runs the whole file)' : ''}`}>
-                            {d.repos.length > 1 && `${repoName(t.repoId)} · `}
-                            {t.file}
-                          </p>
+                          <FilePath path={t.file} {...(d.repos.length > 1 ? { prefix: `${repoName(t.repoId)} · ` } : {})} className="text-[11.5px] text-faint" />
                         </div>
                       </div>
                     ))

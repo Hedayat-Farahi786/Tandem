@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentRun, AgentStep } from '@tandem/shared';
-import { Brain, CheckCircle2, ChevronRight, CircleAlert, FileText, FlaskConical, ListChecks, Pencil, Search, ShieldAlert, Terminal, Wrench, XCircle, type LucideIcon } from 'lucide-react';
+import { Brain, ChevronRight, CircleAlert, FileText, FlaskConical, ListChecks, Pencil, Search, ShieldAlert, Terminal, Wrench, XCircle, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import { BrandLogo, providerOf } from '../ui/brands';
 import { Collapse, StepTimeline, describe } from '../ui/agent-steps';
 import { ProjectAvatar } from '../ui/visual';
-import { EmptyState, ErrorState, Loading, Markdown, Spinner, cx } from '../ui/kit';
+import { EmptyState, ErrorState, Loading, Markdown, cx } from '../ui/kit';
 import { CreditsInfo } from '../ui/credits-info';
 
 export type RunActivity = AgentRun & { model?: string; prompts: number; modelCalls: number; aiCredits: number; steps: AgentStep[] };

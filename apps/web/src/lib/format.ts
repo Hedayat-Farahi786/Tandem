@@ -60,3 +60,12 @@ export const plainReason = (text: string) =>
   SIGNIN_EXPIRED.test(text)
     ? "Your AWS sign-in expired, so Tandem couldn't reach the repository host. Sign in again (for example with aws sso login), then choose Retry."
     : text.replace(/^[A-Z_]+ \/ ([a-z-]+) failed: /, (_m, step: string) => `${STEP_WORDS[step] ?? stepLabel(step)} failed: `);
+
+/** A reason short enough for a list row: one plain sentence. */
+export const shortReason = (text: string) => {
+  const line = text.split('\n')[0]!;
+  if (SIGNIN_EXPIRED.test(line)) return 'AWS sign-in expired';
+  const plain = plainReason(line);
+  const sentence = /^(.+?[.!?])(\s|$)/.exec(plain)?.[1] ?? plain;
+  return sentence.replace(/\.$/, '');
+};

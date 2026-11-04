@@ -610,7 +610,8 @@ export function ChatScreen() {
                 <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] text-muted">{current.mode === 'request' ? 'Request' : 'Question'}</span>
               </div>
               {current.createdTaskId && (
-                <Button size="sm" variant="primary" onClick={() => navigate(`/tasks/${current.createdTaskId}`)}>
+                // Wide screens show it in the spec beside the chat.
+                <Button size="sm" variant="primary" className={current.mode === 'request' ? 'lg:hidden' : undefined} onClick={() => navigate(`/tasks/${current.createdTaskId}`)}>
                   Open task
                 </Button>
               )}

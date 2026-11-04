@@ -296,7 +296,10 @@ export function SettingsScreen() {
               <div>
                 <p className="text-[13px] text-muted">Last 30 days</p>
                 <p className="text-[15px] font-medium tabular-nums">
-                  {formatCredits(usage.data.last30Days.aiCredits)} <span className="text-muted">credits · {usage.data.last30Days.prompts} prompts</span>
+                  {formatCredits(usage.data.last30Days.aiCredits)} <span className="text-muted">credits</span>
+                </p>
+                <p className="text-[12px] text-faint tabular-nums">
+                  {usage.data.last30Days.prompts} prompts · about {creditsToUsd(usage.data.last30Days.aiCredits)}
                 </p>
               </div>
             </div>
@@ -308,10 +311,10 @@ export function SettingsScreen() {
         <Row label="AI credits per day" htmlFor="set-cday" description={note('budget.perDayCredits', `About ${creditsToUsd(s.budget.perDayCredits)} a day, for all of Tandem together.`)}>
           <Num id="set-cday" disabled={Boolean(lock('budget.perDayCredits'))} value={s.budget.perDayCredits} onChange={(n) => set('budget', { ...s.budget, perDayCredits: n })} />
         </Row>
-        <Row label="Prompts per task" htmlFor="set-ptask" description={note('budget.perTaskPrompts')}>
+        <Row label="Prompts per task" htmlFor="set-ptask" description={note('budget.perTaskPrompts', 'Messages Tandem sends Copilot for one task, across all its runs.')}>
           <Num id="set-ptask" disabled={Boolean(lock('budget.perTaskPrompts'))} value={s.budget.perTaskPrompts} onChange={(n) => set('budget', { ...s.budget, perTaskPrompts: n })} />
         </Row>
-        <Row label="Prompts per day" htmlFor="set-pday" description={note('budget.perDayPrompts')}>
+        <Row label="Prompts per day" htmlFor="set-pday" description={note('budget.perDayPrompts', 'For all of Tandem together, chats included.')}>
           <Num id="set-pday" disabled={Boolean(lock('budget.perDayPrompts'))} value={s.budget.perDayPrompts} onChange={(n) => set('budget', { ...s.budget, perDayPrompts: n })} />
         </Row>
         <Row label="Model calls per run" htmlFor="set-calls" description="Stops a runaway agent loop.">

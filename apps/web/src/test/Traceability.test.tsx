@@ -115,7 +115,7 @@ describe('Task trace', () => {
     const chain = await screen.findByRole('list', { name: 'Trace' });
     expect(within(chain).getByText('1 of 2 proven by a passing test')).toBeTruthy();
     expect(within(chain).getByText('returns ok')).toBeTruthy();
-    expect(within(chain).getByText('shop: test/health.test.ts')).toBeTruthy();
+    expect(within(chain).getByTitle('shop: test/health.test.ts')).toBeTruthy();
     expect(within(chain).getByText('No test yet')).toBeTruthy();
     expect(within(chain).getByText('Version 1 approved')).toBeTruthy();
     expect(within(chain).getByText('Pat Lee')).toBeTruthy();

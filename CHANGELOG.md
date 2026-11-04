@@ -8,6 +8,25 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A polish pass over every screen.** Chats are named from their first
+  message at once (a request still takes Copilot's short name for the change
+  unless you renamed it), so a chat whose first message went unanswered no
+  longer sits in Recents as "New request"; existing ones are named on start.
+  The task list says why a task failed in plain words ("AWS sign-in
+  expired"), lines its columns up, and no longer marks cancelled tasks as
+  needing attention. Once a request becomes a task, its spec panel says so
+  and offers Open task instead of two disabled buttons. In a task: the
+  requirement's example data, affected areas and out of scope read full
+  width; tracker comments show as one line; check cards say "All 5 commands
+  passed" or "4 of 5 passed · 1 already failing"; the pull request's status
+  sits with its repository; file paths keep their file name when space runs
+  short; review findings read "1 open" or "All resolved"; the spec toolbar
+  fits on one line, and while a spec awaits approval, Approve comes before
+  the spec on a narrow panel (with "Your approval is all it needs" when no PM
+  approval is required). Criteria in the requirement editor are one growing
+  line per Given, When and Then. Settings shows locked fields as read-only,
+  aligns every row, explains the prompt limits and adds the 30-day cost. A
+  task waiting for review no longer looks updated "just now" after a restart.
 - **Copilot limits are yours to change in Settings.** The AI credit and
   prompt limits are no longer locked by `TANDEM_CREDITS_*` /
   `TANDEM_BUDGET_*`: those only seed a new install, and Settings decides from

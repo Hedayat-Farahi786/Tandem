@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { CheckCircle2, Circle, FileText, Play, Save } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, Circle, FileText, Play, Save } from 'lucide-react';
 import type { ChatThread } from '@tandem/shared';
 import type { Readiness } from '../lib/types';
-import { Button, ErrorState, Markdown, Spinner, cx } from '../ui/kit';
+import { Button, ErrorState, LinkButton, Markdown, Spinner, cx } from '../ui/kit';
 import { Caret, Typed } from '../ui/typewriter';
 
 type ItemId = Readiness['items'][number]['id'];
@@ -186,18 +186,32 @@ export function RequestDraft({
             <ErrorState error={error} />
           </div>
         ) : null}
+        {done && thread.createdTaskId ? (
+          <div className="flex items-center gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ok-soft text-ok">
+              <Check aria-hidden className="size-4" strokeWidth={2.6} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-medium">This request is now a task</p>
+              <p className="text-[12.5px] text-muted">Follow the build and talk to Copilot in the task.</p>
+            </div>
+            <LinkButton to={`/tasks/${thread.createdTaskId}`} variant="primary" size="sm">
+              Open task
+              <ArrowRight aria-hidden className="size-3.5" />
+            </LinkButton>
+          </div>
+        ) : (
+        <>
         <div className="flex items-center gap-2">
           <Button className="flex-1" icon={Save} disabled={done || !canSave || working} busy={creating === 'save'} onClick={() => onCreate(false)}>
             Save for later
           </Button>
           <Button className="flex-[1.4]" variant="primary" icon={Play} disabled={!canStart} busy={creating === 'start'} onClick={() => onCreate(true)}>
-            {done ? 'Task created' : 'Create and start'}
+            Create and start
           </Button>
         </div>
         <p className="mt-2 text-center text-[12px] text-faint">
-          {done
-            ? 'This request is now a task.'
-            : asking
+          {asking
               ? "Answer Copilot's question to finish the spec."
               : writingSpec
                 ? 'Copilot is writing the full spec. You can create the task once it is done.'
@@ -209,6 +223,8 @@ export function RequestDraft({
                       ? 'The task writes the full spec first, for you to approve.'
                       : `${left} to go before it can start. Save for later keeps it as a draft task.`}
         </p>
+        </>
+        )}
       </footer>
     </aside>
   );
