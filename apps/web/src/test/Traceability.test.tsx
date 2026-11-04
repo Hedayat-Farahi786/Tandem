@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, detail, project, settings, task } from './fixtures';
@@ -23,6 +23,8 @@ describe('Audit log in Settings', () => {
 });
 
 describe('Task activity', () => {
+  // These cover the Details view (the tabs); the Chat view has its own tests.
+  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
   const run = (over: Record<string, unknown>) => ({ id: 'r', taskId: 't1', kind: 'build', mode: 'build', status: 'succeeded', attempt: 0, startedAt: now, endedAt: now, prompts: 1, modelCalls: 3, aiCredits: 0.42, model: 'claude-sonnet-5.5', steps: [], ...over });
   const step = (n: number, over: Record<string, unknown>) => ({ id: `s${n}`, runId: 'r2', taskId: 't1', seq: n, at: now, ...over });
 
@@ -76,6 +78,8 @@ describe('Task activity', () => {
 });
 
 describe('Task trace', () => {
+  // These cover the Details view (the tabs); the Chat view has its own tests.
+  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
   const trace: Trace = {
     generatedAt: now,
     task: { id: 't1', key: 'TND-1', title: 'Health endpoint', state: 'PR_OPEN', source: 'chat', branch: 'agent/TND-1-health', createdAt: now, updatedAt: now, project: 'Shop' },

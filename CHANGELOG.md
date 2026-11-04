@@ -55,6 +55,19 @@ All notable changes to Tandem. The format follows
 
 ### Changed
 
+- **A task as a conversation.** A task now opens in a Chat view: the
+  request, every step, what Copilot did, the spec, approvals, checks and
+  pull requests in one stream, with what needs you right above the message
+  box. Details (spec, changes, checks, pull requests, trace) open beside it.
+  The tabbed page is still one click away as Details, and Tandem remembers
+  the choice. While Tandem runs checks itself, a live line shows the step,
+  its time and latest output, so a long step never looks stuck.
+- **Angular tests finish.** A repository whose test script is `ng test`
+  (watch mode by default) is now set up to run its tests once, in headless
+  Chrome, so verification ends instead of waiting until it times out.
+- **Runs cut off by a restart** are marked stopped on the next start, so
+  they no longer show as working forever.
+
 - **Clearer visual hierarchy.** Text has three distinct steps (primary for
   names and content, secondary for descriptions, tertiary for times, IDs and
   captions), each tied to one size, and every step meets WCAG AA on every

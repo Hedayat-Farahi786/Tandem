@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -17,6 +17,8 @@ import {
   Scissors,
   ShieldAlert,
   Sparkles,
+  LayoutList,
+  MessagesSquare,
   ThumbsUp,
   Undo2,
   XCircle,
@@ -65,6 +67,7 @@ import { ThreadPanel } from "./Chat";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
 import { TaskActivity } from "./TaskActivity";
+import { TaskChatView, type PanelTab } from "./TaskChat";
 import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
@@ -456,7 +459,7 @@ function Overview({ d }: { d: TaskDetail }) {
       (d.task.blockedReason === "readiness-missing" ||
         d.task.blockedReason === "split-proposed"));
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+    <div className="grid gap-6 @3xl:grid-cols-[1fr_300px]">
       <div className="flex flex-col gap-6">
         <Card
           title="Requirement"
@@ -517,7 +520,7 @@ function Overview({ d }: { d: TaskDetail }) {
                 </dd>
               </div>
             </dl>
-            <dl className="grid gap-4 md:grid-cols-3">
+            <dl className="grid gap-4 @xl:grid-cols-3">
               {(
                 [
                   ["Example data", r.exampleData],
@@ -610,7 +613,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
   const pmA = d.approvalState?.pm;
   const viewingLatest = version === String(latest);
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+    <div className="grid gap-6 @3xl:grid-cols-[1fr_280px]">
       <div className="min-w-0">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div className="w-52">
@@ -718,7 +721,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
           </Card>
         )}
       </div>
-      <aside className="flex h-fit flex-col gap-4 lg:sticky lg:top-6">
+      <aside className="flex h-fit flex-col gap-4 @3xl:sticky @3xl:top-6">
         <Card
           title="Approvals"
           description={`For version ${latest}. Both keys are needed before any code is written.`}
@@ -1636,7 +1639,66 @@ function StatusBanner({
   return null;
 }
 
+type View = "chat" | "details";
+const VIEW_KEY = "tandem.taskView";
+const readView = (): View => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "details" ? "details" : "chat";
+  } catch {
+    return "chat";
+  }
+};
+
+/** Chat (the task as a conversation) or Details (the tabs). */
+function ViewSwitch({ value, onChange }: { value: View; onChange: (v: View) => void }) {
+  return (
+    <div role="group" aria-label="Task view" className="flex items-center gap-0.5 rounded-[10px] bg-surface-2 p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
+      {(
+        [
+          ["chat", "Chat", MessagesSquare],
+          ["details", "Details", LayoutList],
+        ] as const
+      ).map(([id, label, Icon]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={value === id}
+          onClick={() => onChange(id)}
+          className={cx(
+            "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] transition-[background-color,color,box-shadow] duration-150",
+            value === id ? "bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.06)]" : "text-muted hover:text-fg",
+          )}
+        >
+          <Icon aria-hidden className="size-3.5" strokeWidth={2} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** What to show beside the conversation when a task opens: whatever needs looking at now. */
+function defaultPanel(d: TaskDetail): PanelTab | null {
+  const t = d.task;
+  if (t.state === "SPEC_REVIEW") return "spec";
+  if (!window.matchMedia?.("(min-width: 1280px)").matches) return null;
+  if (t.state === "PR_OPEN" || (t.state === "DONE" && d.prs.length)) return "prs";
+  if (d.verifyRuns.at(-1)?.passed === false) return "checks";
+  if (t.state === "BUILDING" || t.state === "VERIFYING" || t.state === "SELF_REVIEW") return "changes";
+  return "overview";
+}
+
 export function TaskDetailScreen({ id }: { id: string }) {
+  const [view, setViewState] = useState<View>(readView);
+  const setView = (v: View) => {
+    setViewState(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* the choice just isn't remembered */
+    }
+  };
+  const [panel, setPanel] = useState<PanelTab | null>(null);
   const act = useAct(id);
   const [tab, setTab] = useState<Tab>("overview");
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -1654,6 +1716,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
     if (!q.data || openedOn.current === q.data.task.id) return;
     openedOn.current = q.data.task.id;
     if (q.data.task.state === "SPEC_REVIEW") setTab("spec");
+    setPanel(defaultPanel(q.data));
   }, [q.data]);
   if (q.isLoading) return <Loading rows={5} />;
   if (q.isError || !q.data)
@@ -1663,76 +1726,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
   const finished = t.state === "DONE" || t.state === "CANCELLED";
   const openFindings = d.findings.filter((f) => f.status === "open").length;
   const lastVerify = d.verifyRuns.at(-1);
-  return (
-    <div>
-      <Link
-        to="/tasks"
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg"
-      >
-        <ArrowLeft aria-hidden className="size-3.5" /> Tasks
-      </Link>
-      <PageHeader
-        eyebrow={
-          <>
-            <span className="font-mono">{t.key}</span>
-            <span aria-hidden>·</span>
-            <span>{d.project.name}</span>
-            <span aria-hidden>·</span>
-            <span>
-              {t.source === "chat"
-                ? "From chat"
-                : t.source === "jira"
-                  ? "From Jira"
-                  : t.source === "split"
-                    ? "Split task"
-                    : "Created in Tandem"}
-            </span>
-          </>
-        }
-        title={t.title}
-        actions={
-          <>
-            <Pill tone={STATE_TONE[t.state]}>
-              <StatusIcon state={t.state} className="size-3.5" />
-              {STATE_LABEL[t.state]}
-              {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
-            </Pill>
-            {t.state === "DRAFT" && (
-              <Button
-                variant="primary"
-                icon={Sparkles}
-                busy={act.isPending}
-                onClick={() =>
-                  act.mutate({
-                    path: `/api/tasks/${t.id}/submit`,
-                    done: "Checking readiness.",
-                  })
-                }
-              >
-                Check readiness
-              </Button>
-            )}
-            {!finished && (
-              <Button
-                variant="danger"
-                icon={Ban}
-                onClick={() => setConfirmCancel(true)}
-              >
-                Cancel task
-              </Button>
-            )}
-          </>
-        }
-      />
-      <ProgressRail task={t} />
-      <div className="mb-6 empty:hidden">
-        <StatusBanner d={d} onOpenSpec={() => setTab("spec")} onOpenChat={() => setTab("chat")} inChat={tab === "chat"} />
-      </div>
-      <Tabs
-        label="Task sections"
-        value={tab}
-        onChange={setTab}
-        tabs={[
+  const tabDefs: Array<{ id: Tab; label: string; badge?: ReactNode }> = [
           { id: "overview", label: "Overview" },
           { id: "activity", label: "Activity", ...(d.running ? { badge: <span aria-label="Copilot is working" className="size-1.5 animate-pulse rounded-full bg-ok" /> } : {}) },
           {
@@ -1791,18 +1785,117 @@ export function TaskDetailScreen({ id }: { id: string }) {
           },
           { id: "trace", label: "Trace" },
           { id: "chat", label: "Chat" },
-        ]}
+        ];
+  const panelTabs = tabDefs.filter((x): x is { id: PanelTab; label: string; badge?: ReactNode } => x.id !== "activity" && x.id !== "chat");
+  const renderTab = (id: Tab) => (
+    <>
+      {id === "overview" && <Overview d={d} />}
+      {id === "activity" && <TaskActivity taskId={d.task.id} />}
+      {id === "spec" && <SpecTab d={d} />}
+      {id === "changes" && <ChangesTab d={d} />}
+      {id === "checks" && <ChecksTab d={d} />}
+      {id === "prs" && <PrsTab d={d} />}
+      {id === "trace" && <TraceTab taskId={d.task.id} />}
+      {id === "chat" && <ChatTab d={d} />}
+    </>
+  );
+  return (
+    <div>
+      <Link
+        to="/tasks"
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg"
+      >
+        <ArrowLeft aria-hidden className="size-3.5" /> Tasks
+      </Link>
+      <PageHeader
+        eyebrow={
+          <>
+            <span className="font-mono">{t.key}</span>
+            <span aria-hidden>·</span>
+            <span>{d.project.name}</span>
+            <span aria-hidden>·</span>
+            <span>
+              {t.source === "chat"
+                ? "From chat"
+                : t.source === "jira"
+                  ? "From Jira"
+                  : t.source === "split"
+                    ? "Split task"
+                    : "Created in Tandem"}
+            </span>
+          </>
+        }
+        title={t.title}
+        actions={
+          <>
+            <ViewSwitch value={view} onChange={setView} />
+            <Pill tone={STATE_TONE[t.state]}>
+              <StatusIcon state={t.state} className="size-3.5" />
+              {STATE_LABEL[t.state]}
+              {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
+            </Pill>
+            {t.state === "DRAFT" && (
+              <Button
+                variant="primary"
+                icon={Sparkles}
+                busy={act.isPending}
+                onClick={() =>
+                  act.mutate({
+                    path: `/api/tasks/${t.id}/submit`,
+                    done: "Checking readiness.",
+                  })
+                }
+              >
+                Check readiness
+              </Button>
+            )}
+            {!finished && (
+              <Button
+                variant="danger"
+                icon={Ban}
+                onClick={() => setConfirmCancel(true)}
+              >
+                Cancel task
+              </Button>
+            )}
+          </>
+        }
       />
-      <TabPanel id={tab}>
-        {tab === "overview" && <Overview d={d} />}
-        {tab === "activity" && <TaskActivity taskId={d.task.id} />}
-        {tab === "spec" && <SpecTab d={d} />}
-        {tab === "changes" && <ChangesTab d={d} />}
-        {tab === "checks" && <ChecksTab d={d} />}
-        {tab === "prs" && <PrsTab d={d} />}
-        {tab === "trace" && <TraceTab taskId={d.task.id} />}
-        {tab === "chat" && <ChatTab d={d} />}
-      </TabPanel>
+      {view === "details" ? (
+        <>
+          <ProgressRail task={t} />
+          <div className="mb-6 empty:hidden">
+            <StatusBanner d={d} onOpenSpec={() => setTab("spec")} onOpenChat={() => setTab("chat")} inChat={tab === "chat"} />
+          </div>
+          <Tabs
+            label="Task sections"
+            value={tab}
+            onChange={setTab}
+            tabs={tabDefs}
+          />
+          <TabPanel id={tab}>
+            <div className="@container">{renderTab(tab)}</div>
+          </TabPanel>
+        </>
+      ) : (
+        <TaskChatView
+          d={d}
+          panel={panel}
+          setPanel={setPanel}
+          tabs={panelTabs}
+          renderPanel={(id) => (
+            <>
+              {id === "overview" && (
+                <div className="mb-6">
+                  <ProgressRail task={t} />
+                </div>
+              )}
+              {renderTab(id)}
+            </>
+          )}
+          banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} onOpenChat={() => undefined} inChat />}
+        />
+      )}
       <Dialog
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}

@@ -91,8 +91,19 @@ Overview tab; the change applies from the next step.
 ## Tasks
 
 **Tasks** lists everything Tandem is working on, filtered by **Needs you**,
-**In progress** and **Finished**. A task's page has a progress bar, the actions it is waiting for,
-and these tabs:
+**In progress** and **Finished**. A task opens in one of two views; switch at the top right, and
+Tandem remembers your choice.
+
+**Chat** tells the task as one conversation: your request, each step and
+what Copilot did, the spec, approvals, checks and pull requests, in the order
+they happened. What needs you sits at the end, above the message box. While
+Tandem itself works (installing, building, running the tests) a live line
+shows the step, how long it has run and its latest output. Cards such as
+**Open spec** or **View checks** open the details beside the conversation;
+a task waiting for your review opens its spec there, so you can approve
+without leaving the chat.
+
+**Details** shows the same task as a progress bar and these tabs:
 
 | Tab | What's there |
 | --- | --- |
@@ -101,6 +112,8 @@ and these tabs:
 | Changes | the diff per repository |
 | Checks | each criterion and its test, every check's output, review findings |
 | Pull requests | links, status, and whether each one still merges cleanly |
+| Activity | what Copilot did, run by run |
+| Trace | each criterion to its tests, the spec to its approvals |
 | Chat | questions about this task; ask for a spec change here |
 
 You can also create a task without chat: **Tasks › New task**.

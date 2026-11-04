@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler, Sparkles } from 'lucide-react';
@@ -79,7 +79,16 @@ export interface ChatTask {
 }
 const WORKING = new Set(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
 
-export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask }) {
+/** Something that happened on a task, shown in its conversation at the time it happened. */
+export interface TimelineItem {
+  at: string;
+  key: string;
+  /** A message to show as a chat bubble (the original request), or any other content. */
+  message?: ChatMessage;
+  node?: ReactNode;
+}
+
+export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task, timeline, tail }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask; timeline?: TimelineItem[]; tail?: ReactNode }) {
   const stuck = Boolean(task && (task.state === 'BLOCKED' || task.state === 'FAILED' || (task.state === 'PR_OPEN' && task.needsAttention)));
   const bootInfo = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
   const testAgent = bootInfo.data && bootInfo.data.agent !== 'copilot';
@@ -199,7 +208,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   }, [pending]);
   useEffect(() => {
     if (atBottomRef.current) toBottom('auto');
-  }, [view.data?.messages.length, stream, liveSteps.length]);
+  }, [view.data?.messages.length, stream, liveSteps.length, timeline?.length]);
   const sentInitial = useRef(false);
   useEffect(() => {
     if (!initialMessage || sentInitial.current || !view.data || view.data.messages.length > 0) return;
@@ -220,18 +229,24 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   if (view.isLoading) return <Loading />;
   if (view.isError || !view.data) return <ErrorState error={view.error} retry={() => void view.refetch()} />;
   const messages = view.data.messages;
+  // The conversation: chat messages and the task's events, in the order they happened.
+  const entries: TimelineItem[] = [...(timeline ?? []), ...messages.map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
-    <div className={cx('grid flex-1 gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[1fr_280px]')}>
+    <div className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[1fr_280px]')}>
       <div className="flex min-h-[420px] flex-col">
         <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={send.isPending}>
-          {messages.length === 0 && !pending && (
+          {entries.length === 0 && !pending && (
             <div className="py-10 text-center text-[13.5px] text-muted">
               {thread?.mode === 'request' ? 'Describe what you want. Tandem asks until the request is clear and testable, then creates the task.' : thread?.mode === 'task' ? 'Ask about the spec, the build, the diff or failing checks. Ask for a spec change and Tandem proposes it for you to confirm.' : 'Ask anything about the code. Answers cite files and lines.'}
             </div>
           )}
-          {messages.map((m) => (
-            <Message key={m.id} m={m} repoName={repoName} steps={m.runId ? view.data.steps?.[m.runId] : undefined} />
-          ))}
+          {entries.map((e) =>
+            e.message ? (
+              <Message key={e.key} m={e.message} repoName={repoName} steps={e.message.runId ? view.data.steps?.[e.message.runId] : undefined} />
+            ) : (
+              <div key={e.key}>{e.node}</div>
+            ),
+          )}
           {pending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending, refs: [], createdAt: '' }} repoName={repoName} />}
           {send.isPending && (
             <div className="flex flex-col">
@@ -280,6 +295,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               {thread.pendingSpecChange.summary}. Earlier approvals will not count for the new version.
             </Callout>
           )}
+          {tail}
         </div>
         <form
           className="sticky bottom-0 z-10 -mx-2 mt-auto bg-[linear-gradient(to_top,var(--bg)_78%,transparent)] px-2 pt-8 pb-4"

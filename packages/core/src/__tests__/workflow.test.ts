@@ -447,6 +447,9 @@ describe('workflow: resilience', () => {
     hang = false;
     const second = h.makeRunner('boot-2');
     expect(await second.recover()).toEqual({ requeued: 1, created: 0 });
+    // The run the restart cut off no longer shows as working.
+    const cut = (await h.store.runs.listFor({ taskId: t.id })).filter((r) => r.kind === 'build');
+    expect(cut).toEqual([expect.objectContaining({ status: 'aborted', error: expect.stringContaining('Tandem restarted') })]);
     job = await h.store.jobs.get(t.id);
     expect(job).toMatchObject({ status: 'queued' });
     await second.runUntilIdle();

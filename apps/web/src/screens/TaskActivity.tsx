@@ -161,7 +161,7 @@ export function Step({ s }: { s: AgentStep }) {
   }
 }
 
-function RunCard({ run, open, onToggle }: { run: RunActivity; open: boolean; onToggle: () => void }) {
+export function RunCard({ run, open, onToggle }: { run: RunActivity; open: boolean; onToggle: () => void }) {
   const running = run.status === 'running';
   const lastIntent = [...run.steps].reverse().find((s) => s.kind === 'intent')?.text;
   const tools = run.steps.filter((s) => s.kind === 'tool');

@@ -68,7 +68,8 @@ function FileDiff({ file, defaultOpen }: { file: DiffFile; defaultOpen: boolean 
         <span className="font-mono text-[12px] text-danger">−{file.deletions}</span>
       </button>
       {open && (
-        <div className="overflow-x-auto border-t border-line">
+        // Wide lines scroll sideways; the region takes focus so the keyboard can scroll it too.
+        <div tabIndex={0} role="region" aria-label={`Changes in ${file.path}`} className="overflow-x-auto border-t border-line focus-visible:outline-offset-[-2px]">
           <table className="w-full border-collapse font-mono text-[12px] leading-[1.6]">
             <caption className="sr-only">Changes in {file.path}</caption>
             <tbody>

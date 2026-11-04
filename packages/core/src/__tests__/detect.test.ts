@@ -33,6 +33,15 @@ describe('repo detection', () => {
     expect(fromDir(join(sandbox, 'fullstack'))).toMatchObject({ role: 'full-stack', framework: 'Fastify + React' });
   });
 
+  it("runs Angular's watch-mode tests once, headless, so a check can finish", () => {
+    const ng = (test: string, lock: Record<string, string> = { 'package-lock.json': '' }) => fromMap({ 'package.json': JSON.stringify({ scripts: { test }, dependencies: { '@angular/core': '19' } }), ...lock }).commands.test;
+    expect(ng('ng test')).toBe('npx ng test --watch=false --browsers=ChromeHeadless');
+    expect(ng('ng test --code-coverage --browsers=Chrome')).toBe('npx ng test --code-coverage --watch=false --browsers=ChromeHeadless');
+    expect(ng('ng test', { 'pnpm-lock.yaml': '' })).toBe('pnpm exec ng test --watch=false --browsers=ChromeHeadless');
+    // Already a single run: the script is used as it is.
+    expect(ng('ng test --watch=false')).toBe('npm test');
+  });
+
   it('handles pnpm, yarn, Next.js and missing scripts', () => {
     expect(fromMap({ 'package.json': JSON.stringify({ scripts: { test: 'jest', 'type-check': 'tsc' }, dependencies: { next: '15' }, devDependencies: { jest: '29', typescript: '5' } }), 'pnpm-lock.yaml': '' })).toMatchObject({
       packageManager: 'pnpm',

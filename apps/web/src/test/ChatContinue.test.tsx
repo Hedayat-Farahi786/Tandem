@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, detail } from './fixtures';
@@ -10,6 +10,8 @@ const thread = (over: Record<string, unknown> = {}) => ({ id: 'th1', projectId: 
 const stuckTask = { state: 'PR_OPEN' as const, needsAttention: true, attentionNotes: ['app: test failed (`npm test`, exit 1)'] };
 
 describe('task chat for a stuck task', () => {
+  // These cover the Details view (the tabs); the Chat view has its own tests.
+  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
   it("shows what Copilot did above each answer, and continues the task with the owner's message", async () => {
     let continued: unknown;
     mockApi({

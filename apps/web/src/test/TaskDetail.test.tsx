@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SPEC_MD, boot, catalog, detail } from './fixtures';
@@ -24,6 +24,8 @@ function setup(d: TaskDetail, extra: Parameters<typeof mockApi>[0] = {}) {
 const posted = (api: ReturnType<typeof mockApi>, path: string) => api.calls.filter((c) => c.method !== 'GET' && c.path === path);
 
 describe('Task detail', () => {
+  // These cover the Details view (the tabs); the Chat view has its own tests.
+  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
   it('shows credits against the task limit and changes the task model', async () => {
     const { api, user } = setup(detail(), { 'GET /api/copilot/models': catalog });
     await user.click(await screen.findByRole('tab', { name: /Overview/ }));

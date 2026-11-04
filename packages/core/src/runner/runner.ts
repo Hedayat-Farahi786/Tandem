@@ -64,6 +64,11 @@ export class Runner {
           requeued++;
         }
       }
+      // Copilot runs cut off by the restart: mark them stopped, or they show as working forever.
+      // Their steps resume with the job (in the same Copilot session where it still exists).
+      for (const run of await tx.runs.list()) {
+        if (run.status === 'running') await tx.runs.upsert({ ...run, status: 'aborted', endedAt: clock.iso(), error: 'Stopped because Tandem restarted. The step carries on in a new run.' });
+      }
       const withJob = new Set((await tx.jobs.list()).map((j) => j.taskId));
       for (const task of await tx.tasks.listByState(RUNNABLE_STATES)) {
         if (withJob.has(task.id)) continue;

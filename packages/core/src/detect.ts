@@ -45,7 +45,7 @@ export function detectProject(files: readonly string[], read: (path: string) => 
     const build = pick('build');
     if (build) commands.build = run(build);
     const test = pick('test', 'test:unit');
-    if (test) commands.test = run(test);
+    if (test) commands.test = /^\s*ng\s+test\b/.test(scripts[test]!) && !/--watch[= ]false|--no-watch/.test(scripts[test]!) ? angularTestOnce(pm, scripts[test]!) : run(test);
     if (deps.vitest) commands.testSingle = 'npx vitest run {file} -t {name}';
     else if (deps.jest) commands.testSingle = 'npx jest {file} -t {name}';
     const fe = Object.keys(FRONTEND).filter((d) => deps[d]);
@@ -92,4 +92,14 @@ export function detectProject(files: readonly string[], read: (path: string) => 
     return { language: 'Rust', packageManager: 'cargo', role: 'other', commands: { lint: 'cargo clippy -- -D warnings', build: 'cargo build', test: 'cargo test', testSingle: 'cargo test {name}' }, evidence: ['Cargo.toml'] };
   }
   return { language: 'Unknown', role: 'other', commands: {}, evidence: ['no known build file at the repo root'] };
+}
+
+/**
+ * Angular's `ng test` watches for changes by default, so as a check it would never finish (CI=1 does
+ * not stop Karma). Run it once, in headless Chrome, keeping the script's own options.
+ */
+function angularTestOnce(pm: string, script: string): string {
+  const exec = pm === 'pnpm' ? 'pnpm exec' : pm === 'yarn' ? 'yarn' : pm === 'bun' ? 'bunx' : 'npx';
+  const extra = script.replace(/^\s*ng\s+test\b/, '').replace(/\s*--browsers[= ]\S+/, '').trim();
+  return `${exec} ng test${extra ? ` ${extra}` : ''} --watch=false --browsers=ChromeHeadless`;
 }
