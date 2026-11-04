@@ -104,9 +104,11 @@ describe('enforcement', () => {
   });
 
   it('builds a runtime environment without tokens, with telemetry off and the Copilot host', () => {
-    const env = copilotRuntimeEnv({ PATH: '/bin', GH_TOKEN: 't', GITHUB_TOKEN: 't', COPILOT_GITHUB_TOKEN: 't', AWS_PROFILE: 'p', JIRA_API_TOKEN: 'j', TANDEM_HOME: 'x', DB_PASSWORD: 'p', COPILOT_GH_HOST: 'old' }, 'acme.ghe.com');
+    const env = copilotRuntimeEnv({ PATH: '/bin', GH_TOKEN: 't', GITHUB_TOKEN: 't', COPILOT_GITHUB_TOKEN: 't', AWS_PROFILE: 'p', JIRA_API_TOKEN: 'j', TANDEM_HOME: 'x', DB_PASSWORD: 'p', COPILOT_GH_HOST: 'old', GH_HOST: 'other', GH_CONFIG_DIR: '/home/me/.config/gh', COPILOT_HOME: '/home/me/.copilot' }, 'acme.ghe.com');
     expect(env).toEqual({ PATH: '/bin', COPILOT_GITHUB_TELEMETRY_DISABLED: 'true', COPILOT_AUTO_UPDATE: 'false', COPILOT_GH_HOST: 'acme.ghe.com' });
     expect(copilotRuntimeEnv({ PATH: '/bin' }, undefined).COPILOT_GH_HOST).toBeUndefined();
+    // Tandem's own sign-ins: its own Copilot home, and no GitHub CLI login to fall back on.
+    expect(copilotRuntimeEnv({ PATH: '/bin', GH_CONFIG_DIR: '/home/me/.config/gh' }, undefined, { copilot: '/t/copilot', gh: '/t/copilot/gh-none' })).toMatchObject({ COPILOT_HOME: '/t/copilot', GH_CONFIG_DIR: '/t/copilot/gh-none' });
   });
 
   it('picks the cheapest enabled model', () => {

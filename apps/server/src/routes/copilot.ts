@@ -21,13 +21,12 @@ export function registerCopilotRoutes(app: FastifyInstance, ctx: ServerContext):
     if (tasks.length) throw new HttpError(409, `Copilot is working on ${tasks.map((t) => t.key).join(', ')}. Change the account once it finishes, or cancel it.`);
     if ((await store.runs.list()).some((r) => r.status === 'running')) throw new HttpError(409, 'Copilot is answering in a chat. Change the account once the answer is in.');
   };
-  const hostLock = () => (tandem.lockedSettings['copilot.host'] ? { hostLockedBy: tandem.lockedSettings['copilot.host'] } : {});
 
   app.get('/api/copilot/accounts', async () => {
     try {
-      return { ...(await tandem.accounts.state()), ...hostLock(), host: (await tandem.settings()).copilot.host || 'github.com' };
+      return { ...(await tandem.accounts.state()), host: (await tandem.settings()).copilot.host || 'github.com' };
     } catch (err) {
-      return { signedIn: false, accounts: [], providers: [], error: String((err as Error).message ?? err), ...hostLock(), host: (await tandem.settings()).copilot.host || 'github.com' };
+      return { signedIn: false, accounts: [], providers: [], error: String((err as Error).message ?? err), host: (await tandem.settings()).copilot.host || 'github.com' };
     }
   });
 

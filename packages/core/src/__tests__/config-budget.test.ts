@@ -17,7 +17,8 @@ describe('config', () => {
     expect(c.home).toBe('/data/t');
     expect(c.agent).toBe('scripted');
     const s = effectiveSettings(DEFAULT_SETTINGS, c.overrides);
-    expect(s.copilot.host).toBe('acme.ghe.com');
+    // The Copilot account, and so its host, is connected in the app: the environment can't set it.
+    expect(s.copilot.host).toBe('');
     expect(s.aws.profile).toBe('work');
     expect(s.limits.maxConcurrentBuilds).toBe(2);
     expect(s.limits.maxConcurrentReadOnly).toBe(2);

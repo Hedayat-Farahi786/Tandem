@@ -19,11 +19,14 @@ All notable changes to Tandem. The format follows
   that address and Tandem finishes the sign-in. On a computer without a
   browser, a fine-grained token (`github_pat_…`, Copilot Requests
   permission) works too; classic tokens are refused with an explanation.
-  Settings shows the connected account and where it comes from (Copilot, the
-  GitHub CLI, a token). Every other signed-in account can be made active
+  Settings shows the connected account and how it was connected (in the
+  browser or with a token). Every other signed-in account can be made active
   with "Use this account", and you can add another account or sign out.
   The Copilot address follows the account, so there is no host field to fill
-  in, unless `COPILOT_GH_HOST` sets it. The sign-in stays in the system
+  in. Connecting happens only here: Tandem keeps its own sign-ins (in its
+  data folder and the keychain), never uses a Copilot CLI or GitHub CLI
+  login on the computer, and no environment variable connects an account
+  (`COPILOT_GH_HOST` is gone). The sign-in stays in the system
   keychain: Tandem never sees a password, no route returns a token, and
   without a keychain the sign-in isn't saved in plain text. Changing the
   account waits until no task or chat is using Copilot. Each sign-in, switch

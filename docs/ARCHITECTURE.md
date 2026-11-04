@@ -498,19 +498,29 @@ interface AgentSession {
   `useLoggedInUser: true` (default), `env` passed explicitly: the parent
   environment minus AWS, Jira, and GitHub token variables, plus
   `COPILOT_GITHUB_TELEMETRY_DISABLED=true`. The SDK's bundled,
-  version-matched runtime is used by default and reads the same
-  `~/.copilot` login as the installed CLI; `COPILOT_CLI_PATH` points it at
-  the installed `copilot` binary instead if needed. On the user's machine
-  the bundled runtime works.
+  version-matched runtime is used by default; `COPILOT_CLI_PATH` points it
+  at the installed `copilot` binary instead if needed.
+- **Copilot sign-in is Tandem's own.** The runtime runs with
+  `COPILOT_HOME=<TANDEM_HOME>/copilot` and an empty `GH_CONFIG_DIR`, so it
+  never picks up a Copilot CLI login (`~/.copilot`) or a GitHub CLI login
+  (`gh auth login`) on the computer, and no environment variable connects
+  an account. People connect in the app: Settings › Copilot (or the setup
+  wizard) drives the runtime's own sign-in (`accounts.login.begin/advance`
+  on a bare session): GitHub.com, GitHub Enterprise Cloud on `*.ghe.com`
+  (the host is asked for), or Microsoft Entra when offered. The browser
+  opens GitHub's authorize page (PKCE, loopback callback on 127.0.0.1);
+  when the browser runs elsewhere, the person pastes the callback address
+  and the server hands it to the loopback. A fine-grained token
+  (`account.login`) is the fallback without a browser. The runtime keeps
+  the credentials in the system keychain; a sign-in that would need
+  plain-text storage is declined. The account's host is stored as
+  `copilot.host` and passed to the runtime as `COPILOT_GH_HOST`.
 - **Copilot host.** Copilot can come from a GitHub Enterprise Cloud
-  data-residency host (`<company>.ghe.com`). The runtime authenticates
-  against github.com unless `COPILOT_GH_HOST` is set; Tandem's
-  `copilot.host` setting is passed as `COPILOT_GH_HOST`. Observed on the
-  user's machine: the Copilot CLI had no login of its own and used the GitHub
-  CLI's tokens (`authType: gh-cli`). With two `gh` accounts, the default host
-  gave `403 not authorized to use this Copilot feature`, and the company host
-  worked. Doctor reads the `gh auth status` accounts and, on a 403, suggests
-  the host that has Copilot. The setup wizard asks once.
+  data-residency host (`<company>.ghe.com`). Without `COPILOT_GH_HOST` the
+  runtime authenticates against github.com (a company account there gave
+  `403 not authorized to use this Copilot feature`), so the connected
+  account's host is passed through. It comes from the sign-in, never from
+  the environment.
 - `client.getAuthStatus()` → `{ isAuthenticated, login, authType }` for
   doctor. Policy access is checked with `client.listModels()` plus one tiny
   prompt in doctor's full mode (spike a records the real error text when

@@ -8,7 +8,7 @@ export const Settings = z.object({
   ownerName: z.string().default(''),
   copilot: z
     .object({
-      /** GitHub host that provides Copilot, e.g. company.ghe.com. Empty = github.com. Passed as COPILOT_GH_HOST. */
+      /** Host of the connected Copilot account, e.g. company.ghe.com (empty = github.com). Set by signing in, in the app. */
       host: z.string().default(''),
       /** Model for build, fix and conflict sessions. Empty = runtime default. */
       buildModel: z.string().default(''),

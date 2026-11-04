@@ -20,7 +20,6 @@ const str = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
 
 /** Which environment variable sets each overridable setting ("a.b" path). */
 export const SETTING_ENV: Readonly<Record<string, string>> = {
-  'copilot.host': 'COPILOT_GH_HOST',
   'copilot.cliPath': 'COPILOT_CLI_PATH',
   'copilot.buildModel': 'TANDEM_MODEL',
   'copilot.lightModel': 'TANDEM_LIGHT_MODEL',
@@ -44,7 +43,7 @@ export function loadConfig(env: Record<string, string | undefined>, homedir: str
   const set = (path: string, value: unknown) => {
     if (value !== undefined) overrides[path] = value;
   };
-  set('copilot.host', str(env.COPILOT_GH_HOST));
+  // The Copilot account (and so its host) is connected in the app, never through the environment.
   set('copilot.cliPath', str(env.COPILOT_CLI_PATH));
   set('copilot.buildModel', str(env.TANDEM_MODEL));
   set('copilot.lightModel', str(env.TANDEM_LIGHT_MODEL));

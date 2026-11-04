@@ -27,7 +27,6 @@ export interface AccountState {
   providers: Array<{ kind: ProviderKind; label: string; available: boolean }>;
   error?: string;
   host: string;
-  hostLockedBy?: string;
 }
 type Step =
   | { kind: 'open-url'; url: string }
@@ -458,7 +457,6 @@ export function CopilotConnect({ compact }: { compact?: boolean }) {
           </Button>
         )}
       </div>
-      {s.hostLockedBy && <p className="px-1 text-[12px] text-faint">The Copilot address is set by {s.hostLockedBy} when Tandem starts, so switching to an account on another address takes effect only after you change it there.</p>}
       {others.length > 0 && (
         <div>
           <p className="mb-1.5 px-1 text-[12px] font-medium text-faint">Also signed in</p>

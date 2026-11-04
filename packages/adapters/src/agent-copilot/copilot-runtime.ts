@@ -1,4 +1,5 @@
 import { CopilotClient, RuntimeConnection, ToolSet, defineTool } from '@github/copilot-sdk';
+import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ZodType } from 'zod';
 import { BudgetError, RetryableError, allowedBuiltins, type AgentEvent, type AgentRuntime, type AgentSession, type AgentSessionOptions, type AgentUsage, type Logger } from '@tandem/core';
@@ -48,6 +49,11 @@ export interface CopilotRuntimeOptions {
   env?: NodeJS.ProcessEnv;
   /** After a sign-in or account switch: keep this Copilot host in Settings ('' = github.com). */
   useHost?: (host: string) => Promise<void>;
+  /**
+   * Tandem's data folder. The runtime keeps its sign-ins and state under <home>/copilot, so Tandem
+   * uses only accounts connected in Tandem (never a Copilot CLI or GitHub CLI login).
+   */
+  home?: string;
 }
 
 const RETRYABLE = /(rate.?limit|\b429\b|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|\b5\d\d\b|overloaded|temporarily unavailable|stream (closed|ended))/i;
@@ -124,12 +130,14 @@ export class CopilotRuntime implements AgentRuntime {
     this.clientKey = key;
     this.modelCache = undefined;
     this.priceUnits = undefined;
-    const env = copilotRuntimeEnv(this.o.env ?? process.env, s.copilot.host || undefined);
+    const home = this.o.home ? { copilot: join(this.o.home, 'copilot'), gh: join(this.o.home, 'copilot', 'gh-none') } : undefined;
+    if (home) mkdirSync(home.gh, { recursive: true, mode: 0o700 });
+    const env = copilotRuntimeEnv(this.o.env ?? process.env, s.copilot.host || undefined, home);
     const cliPath = s.copilot.cliPath || undefined;
     this.starting = (async () => {
       const c: ClientLike = this.o.createClient
         ? this.o.createClient(env, cliPath)
-        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: true, ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
+        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: true, ...(home ? { baseDirectory: home.copilot } : {}), ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
       await c.start();
       this.client = c;
       return c;

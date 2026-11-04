@@ -77,7 +77,6 @@ override them; `.env.example` lists every one. The most useful:
 | `TANDEM_HOME` | `~/.tandem` | data folder |
 | `TANDEM_PORT` | `4317` | port on 127.0.0.1 |
 | `TANDEM_LOG_LEVEL` | `info` | `debug` for more detail |
-| `COPILOT_GH_HOST` | empty (github.com) | GitHub Enterprise host that provides Copilot |
 | `TANDEM_AWS_PROFILE`, `TANDEM_AWS_REGION` | default chain | CodeCommit access |
 | `TANDEM_CREDITS_PER_TASK`, `TANDEM_CREDITS_PER_DAY` | 25, 75 | Copilot AI credit limits for a **new install**; then set in Settings |
 | `TANDEM_BUDGET_PER_TASK`, `TANDEM_BUDGET_PER_DAY` | 15, 40 | Copilot prompt limits for a **new install**; then set in Settings |
@@ -113,8 +112,7 @@ comes from a GitHub Enterprise host (`yourcompany.ghe.com`):
 
 1. Settings › Copilot › Add another account › Your company's GitHub, and
    sign in with `yourcompany.ghe.com` in the browser.
-2. Choose "Use this account" next to it (unless `COPILOT_GH_HOST` is set:
-   then change it there and restart Tandem).
+2. Choose "Use this account" next to it.
 3. `pnpm tandem doctor`
 
 When this check fails and the GitHub CLI is signed in to another host, the

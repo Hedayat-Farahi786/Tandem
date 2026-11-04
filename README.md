@@ -50,8 +50,9 @@ personal plan or a Business or Enterprise seat there, or on your company's
 GitHub address (for example `yourcompany.ghe.com`). The sign-in is kept in
 your system keychain, and you can add several accounts and switch between
 them. On a computer without a browser, connect with a fine-grained token
-that has the Copilot Requests permission. An existing Copilot CLI or GitHub
-CLI sign-in is picked up as well.
+that has the Copilot Requests permission. Tandem keeps its own sign-in: it
+doesn't use a Copilot CLI or GitHub CLI login on the computer, and no
+environment variable connects an account.
 
 Other commands:
 

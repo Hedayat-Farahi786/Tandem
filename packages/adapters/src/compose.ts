@@ -102,13 +102,12 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     return jira.tracker;
   };
 
-  // A Copilot sign-in or account switch keeps its host in Settings, unless an environment variable sets it.
+  // A Copilot sign-in or account switch keeps its host in Settings.
   const useHost = async (host: string) => {
-    if ((o.overrides ?? {})['copilot.host'] !== undefined) return;
     const s = await store.settings.get();
     if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
   };
-  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, ...(o.logger ? { logger: o.logger } : {}) });
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();

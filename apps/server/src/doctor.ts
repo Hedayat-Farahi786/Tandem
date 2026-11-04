@@ -86,7 +86,7 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
     add({ id: 'disk', group: 'Machine', label: 'Disk space', status: 'warn', message: `Could not check: ${String(err)}` });
   }
   const kc = await t.secrets.available();
-  add(kc.ok ? { id: 'keychain', group: 'Machine', label: 'OS keychain', status: 'pass', message: kc.message } : { id: 'keychain', group: 'Machine', label: 'OS keychain', status: settings.jira.baseUrl ? 'fail' : 'warn', message: kc.message, fix: 'Only needed to save a Jira or GitHub token. Tandem never stores secrets in files.' });
+  add(kc.ok ? { id: 'keychain', group: 'Machine', label: 'OS keychain', status: 'pass', message: kc.message } : { id: 'keychain', group: 'Machine', label: 'OS keychain', status: 'fail', message: kc.message, fix: 'Needed to keep your Copilot sign-in, and a Jira or GitHub token if you use one. Tandem never stores secrets in files.' });
 
   // Copilot
   if (agent instanceof CopilotRuntime) {
@@ -96,23 +96,21 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
     if (c.version) {
       add(
         c.authenticated
-          ? { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'pass', message: `Signed in as ${c.login ?? 'unknown'}${c.host ? ` on ${c.host.replace(/^https:\/\//, '')}` : ''} (${c.authType ?? 'existing login'}).` }
-          : { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'fail', message: c.error ?? 'Not signed in.', fix: 'Connect your Copilot account in Settings → Copilot: sign in with GitHub.com or your company’s GitHub in the browser.' },
+          ? { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'pass', message: `Connected as ${c.login ?? 'unknown'}${c.host ? ` on ${c.host.replace(/^https:\/\//, '')}` : ''}.` }
+          : { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'fail', message: c.error ?? 'No Copilot account is connected yet.', fix: 'Connect your Copilot account in Settings → Copilot: sign in with GitHub.com or your company’s GitHub in the browser.' },
       );
     }
     if (c.authenticated) {
       if (c.models?.length) {
         add({ id: 'copilot-models', group: 'Copilot', label: 'Copilot access', status: 'pass', message: `${c.models.filter((m) => m.policy?.state !== 'disabled').length} models available.` });
       } else {
-        const accounts = await version('gh', ['auth', 'status']);
-        const others = [...(accounts ?? '').matchAll(/Logged in to (\S+) account (\S+)/g)].map((m) => m[1]!).filter((h) => h !== (settings.copilot.host || 'github.com'));
         add({
           id: 'copilot-models',
           group: 'Copilot',
           label: 'Copilot access',
           status: 'fail',
           message: `This account can't use Copilot here (${(c.error ?? 'no models').slice(0, 160)}).`,
-          fix: others.length ? `If your Copilot comes from ${others.join(' or ')}, connect that account in Settings → Copilot.` : 'Connect the account that has your Copilot plan in Settings → Copilot. For a work account, your admin may need to enable the "Copilot CLI" policy.',
+          fix: 'Connect the account that has your Copilot plan in Settings → Copilot. For a work account, your admin may need to enable the "Copilot CLI" policy.',
         });
       }
       const ws = mkdtempSync(join(tmpdir(), 'tandem-doctor-'));

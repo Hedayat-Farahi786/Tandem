@@ -68,14 +68,23 @@ export function enforcement(o: EnforcementOptions) {
   return { onPreToolUse, onPermissionRequest };
 }
 
-const STRIPPED = /^(GH_TOKEN|GITHUB_TOKEN|COPILOT_GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|AWS_.*|JIRA_.*|TANDEM_.*|.*_SECRET.*|.*_PASSWORD.*)$/;
+const STRIPPED = /^(GH_TOKEN|GITHUB_TOKEN|COPILOT_GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|GH_HOST|GH_CONFIG_DIR|COPILOT_GH_HOST|COPILOT_HOME|AWS_.*|JIRA_.*|TANDEM_.*|.*_SECRET.*|.*_PASSWORD.*)$/;
 
-/** Environment for the Copilot runtime: no tokens or cloud credentials, telemetry off, fixed version. */
-export function copilotRuntimeEnv(base: NodeJS.ProcessEnv, host: string | undefined): Record<string, string> {
+/**
+ * Environment for the Copilot runtime: no tokens or cloud credentials, telemetry off, fixed version.
+ * With a `home`, the runtime keeps its own sign-ins and state there, apart from any Copilot CLI or
+ * GitHub CLI on the computer: the only account Tandem uses is the one connected in Tandem.
+ */
+export function copilotRuntimeEnv(base: NodeJS.ProcessEnv, host: string | undefined, home?: { copilot: string; gh: string }): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(base)) if (v !== undefined && !STRIPPED.test(k) && k !== 'COPILOT_GH_HOST') env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && !STRIPPED.test(k)) env[k] = v;
   env.COPILOT_GITHUB_TELEMETRY_DISABLED = 'true';
   env.COPILOT_AUTO_UPDATE = 'false';
   if (host) env.COPILOT_GH_HOST = host;
+  if (home) {
+    env.COPILOT_HOME = home.copilot;
+    // An empty GitHub CLI config: the runtime can't pick up someone's `gh auth login`.
+    env.GH_CONFIG_DIR = home.gh;
+  }
   return env;
 }
