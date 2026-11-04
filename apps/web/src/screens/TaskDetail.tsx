@@ -29,7 +29,6 @@ import {
   STATE_LABEL,
   STATE_TONE,
   relativeTime,
-  stepLabel,
   plainReason,
   SIGNIN_EXPIRED,
 } from "../lib/format";
@@ -61,6 +60,7 @@ import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
 import { TaskChatView, type PanelTab } from "./TaskChat";
 import { ChecksTab } from "./ChecksPanel";
+import { ProgressTab, StageTracker } from "./TaskProgress";
 import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
@@ -71,16 +71,6 @@ const RUNNING = new Set([
   "VERIFYING",
   "SELF_REVIEW",
 ]);
-const FLOW = [
-  "READINESS",
-  "SPEC_DRAFTING",
-  "SPEC_REVIEW",
-  "BUILDING",
-  "VERIFYING",
-  "SELF_REVIEW",
-  "PR_OPEN",
-  "DONE",
-] as const;
 
 function useAct(taskId: string) {
   const qc = useQueryClient();
@@ -1227,8 +1217,11 @@ function defaultPanel(d: TaskDetail): PanelTab | null {
   if (t.state === "SPEC_REVIEW") return "spec";
   if (!window.matchMedia?.("(min-width: 1280px)").matches) return null;
   if (t.state === "PR_OPEN" || (t.state === "DONE" && d.prs.length)) return "prs";
+  if (RUNNING.has(t.state)) return "progress";
   if (d.verifyRuns.at(-1)?.passed === false) return "checks";
-  if (t.state === "BUILDING" || t.state === "VERIFYING" || t.state === "SELF_REVIEW") return "changes";
+  // Not ready: the request is what needs editing.
+  if (t.state === "BLOCKED" && t.blockedReason === "readiness-missing") return "overview";
+  if (t.state === "BLOCKED" || t.state === "FAILED") return "progress";
   return "overview";
 }
 
@@ -1261,7 +1254,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
     const before = seenState.current;
     seenState.current = state;
     if (!before || before === state) return;
-    const next: PanelTab | null = state === "SPEC_REVIEW" ? "spec" : state === "PR_OPEN" ? "prs" : failing && state === "BUILDING" ? "checks" : null;
+    const next: PanelTab | null = state === "SPEC_REVIEW" ? "spec" : state === "PR_OPEN" ? "prs" : failing && state === "BUILDING" ? "checks" : RUNNING.has(state) && !RUNNING.has(before) ? "progress" : null;
     if (next) setPanel((p) => (p === null ? p : next));
   }, [state, failing]);
   if (q.isLoading) return <Loading rows={5} />;
@@ -1273,6 +1266,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
   const openFindings = d.findings.filter((f) => f.status === "open").length;
   const lastVerify = d.verifyRuns.at(-1);
   const tabDefs: Array<{ id: PanelTab; label: string; badge?: ReactNode }> = [
+          { id: "progress", label: "Progress" },
           { id: "overview", label: "Overview" },
           {
             id: "spec",
@@ -1317,7 +1311,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
           },
           {
             id: "prs",
-            label: "Pull requests",
+            label: "PRs",
             ...(d.prs.length
               ? {
                   badge: (
@@ -1332,6 +1326,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
         ];
   const renderTab = (id: PanelTab) => (
     <>
+      {id === "progress" && <ProgressTab d={d} />}
       {id === "overview" && <Overview d={d} />}
       {id === "spec" && <SpecTab d={d} />}
       {id === "changes" && <ChangesTab d={d} />}
@@ -1344,7 +1339,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
     <Pill tone={STATE_TONE[t.state]}>
       <StatusIcon state={t.state} className="size-3.5" />
       {STATE_LABEL[t.state]}
-      {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
     </Pill>
   );
   const startTask = () =>
@@ -1352,7 +1346,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
       path: `/api/tasks/${t.id}/submit`,
       done: "Started: checking readiness, then drafting the spec.",
     });
-  const flowAt = Math.max(0, FLOW.indexOf((t.state === "BLOCKED" || t.state === "FAILED" ? (t.resumeTo?.state ?? "READINESS") : t.state) as (typeof FLOW)[number]));
   return (
     // Chat view: an app-style page on wide screens. One compact bar, then the conversation and the
     // details side by side, each scrolling on its own, so nothing needs the whole page to scroll.
@@ -1382,12 +1375,8 @@ export function TaskDetailScreen({ id }: { id: string }) {
               {!finished && <IconButton icon={Ban} label="Cancel task" className="text-danger hover:bg-danger-soft" onClick={() => setConfirmCancel(true)} />}
             </div>
           </header>
-          {/* Where the task is, at a glance: one segment per stage. */}
-          <div role="progressbar" aria-label={`Stage ${flowAt + 1} of ${FLOW.length}: ${STATE_LABEL[FLOW[flowAt]!]}`} aria-valuemin={1} aria-valuemax={FLOW.length} aria-valuenow={flowAt + 1} className="flex shrink-0 gap-1 pb-3 lg:px-4 lg:py-2">
-            {FLOW.map((st, i) => (
-              <span key={st} title={STATE_LABEL[st]} className={cx("h-1 flex-1 rounded-full transition-colors duration-500", t.state === "DONE" || i < flowAt ? "bg-ok" : i === flowAt ? (t.state === "FAILED" ? "bg-danger" : t.state === "BLOCKED" || t.needsAttention ? "bg-warn" : "bg-accent") : "bg-surface-3")} />
-            ))}
-          </div>
+          {/* Where the task is: every stage, what is done, what is happening now. */}
+          <StageTracker d={d} onOpen={() => setPanel("progress")} />
       <TaskChatView d={d} panel={panel} setPanel={setPanel} tabs={tabDefs} renderPanel={renderTab} banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} />} />
       <Dialog
         open={confirmCancel}

@@ -61,7 +61,7 @@ describe('Task as a conversation', () => {
     expect(within(convo).getByRole('link', { name: /Open the pull request/ }).getAttribute('href')).toBe('https://example.com/pr/1');
     await user.click(within(convo).getByRole('button', { name: 'View' }));
     const panel = screen.getByRole('complementary', { name: 'Task details' });
-    expect(within(panel).getByRole('tab', { name: /Pull requests/ }).getAttribute('aria-selected')).toBe('true');
+    expect(within(panel).getByRole('tab', { name: /^PRs/ }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('a failed task asks for help in the conversation', async () => {
@@ -78,5 +78,38 @@ describe('Task as a conversation', () => {
     const convo = await screen.findByRole('region', { name: 'Conversation' });
     const line = await within(convo).findByText('Running the checks');
     expect(line.closest('[role="status"]')).toBeTruthy();
+  });
+
+  it('shows every stage while Copilot builds: what is done, what it is doing now, and what comes next', async () => {
+    const buildRun = { id: 'run2', taskId: 'task1', kind: 'build', mode: 'build', status: 'running', attempt: 0, startedAt: T1, prompts: 1, modelCalls: 3, aiCredits: 0.4, model: 'gpt-6-luna', steps: [
+      { id: 'b1', runId: 'run2', taskId: 'task1', seq: 0, at: T1, kind: 'tool', tool: 'view', input: 'src/health.ts', ok: true },
+      { id: 'b2', runId: 'run2', taskId: 'task1', seq: 1, at: T1, kind: 'message', text: 'The route exists; adding the version next.' },
+      { id: 'b3', runId: 'run2', taskId: 'task1', seq: 2, at: T1, kind: 'tool', tool: 'edit', input: 'src/health.ts', files: [{ path: 'src/health.ts', kind: 'edit' }] },
+    ] };
+    const { user } = setup(
+      detail({ transitions: [
+        { id: 1, taskId: 'task1', from: 'DRAFT', to: 'READINESS', reason: 'Submitted.', actor: 'owner', at: T0 },
+        { id: 2, taskId: 'task1', from: 'READINESS', to: 'SPEC_DRAFTING', reason: 'Ready.', actor: 'system', at: T0 },
+        { id: 3, taskId: 'task1', from: 'SPEC_DRAFTING', to: 'SPEC_REVIEW', reason: 'Drafted.', actor: 'system', at: T0 },
+        { id: 4, taskId: 'task1', from: 'SPEC_REVIEW', to: 'BUILDING', reason: 'Approved.', actor: 'owner', at: T1 },
+      ] }, { state: 'BUILDING', step: 'implement' }),
+      { 'GET /api/tasks/task1/activity': [specRun, buildRun] },
+    );
+    // Under the title: where the task is, in words.
+    const tracker = await screen.findByRole('button', { name: /Step 4 of 8: Build, Copilot coding/ });
+    await user.click(tracker);
+    const panel = screen.getByRole('complementary', { name: 'Task details' });
+    expect(within(panel).getByRole('tab', { name: 'Progress' }).getAttribute('aria-selected')).toBe('true');
+    const stages = within(panel).getByRole('list', { name: 'Stages' });
+    expect(within(stages).getByText(/Write the spec/).closest('li')!.textContent).toContain('done');
+    const build = within(stages).getByText(/^Build/).closest('li')!;
+    expect(build.getAttribute('aria-current')).toBe('step');
+    // The live step says what Copilot is doing right now.
+    expect(within(build).getByText('Copilot writes the code and tests')).toBeTruthy();
+    expect(await within(build).findByText('Editing health.ts…')).toBeTruthy();
+    expect(within(stages).getByText(/Run the checks/).closest('li')!.textContent).toContain('not started');
+    // In the conversation, what Copilot said sits between its steps.
+    const convo = screen.getByRole('region', { name: 'Conversation' });
+    expect(await within(convo).findByText('The route exists; adding the version next.')).toBeTruthy();
   });
 });

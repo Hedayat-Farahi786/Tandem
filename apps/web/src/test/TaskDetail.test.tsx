@@ -136,7 +136,7 @@ describe('Task detail', () => {
   it('a pull request to create by hand: link, copy buttons, then the pasted URL', async () => {
     const pr = { id: 'pr1', taskId: 'task1', repoId: 'r1', url: 'https://eu-central-1.console.aws.amazon.com/codesuite/codecommit/repositories/shop/pull-requests/new/refs/heads/main/.../refs/heads/agent/x?region=eu-central-1', title: 'TND-1: Health endpoint', description: 'Body', status: 'manual-pending' as const, manual: true, createdAt: '' };
     const { api, user } = setup(detail({ prs: [pr] }, { state: 'PR_OPEN' }));
-    await user.click(await screen.findByRole('tab', { name: /Pull requests/ }));
+    await user.click(await screen.findByRole('tab', { name: /^PRs/ }));
     const link = screen.getByRole('link', { name: 'Open create page' });
     expect(link.getAttribute('href')).toBe(pr.url);
     expect(link.getAttribute('target')).toBe('_blank');
@@ -151,7 +151,7 @@ describe('Task detail', () => {
     const base = { id: 'pr1', taskId: 'task1', repoId: 'r1', url: 'https://example.com/pull-requests/8', title: 'TND-1: Health endpoint', description: 'Body', status: 'open' as const, manual: false, createdAt: '' };
     const conflict = { ...base, sync: { state: 'needs-person' as const, base: 'b2', head: 'h1', files: ['src/app.ts'], message: 'Conflicts with main in src/app.ts. Someone else has pushed to agent/x, so Tandem leaves it to them.', at: '2026-11-03T12:00:00Z' } };
     const { api, user } = setup(detail({ prs: [conflict] }, { state: 'PR_OPEN' }));
-    await user.click(await screen.findByRole('tab', { name: /Pull requests/ }));
+    await user.click(await screen.findByRole('tab', { name: /^PRs/ }));
     expect(screen.getByText('Conflicts with the base branch')).toBeTruthy();
     expect(screen.getByText(/Someone else has pushed/)).toBeTruthy();
     expect(screen.getByText('src/app.ts', { selector: 'code' })).toBeTruthy();
@@ -163,7 +163,7 @@ describe('Task detail', () => {
     const base = { id: 'pr1', taskId: 'task1', repoId: 'r1', url: 'https://example.com/pull-requests/8', title: 'TND-1: Health endpoint', description: 'Body', status: 'open' as const, manual: false, createdAt: '' };
     const updated = { ...base, sync: { state: 'updated' as const, base: 'b2', head: 'h2', files: ['src/app.ts'], message: 'Merged main into the branch and resolved the conflicts in src/app.ts; every check passed; pushed abc1234.', at: '2026-11-03T12:00:00Z' } };
     const { user } = setup(detail({ prs: [updated] }, { state: 'PR_OPEN' }));
-    await user.click(await screen.findByRole('tab', { name: /Pull requests/ }));
+    await user.click(await screen.findByRole('tab', { name: /^PRs/ }));
     expect(screen.getByText('Updated from the base branch')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Fix conflicts' })).toBeNull();
   });

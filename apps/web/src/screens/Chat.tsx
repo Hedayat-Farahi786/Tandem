@@ -396,7 +396,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               rows={1}
               value={text}
               disabled={done}
-              placeholder={done ? 'This request became a task. Continue in the task chat.' : remoteBusy ? 'Copilot is answering… write your next message meanwhile' : questions ? 'Or write your own answer…' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
+              placeholder={done ? 'This request became a task. Continue in the task chat.' : remoteBusy ? 'Copilot is answering… you can type meanwhile' : questions ? 'Or write your own answer…' : stuck ? 'Tell Copilot how to continue…' : working ? 'Ask, or leave Copilot a note…' : placeholder}
               onChange={(e) => {
                 setText(e.target.value);
                 e.target.style.height = 'auto';

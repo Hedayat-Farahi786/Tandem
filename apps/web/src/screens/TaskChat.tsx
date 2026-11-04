@@ -12,9 +12,10 @@ import { StatusIcon } from '../ui/visual';
 import { ThreadPanel, type TimelineItem } from './Chat';
 import { RunCard, type RunActivity } from './TaskActivity';
 import { SkipCheckButton } from './SkipCheck';
+import { checksLine, doingNow, useTaskActivity } from './TaskProgress';
 
 /** The parts of a task that open beside its conversation. */
-export type PanelTab = 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'trace';
+export type PanelTab = 'progress' | 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'trace';
 
 /** Runs that already show as chat answers (or belong to the request chat) are not repeated. */
 const CHAT_RUNS = new Set(['task-chat', 'ask', 'request']);
@@ -95,14 +96,6 @@ function ArtifactCard({ icon: Icon, logo, title, sub, at, badge, open, openLabel
 
 /** States in which Tandem itself (not only Copilot) is busy with the task. */
 const WORKING = new Set<TaskState>(['READINESS', 'SPEC_DRAFTING', 'BUILDING', 'VERIFYING', 'SELF_REVIEW']);
-const DOING: Partial<Record<TaskState, string>> = {
-  READINESS: 'Checking the request',
-  SPEC_DRAFTING: 'Getting the spec ready',
-  BUILDING: 'Preparing the workspace',
-  VERIFYING: 'Running the checks',
-  SELF_REVIEW: 'Bringing the branch up to date',
-};
-const CHECK_KIND: Record<string, string> = { install: 'installing dependencies', lint: 'lint', typecheck: 'type check', build: 'build', test: 'tests', 'test-single': 'one test', integration: 'integration tests' };
 const clock = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
@@ -112,7 +105,9 @@ const clock = (ms: number) => {
  * What Tandem is doing when Copilot isn't (installing, building, running the tests): a live line at
  * the end of the conversation, with the latest output, so a long step never looks stuck.
  */
-function TandemWorking({ taskId, state, since, repos }: { taskId: string; state: TaskState; since: string; repos: TaskDetail['repos'] }) {
+function TandemWorking({ d, since }: { d: TaskDetail; since: string }) {
+  const { id: taskId, state } = d.task;
+  const repos = d.repos;
   const [now, setNow] = useState(() => Date.now());
   const [out, setOut] = useState<{ kind: string; repoId?: string | undefined; line: string; from: number } | null>(null);
   useEffect(() => {
@@ -129,8 +124,7 @@ function TandemWorking({ taskId, state, since, repos }: { taskId: string; state:
       </span>
       <div className="min-w-0 flex-1">
         <p className="flex items-baseline gap-2 text-[13.5px]">
-          <span className="shimmer-text font-medium">{DOING[state] ?? STATE_LABEL[state]}</span>
-          {out && state === 'VERIFYING' && <span className="text-[13px] text-muted">· {CHECK_KIND[out.kind] ?? out.kind}</span>}
+          <span key={doingNow(d, out?.kind)} className="shimmer-text animate-in font-medium">{doingNow(d, out?.kind)}</span>
           <span className="ml-auto shrink-0 text-[12px] text-faint tabular-nums">{clock(now - Date.parse(since))}</span>
         </p>
         {out && <p className="mt-0.5 truncate font-mono text-[12px] text-faint" title={out.line}>{out.line}</p>}
@@ -146,22 +140,18 @@ function TandemWorking({ taskId, state, since, repos }: { taskId: string; state:
   );
 }
 
-function RunItem({ run, project }: { run: RunActivity; project: { id: string; name: string } }) {
+function RunItem({ run, project, afterReview }: { run: RunActivity; project: { id: string; name: string }; afterReview: boolean }) {
   const [open, setOpen] = useState(run.status === 'running');
   return (
     <ol className="list-none">
-      <RunCard dense run={run} project={project} open={open} onToggle={() => setOpen(!open)} />
+      <RunCard dense run={run} project={project} afterReview={afterReview} open={open} onToggle={() => setOpen(!open)} />
     </ol>
   );
 }
 
 /** Everything that happened on a task, as one conversation. */
 function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t: PanelTab) => void): { items: TimelineItem[]; copilotWorking: boolean } {
-  const activity = useQuery({
-    queryKey: ['task-activity', d.task.id],
-    queryFn: () => api<RunActivity[]>(`/api/tasks/${d.task.id}/activity`),
-    refetchInterval: (q) => (q.state.data?.some((r) => r.status === 'running') ? 5_000 : 30_000),
-  });
+  const activity = useTaskActivity(d.task.id);
   const items = useMemo(() => {
     const t = d.task;
     const items: TimelineItem[] = [];
@@ -175,7 +165,8 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
       if ((x.to === 'SPEC_REVIEW' && d.specs.length) || (x.to === 'PR_OPEN' && d.prs.length)) continue;
       items.push({ at: x.at, key: `tr-${i}`, node: <Milestone icon={<StatusIcon state={x.to as TaskState} className="size-3.5" />} title={STATE_LABEL[x.to]} body={plainReason(x.reason)} at={x.at} /> });
     }
-    for (const r of activity.data ?? []) if (!CHAT_RUNS.has(r.kind)) items.push({ at: r.startedAt, key: `run-${r.id}`, node: <RunItem run={r} project={d.project} /> });
+    const runs = activity.data ?? [];
+    for (const r of runs) if (!CHAT_RUNS.has(r.kind)) items.push({ at: r.startedAt, key: `run-${r.id}`, node: <RunItem run={r} project={d.project} afterReview={runs.some((x) => x.kind === 'review' && x.startedAt < r.startedAt)} /> });
     for (const s of d.specs)
       items.push({
         at: s.createdAt,
@@ -185,10 +176,6 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
     for (const a of d.approvals)
       items.push({ at: a.createdAt, key: `ap-${a.id}`, node: <Milestone icon={<ThumbsUp className="size-3.5 text-ok" strokeWidth={2} />} title={`${a.name} approved spec v${a.specVersion}`} body={a.role === 'pm' ? `as PM${a.method === 'jira' ? ', in Jira' : ''}` : 'as owner'} at={a.createdAt} /> });
     for (const v of d.verifyRuns) {
-      const passed = v.results.filter((r) => !r.skipped && !r.preexisting && r.exitCode === 0 && !r.timedOut).length;
-      const pre = v.results.filter((r) => r.preexisting).length;
-      const skipped = v.results.filter((r) => r.skipped).length;
-      const extra = [pre ? `${pre} already failing` : '', skipped ? `${skipped} skipped` : ''].filter(Boolean).join(' · ');
       items.push({
         at: v.createdAt,
         key: `vr-${v.id}`,
@@ -197,7 +184,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
             icon={v.passed ? CheckCircle2 : AlertTriangle}
             title={v.passed ? 'Checks passed' : 'Checks failed'}
             badge={v.attempt > 0 ? <span className="text-[12px] text-faint">{roundLabel(v.attempt)}</span> : undefined}
-            sub={passed === v.results.length ? `All ${passed} command${passed === 1 ? '' : 's'} passed` : `${passed} of ${v.results.length} passed${extra ? ` · ${extra}` : ''}`}
+            sub={checksLine(v)}
             at={v.createdAt}
             open={() => openPanel('checks')}
             openLabel="View checks"
@@ -291,7 +278,7 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
                     </span>
                   </div>
                 )}
-                {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking taskId={d.task.id} state={d.task.state} since={since} repos={d.repos} />}
+                {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking d={d} since={since} />}
                 <div className="empty:hidden">{banner}</div>
               </>
             }
@@ -307,7 +294,7 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
             className="fixed inset-y-2 right-2 left-2 z-40 flex animate-in flex-col overflow-hidden rounded-2xl bg-bg shadow-lg sm:left-auto sm:w-[min(680px,calc(100vw-1rem))] lg:static lg:inset-auto lg:z-auto lg:h-full lg:w-auto lg:rounded-none lg:rounded-br-[14px] lg:border-l lg:border-line lg:bg-surface lg:shadow-none"
           >
             <div className="flex shrink-0 items-center gap-2 pr-2 pl-5">
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 [&_[role=tablist]]:gap-[18px]">
                 <Tabs label="Task details" value={panel} onChange={setPanel} tabs={tabs} />
               </div>
               <IconButton icon={X} label="Close details" size="sm" onClick={() => setPanel(null)} />

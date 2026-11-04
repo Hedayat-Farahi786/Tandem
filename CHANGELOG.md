@@ -8,6 +8,27 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **See every stage of a task while it runs.** Under the task's title, a
+  tracker names all eight stages (Readiness, Spec, Approval, Build, Checks,
+  Self-review, Pull request, Done): finished ones show a check and how long
+  they took, and the current one says what is happening right now
+  ("Copilot coding · 4m 02s", "Running tests", "Waiting for you"). Narrow
+  screens get the same in one line above a bar. Click it to open the new
+  Progress panel, which opens by default while a task runs. It lists every
+  stage with its outcome ("4 of 5 passed · 1 already failing", "Approved by
+  …") and the current stage's steps. The step in progress says what Copilot
+  is doing, and while the checks run it marks each one as done, running or
+  next. The self-review shows its fix-and-check-again steps, and a blocked
+  or failed task shows why at the stage where it stopped. In the
+  conversation, what Copilot says between its steps now appears in order
+  with those steps, and its closing message comes last as its answer. A fix
+  run after the self-review is called "Fixed review findings", not "Fixed
+  failing checks". The line that shows what Tandem is doing now uses the
+  same words as the tracker, so it no longer says "Bringing the branch up to
+  date" while the checks run again. Run cards hide the model name, then the
+  credits, before cutting their titles short. The details tabs fit (PRs),
+  and the task composer's hints fit on one line.
+
 - **A polish pass over every screen.** Chats are named from their first
   message at once (a request still takes Copilot's short name for the change
   unless you renamed it), so a chat whose first message went unanswered no

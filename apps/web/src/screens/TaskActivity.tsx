@@ -92,6 +92,24 @@ function Message({ text }: { text: string }) {
   );
 }
 
+/** What Copilot said between its steps ("Now I'll add the tests…"): quiet, in line with the steps. */
+function Narration({ text }: { text: string }) {
+  const [more, setMore] = useState(false);
+  const long = text.length > 320;
+  return (
+    <div className="relative my-1 ml-[11.5px] border-l border-line py-0.5 pl-[23px]">
+      <div className={cx('text-[13px] leading-relaxed text-muted [&_.prose-tandem]:text-[13px] [&_.prose-tandem]:text-muted', long && !more && 'line-clamp-3')}>
+        <Markdown source={text} />
+      </div>
+      {long && (
+        <button type="button" onClick={() => setMore(!more)} className="mt-0.5 text-[12px] font-medium text-faint transition-colors hover:text-fg">
+          {more ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Step({ s }: { s: AgentStep }) {
   switch (s.kind) {
     case 'prompt':
@@ -209,7 +227,7 @@ function StatusMark({ status }: { status: RunActivity['status'] }) {
  * One Copilot run: who it worked for (the project), what it did or is doing, and, opened, its steps
  * as one flat list (the current one live at the bottom), its final message and Tandem's instructions.
  */
-export function RunCard({ run, open, onToggle, dense, project }: { run: RunActivity; open: boolean; onToggle: () => void; /** Tighter, for the task conversation. */ dense?: boolean; project?: { id: string; name: string } }) {
+export function RunCard({ run, open, onToggle, dense, project, afterReview }: { run: RunActivity; open: boolean; onToggle: () => void; /** Tighter, for the task conversation. */ dense?: boolean; project?: { id: string; name: string }; /** A fix run after the self-review fixes its findings, not failing checks. */ afterReview?: boolean }) {
   const running = run.status === 'running';
   useTick(running);
   const [all, setAll] = useState(false);
@@ -224,12 +242,22 @@ export function RunCard({ run, open, onToggle, dense, project }: { run: RunActiv
   const brand = run.model ? providerOf(run.model) : undefined;
   // Old runs (before steps were recorded) have nothing to open.
   const empty = run.steps.length === 0;
-  const LIMIT = 6;
-  const visible = all || shown.length <= LIMIT ? shown : shown.slice(-LIMIT);
-  const hidden = shown.length - visible.length;
+  // Its steps and what it said between them, in order; the last thing it said, once done, is its answer.
+  const entries = run.steps.filter((s) => s.kind !== 'prompt' && s.kind !== 'intent');
+  const answer = running ? undefined : [...entries].reverse().find((s) => s.kind === 'message');
+  const log = answer ? entries.filter((s) => s !== answer) : entries;
+  const LIMIT = 8;
+  const visible = all || log.length <= LIMIT ? log : log.slice(-LIMIT);
+  const hidden = log.length - visible.length;
+  const chunks: Array<{ key: string; message?: AgentStep; steps: AgentStep[] }> = [];
+  for (const s of visible) {
+    if (s.kind === 'message') chunks.push({ key: s.id, message: s, steps: [] });
+    else if (chunks.at(-1) && !chunks.at(-1)!.message) chunks.at(-1)!.steps.push(s);
+    else chunks.push({ key: s.id, steps: [s] });
+  }
   const size = dense ? 28 : 32;
   return (
-    <li className={cx('overflow-hidden bg-surface shadow-panel', dense ? 'rounded-xl' : 'rounded-2xl')}>
+    <li className={cx('@container overflow-hidden bg-surface shadow-panel', dense ? 'rounded-xl' : 'rounded-2xl')}>
       <button type="button" aria-expanded={open} disabled={empty} onClick={onToggle} className={cx('flex w-full items-center text-left transition-colors enabled:hover:bg-surface-2/50 disabled:cursor-default', dense ? 'gap-3 px-3 py-2.5' : 'gap-3.5 px-4 py-3.5')}>
         <span className="relative shrink-0">
           {project ? (
@@ -242,15 +270,16 @@ export function RunCard({ run, open, onToggle, dense, project }: { run: RunActiv
           <StatusMark status={run.status} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className={cx('block truncate font-medium', dense ? 'text-[13.5px]' : 'text-[14px]')}>{running ? (RUN_LIVE[run.kind] ?? run.kind) : (RUN_TITLE[run.kind] ?? run.kind)}</span>
+          <span className={cx('block truncate font-medium', dense ? 'text-[13.5px]' : 'text-[14px]')}>{afterReview && run.kind === 'fix' ? (running ? 'Fixing review findings' : 'Fixed review findings') : running ? (RUN_LIVE[run.kind] ?? run.kind) : (RUN_TITLE[run.kind] ?? run.kind)}</span>
           <span key={running ? summary : undefined} className={cx('mt-0.5 block truncate text-[12.5px]', running ? 'shimmer-text animate-in' : run.status === 'failed' ? 'text-danger' : 'text-muted')}>
             {summary}
             {running && '…'}
           </span>
         </span>
-        <span className="hidden shrink-0 items-center gap-2.5 text-[12px] text-faint sm:flex">
+        {/* The details give way to the title when the card is narrow: the model first, then the credits. */}
+        <span className="hidden shrink-0 items-center gap-2.5 text-[12px] text-faint @xs:flex">
           {run.model && (
-            <span className="inline-flex max-w-36 items-center gap-1.5 truncate">
+            <span className="hidden max-w-36 items-center gap-1.5 truncate @[34rem]:inline-flex">
               {brand && <BrandLogo brand={brand} size={12} />}
               {run.model}
             </span>
@@ -258,7 +287,7 @@ export function RunCard({ run, open, onToggle, dense, project }: { run: RunActiv
           <span className="tabular-nums" title={new Date(run.startedAt).toLocaleString()}>
             {duration(run.startedAt, run.endedAt)}
           </span>
-          {run.aiCredits > 0 && <span className="tabular-nums">{run.aiCredits} credits</span>}
+          {run.aiCredits > 0 && <span className="hidden tabular-nums @[27rem]:inline">{run.aiCredits} credits</span>}
         </span>
         {!empty && <ChevronRight aria-hidden className={cx('size-4 shrink-0 text-faint transition-transform duration-200', open && 'rotate-90')} />}
       </button>
@@ -269,7 +298,7 @@ export function RunCard({ run, open, onToggle, dense, project }: { run: RunActiv
               Show {hidden} earlier step{hidden === 1 ? '' : 's'}
             </button>
           )}
-          {visible.length > 0 && <StepTimeline steps={visible} />}
+          {chunks.map((c) => (c.message ? <Narration key={c.key} text={c.message.text ?? ''} /> : <StepTimeline key={c.key} steps={c.steps} />))}
           {running && (
             <p role="status" aria-live="polite" className="mt-1 flex items-center gap-2.5 pl-[7px] text-[13px]">
               <span aria-hidden className="relative grid size-2 place-items-center">
@@ -279,11 +308,11 @@ export function RunCard({ run, open, onToggle, dense, project }: { run: RunActiv
               <span className="shimmer-text">{lastIntent ?? 'Working'}…</span>
             </p>
           )}
-          {run.steps
-            .filter((s) => s.kind === 'message')
-            .map((s) => (
-              <Step key={s.id} s={s} />
-            ))}
+          {answer && (
+            <div className="mt-2 border-t border-line/70 pt-1">
+              <Message text={answer.text ?? ''} />
+            </div>
+          )}
           {/* What Tandem told Copilot: kept for the record, out of the way. */}
           <div className="mt-1.5 border-t border-line/70 pt-1.5">
             {run.steps
@@ -324,7 +353,7 @@ export function TaskActivity({ taskId }: { taskId: string }) {
       </div>
       <ol aria-label="Copilot activity" className="flex flex-col gap-2.5">
         {runs.map((r) => (
-          <RunCard key={r.id} run={r} open={Boolean(open[r.id])} onToggle={() => setOpen((o) => ({ ...o, [r.id]: !o[r.id] }))} />
+          <RunCard key={r.id} run={r} afterReview={runs.some((x) => x.kind === 'review' && x.startedAt < r.startedAt)} open={Boolean(open[r.id])} onToggle={() => setOpen((o) => ({ ...o, [r.id]: !o[r.id] }))} />
         ))}
       </ol>
     </div>

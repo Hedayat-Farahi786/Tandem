@@ -49,7 +49,7 @@ describe('task chat for a stuck task', () => {
     expect(screen.getByText('Read health.test.ts')).toBeTruthy();
     expect(screen.getByText('Searched for Date')).toBeTruthy();
     // The composer knows the task is stuck.
-    const box = screen.getByPlaceholderText('Tell Copilot how to continue, or ask what went wrong…');
+    const box = screen.getByPlaceholderText('Tell Copilot how to continue…');
     await user.type(box, 'Use UTC in the date test.');
     await user.click(screen.getByRole('button', { name: 'Continue with this' }));
     await waitFor(() => expect(continued).toEqual({ text: 'Use UTC in the date test.' }));
