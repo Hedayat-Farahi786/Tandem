@@ -22,7 +22,7 @@ Chat request ─▶ Ready? ─▶ Spec ─▶ Owner + PM approve ─▶ Build �
 | Node.js | 22.13 or newer |
 | pnpm | 10 (`corepack enable` sets it up) |
 | git | 2.25 or newer |
-| GitHub Copilot | a seat that may use Copilot from the CLI or SDK, and the GitHub CLI signed in (`gh auth login`) |
+| GitHub Copilot | any plan: Free, Pro or Pro+ of your own, or Business or Enterprise from work. You connect it in the setup wizard |
 | AWS CLI v2 | for CodeCommit, signed in with the profile you use for your repos (`aws login` or `aws sso login`) |
 | Disk | a few GB free; each repo is cloned once and its dependencies are shared between tasks |
 
@@ -44,10 +44,14 @@ the first launch. The setup wizard then walks you through adding
 repositories, grouping them into a project, and checking your setup.
 Stop it with Ctrl+C; unfinished work resumes on the next start.
 
-If your Copilot comes from a GitHub Enterprise host with data residency
-(for example `yourcompany.ghe.com`), sign in to it with
-`gh auth login --hostname yourcompany.ghe.com` and set the Copilot host in
-the wizard or in Settings.
+Connecting Copilot takes one click in the wizard (or in Settings ›
+Copilot): sign in with GitHub in your browser, on GitHub.com for a
+personal plan or a Business or Enterprise seat there, or on your company's
+GitHub address (for example `yourcompany.ghe.com`). The sign-in is kept in
+your system keychain, and you can add several accounts and switch between
+them. On a computer without a browser, connect with a fine-grained token
+that has the Copilot Requests permission. An existing Copilot CLI or GitHub
+CLI sign-in is picked up as well.
 
 Other commands:
 

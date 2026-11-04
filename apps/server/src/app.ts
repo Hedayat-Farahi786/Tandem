@@ -14,6 +14,7 @@ import { registerSetupRoutes } from './routes/setup.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerIconRoutes } from './routes/icons.js';
+import { registerCopilotRoutes } from './routes/copilot.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -87,6 +88,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   app.get('/api/health', async () => ({ ok: true, version: o.version ?? '0.0.0' }));
   registerSetupRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
+  registerCopilotRoutes(app, ctx);
   registerAuditRoutes(app, ctx);
   registerIconRoutes(app, ctx);
   registerChatRoutes(app, ctx);

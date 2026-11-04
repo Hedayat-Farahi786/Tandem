@@ -9,6 +9,7 @@ export * from './tracker-jira/jira-tracker.js';
 export * from './tracker-jira/adf.js';
 export * from './agent-copilot/copilot-runtime.js';
 export * from './agent-copilot/enforce.js';
+export * from './agent-copilot/accounts.js';
 export * from './secrets/keychain.js';
 export * from './paths.js';
 export * from './compose.js';

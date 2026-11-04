@@ -97,7 +97,7 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
       add(
         c.authenticated
           ? { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'pass', message: `Signed in as ${c.login ?? 'unknown'}${c.host ? ` on ${c.host.replace(/^https:\/\//, '')}` : ''} (${c.authType ?? 'existing login'}).` }
-          : { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'fail', message: c.error ?? 'Not signed in.', fix: 'Run copilot and use /login, or sign in the GitHub CLI (gh auth login) on the host that provides your Copilot.' },
+          : { id: 'copilot-auth', group: 'Copilot', label: 'Signed in', status: 'fail', message: c.error ?? 'Not signed in.', fix: 'Connect your Copilot account in Settings → Copilot: sign in with GitHub.com or your company’s GitHub in the browser.' },
       );
     }
     if (c.authenticated) {
@@ -112,7 +112,7 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
           label: 'Copilot access',
           status: 'fail',
           message: `This account can't use Copilot here (${(c.error ?? 'no models').slice(0, 160)}).`,
-          fix: others.length ? `If your Copilot comes from ${others.join(' or ')}, set the Copilot host to it in Settings.` : 'Ask your admin to enable the "Copilot CLI" policy for you.',
+          fix: others.length ? `If your Copilot comes from ${others.join(' or ')}, connect that account in Settings → Copilot.` : 'Connect the account that has your Copilot plan in Settings → Copilot. For a work account, your admin may need to enable the "Copilot CLI" policy.',
         });
       }
       const ws = mkdtempSync(join(tmpdir(), 'tandem-doctor-'));

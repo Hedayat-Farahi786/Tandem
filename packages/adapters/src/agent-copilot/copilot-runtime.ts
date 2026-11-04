@@ -5,6 +5,7 @@ import { BudgetError, RetryableError, allowedBuiltins, type AgentEvent, type Age
 import { vendorOf, type ModelOption, type Settings } from '@tandem/shared';
 import { copilotRuntimeEnv, enforcement } from './enforce.js';
 import { strictResponseSchema, type ResponseSchemaLike } from './strict-schema.js';
+import { RuntimeAccounts, settingsHost, type AccountClientLike } from './accounts.js';
 
 /* Structural views of the SDK objects Tandem uses (lets tests drive the adapter with a fake). */
 export interface SessionEventLike {
@@ -45,6 +46,8 @@ export interface CopilotRuntimeOptions {
   /** Test seam: build a client for the given env and CLI path. */
   createClient?: (env: Record<string, string>, cliPath: string | undefined) => ClientLike;
   env?: NodeJS.ProcessEnv;
+  /** After a sign-in or account switch: keep this Copilot host in Settings ('' = github.com). */
+  useHost?: (host: string) => Promise<void>;
 }
 
 const RETRYABLE = /(rate.?limit|\b429\b|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|\b5\d\d\b|overloaded|temporarily unavailable|stream (closed|ended))/i;
@@ -96,7 +99,20 @@ export class CopilotRuntime implements AgentRuntime {
   private modelCache: { at: number; list: ModelLike[] } | undefined;
   private priceUnits: { at: number; units: Map<string, string> } | undefined;
 
-  constructor(private readonly o: CopilotRuntimeOptions) {}
+  /** Connecting, switching and signing out Copilot accounts, through the runtime's own sign-in. */
+  readonly accounts: RuntimeAccounts;
+
+  constructor(private readonly o: CopilotRuntimeOptions) {
+    this.accounts = new RuntimeAccounts({
+      client: async () => (await this.ensureClient()) as unknown as AccountClientLike,
+      useHost: async (host) => {
+        // Another account means other models and prices; a new host also restarts the runtime.
+        this.modelCache = undefined;
+        this.priceUnits = undefined;
+        await this.o.useHost?.(settingsHost(host));
+      },
+    });
+  }
 
   private async ensureClient(): Promise<ClientLike> {
     const s = await this.o.settings();

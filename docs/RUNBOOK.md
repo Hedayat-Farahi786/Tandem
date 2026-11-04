@@ -111,8 +111,10 @@ requests, Tandem gives you a prefilled console link instead.
 The signed-in GitHub account has no Copilot seat on that host. If your seat
 comes from a GitHub Enterprise host (`yourcompany.ghe.com`):
 
-1. `gh auth login --hostname yourcompany.ghe.com`
-2. Settings › Copilot host: `yourcompany.ghe.com` (or `COPILOT_GH_HOST`)
+1. Settings › Copilot › Add another account › Your company's GitHub, and
+   sign in with `yourcompany.ghe.com` in the browser.
+2. Choose "Use this account" next to it (unless `COPILOT_GH_HOST` is set:
+   then change it there and restart Tandem).
 3. `pnpm tandem doctor`
 
 When this check fails and the GitHub CLI is signed in to another host, the

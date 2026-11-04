@@ -16,6 +16,7 @@ import {
 } from '@tandem/core';
 import type { Repo, Settings } from '@tandem/shared';
 import { CopilotRuntime } from './agent-copilot/copilot-runtime.js';
+import { ScriptedAccounts, type CopilotAccounts } from './agent-copilot/accounts.js';
 import { RepoGit } from './git/repo-git.js';
 import { tandemPaths } from './paths.js';
 import { ShellProcessRunner } from './process/process-runner.js';
@@ -62,6 +63,8 @@ export interface Tandem {
   github: GitHubHost;
   secrets: SecretStore;
   agent: AgentRuntime;
+  /** Copilot accounts: the runtime's own sign-in, or a pretend one in test mode. */
+  accounts: CopilotAccounts;
   localTracker: LocalTracker;
   hostFor(repo: Repo): CodeCommitHost | GitHubHost;
   close(): Promise<void>;
@@ -99,7 +102,13 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     return jira.tracker;
   };
 
-  const agent = o.agent ?? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) });
+  // A Copilot sign-in or account switch keeps its host in Settings, unless an environment variable sets it.
+  const useHost = async (host: string) => {
+    if ((o.overrides ?? {})['copilot.host'] !== undefined) return;
+    const s = await store.settings.get();
+    if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
+  };
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();
@@ -145,6 +154,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     github: hosts.github,
     secrets,
     agent,
+    accounts: agent instanceof CopilotRuntime ? agent.accounts : new ScriptedAccounts(),
     localTracker,
     hostFor,
     close: async () => {

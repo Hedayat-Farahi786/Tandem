@@ -8,6 +8,7 @@ import type { Bootstrap } from '../lib/types';
 import { ArrowRight, GitBranch, Plus } from 'lucide-react';
 import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
+import { CopilotConnect } from '../ui/copilot-connect';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
 
@@ -241,11 +242,14 @@ function ProjectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
 
 function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
   const qc = useQueryClient();
-  const [host, setHost] = useState(boot.settings.copilot.host);
   const [profile, setProfile] = useState(boot.settings.aws.profile);
   const [owner, setOwner] = useState(boot.settings.ownerName);
   const save = useMutation({
-    mutationFn: () => put('/api/settings', { ...boot.settings, ownerName: owner, copilot: { ...boot.settings.copilot, host: host.trim() }, aws: { ...boot.settings.aws, profile: profile.trim() } }),
+    mutationFn: async () => {
+      // The latest settings: connecting Copilot just above may have set its address.
+      const fresh = await api<Bootstrap>('/api/bootstrap');
+      return put('/api/settings', { ...fresh.settings, ownerName: owner, aws: { ...fresh.settings.aws, profile: profile.trim() } });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
       onNext();
@@ -265,7 +269,9 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
     >
       <div className="flex flex-col gap-4">
         <Input label="Your name" value={owner} onChange={(e) => setOwner(e.target.value)} help="Shown on your approvals." />
-        <Input label="Copilot host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="github.com" help="Leave empty for github.com. If your Copilot comes from a GitHub Enterprise host (for example company.ghe.com), enter it here." />
+        <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
+          <CopilotConnect />
+        </div>
         <Input label="AWS profile for CodeCommit" value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="default" help="Used for git over HTTPS and to open pull requests. Without permission to create PRs, Tandem gives you a console link instead." />
         {save.isError && <ErrorState error={save.error} />}
       </div>

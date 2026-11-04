@@ -8,6 +8,28 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Connect any Copilot account from the browser.** The setup wizard and
+  Settings › Copilot now sign you in through Copilot's own GitHub sign-in:
+  "GitHub.com" for a personal plan (Free, Pro, Pro+) or a Business or
+  Enterprise seat on github.com, "Your company's GitHub" for GitHub
+  Enterprise Cloud on its own address (it asks for `yourcompany.ghe.com`
+  first), and Microsoft Entra where the runtime offers it. A dialog walks
+  through approving in GitHub and comes back on its own. If the browser runs
+  on another computer and can't reach the local return address, you paste
+  that address and Tandem finishes the sign-in. On a computer without a
+  browser, a fine-grained token (`github_pat_…`, Copilot Requests
+  permission) works too; classic tokens are refused with an explanation.
+  Settings shows the connected account and where it comes from (Copilot, the
+  GitHub CLI, a token). Every other signed-in account can be made active
+  with "Use this account", and you can add another account or sign out.
+  The Copilot address follows the account, so there is no host field to fill
+  in, unless `COPILOT_GH_HOST` sets it. The sign-in stays in the system
+  keychain: Tandem never sees a password, no route returns a token, and
+  without a keychain the sign-in isn't saved in plain text. Changing the
+  account waits until no task or chat is using Copilot. Each sign-in, switch
+  and sign-out is in the audit log, and the doctor's fixes point to this
+  screen.
+
 - **A Projects page that reads like one.** Projects are cards in a grid:
   the name and task key, how specs get approved, three counts (in
   progress, in review, done), the repositories with their stack, role and

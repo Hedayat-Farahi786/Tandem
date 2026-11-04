@@ -86,6 +86,26 @@ describe('server in test mode', () => {
     expect((await call('GET', '/api/doctor')).data).toMatchObject({ at: first.at });
   });
 
+  it('connects Copilot accounts through the sign-in routes, and never returns a token', async () => {
+    const before = await call<{ signedIn: boolean; active?: { login: string }; providers: Array<{ kind: string }> }>('GET', '/api/copilot/accounts');
+    expect(before.data).toMatchObject({ signedIn: true, active: { login: 'octocat' } });
+    expect(before.data.providers.map((p) => p.kind)).toEqual(['githubDotCom', 'proxima', 'entra']);
+    const begun = await call<{ flowId: string; step: { kind: string } }>('POST', '/api/copilot/sign-in', { kind: 'proxima' });
+    expect(begun.data.step.kind).toBe('input-required');
+    const open = await call<{ kind: string; url: string }>('POST', `/api/copilot/sign-in/${begun.data.flowId}/next`, { input: 'https://acme.ghe.com' });
+    expect(open.data).toMatchObject({ kind: 'open-url' });
+    expect(new URL(open.data.url).host).toBe('acme.ghe.com');
+    const done = await call<{ kind: string; host: string }>('POST', `/api/copilot/sign-in/${begun.data.flowId}/next`, {});
+    expect(done.data).toMatchObject({ kind: 'done', host: 'acme.ghe.com' });
+    const after = await call<{ active: { login: string; host: string }; accounts: unknown[] }>('GET', '/api/copilot/accounts');
+    expect(after.data.active).toMatchObject({ login: 'mona_work', host: 'acme.ghe.com' });
+    expect(JSON.stringify(after.data)).not.toMatch(/token/i);
+    const bad = await call('POST', '/api/copilot/sign-in', { kind: 'nope' });
+    expect(bad.status).toBe(400);
+    // Back to the first account, so the rest of the run is unchanged.
+    await call('POST', `/api/copilot/accounts/a1/use`);
+  });
+
   it('sets up a repository and project, and doctor reads the repository', async () => {
     const repo = await call<{ id: string }>('POST', '/api/repos', { url: 'codecommit::eu-central-1://shop', defaultBranch: 'main', role: 'full-stack', commands: { test: 'git --version' } });
     expect(repo.status).toBe(200);

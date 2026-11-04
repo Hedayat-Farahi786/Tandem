@@ -8,6 +8,7 @@ import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
+import { CopilotConnect } from '../ui/copilot-connect';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
 import type { AuditVerification } from '../lib/types';
 
@@ -205,8 +206,16 @@ export function SettingsScreen() {
   useEffect(() => {
     if (settings.data && !s) setS(settings.data);
   }, [settings.data, s]);
+  // The Copilot address follows the connected account (set by signing in), not this form.
+  const serverHost = settings.data?.copilot.host;
+  useEffect(() => {
+    if (serverHost !== undefined) setS((prev) => (prev && prev.copilot.host !== serverHost ? { ...prev, copilot: { ...prev.copilot, host: serverHost } } : prev));
+  }, [serverHost]);
   const save = useMutation({
-    mutationFn: (next: Settings) => put<Settings>('/api/settings', next),
+    mutationFn: async (next: Settings) => {
+      const fresh = await api<Settings>('/api/settings');
+      return put<Settings>('/api/settings', { ...next, copilot: { ...next.copilot, host: fresh.copilot.host } });
+    },
     onSuccess: (next) => {
       setS(next);
       qc.setQueryData(['settings'], next);
@@ -246,10 +255,10 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description="Tandem uses your existing Copilot sign-in. No token is stored.">
-        <Row label="Copilot host" htmlFor="set-host" description={note('copilot.host', 'Only for GitHub Enterprise with data residency, for example company.ghe.com.')}>
-          <Input id="set-host" disabled={Boolean(lock('copilot.host'))} value={s.copilot.host} onChange={(e) => set('copilot', { ...s.copilot, host: e.target.value })} placeholder="github.com" />
-        </Row>
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description="The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain.">
+        <div className="py-4">
+          <CopilotConnect />
+        </div>
         <Row label="Default model for code" htmlFor="set-build" description={note('copilot.buildModel', "Builds and fixes, when a task's model is Auto.")} wide>
           <Select id="set-build" disabled={Boolean(lock('copilot.buildModel'))} value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} />
         </Row>
