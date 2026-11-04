@@ -8,6 +8,22 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **The plan for Tandem as a web app, legal drafts and a website.**
+  `docs/WEB_PLAN.md` sets out the agreed direction:
+  - Tandem hosted in the EU (Frankfurt), with sign-in through a GitHub App.
+    Each user's own Copilot plan is used through their token.
+  - GitHub repositories through the app installation; CodeCommit through a
+    role the customer creates in their own AWS account.
+  - Isolated hosted runners, plus a company runner so code can stay on a
+    company's own machines.
+  - Postgres with per-workspace isolation and KMS encryption.
+  - GDPR built in, and the order to build it in.
+
+  `docs/legal/` has drafts for a lawyer to review: privacy policy, terms of
+  service, data processing agreement, subprocessors and the record of
+  processing. `apps/site/` is the landing page: static and no-tracking,
+  working in light and dark mode and at phone width.
+
 - **Add repositories without the command line.** The setup wizard now
   starts with Copilot, then shows four ways to add a repository:
   - **GitHub:** a searchable list of the repositories your connected

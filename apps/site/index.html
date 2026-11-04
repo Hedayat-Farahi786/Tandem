@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tandem: from request to reviewed pull request</title>
+    <meta name="description" content="Describe what you need. Tandem writes the spec, has GitHub Copilot build it on its own branch, runs your checks and opens the pull request. You approve every step. Hosted in the EU." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="Tandem: from request to reviewed pull request" />
+    <meta property="og:description" content="Specs you approve, code Copilot writes, checks that really run, and a pull request a person merges. Hosted in the EU." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e3b3b'/%3E%3Cpath d='M8 10h16M16 10v13' stroke='white' stroke-width='3.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav" id="top">
+      <div class="wrap nav-row">
+        <a class="brand" href="#top" aria-label="Tandem home">
+          <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 4.5h9M8 4.5v8" /></svg></span>
+          Tandem
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#security">Security</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="nav-cta">
+          <a class="btn btn-ghost" href="/app">Sign in</a>
+          <a class="btn btn-primary" href="/app/signup">Get started</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- Hero -->
+      <section class="hero">
+        <div class="glow" aria-hidden="true"></div>
+        <div class="wrap hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="dot"></span> Works with your GitHub Copilot plan</p>
+            <h1>From request to <em>reviewed</em> pull&nbsp;request.</h1>
+            <p class="lede">Describe what you need. Tandem writes the spec, has GitHub Copilot build it on its own branch, runs your checks and opens the pull request. You approve the plan and merge the result. Nothing ships without you.</p>
+            <div class="hero-cta">
+              <a class="btn btn-primary btn-lg" href="/app/signup">
+                <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" /></svg>
+                Continue with GitHub
+              </a>
+              <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+            </div>
+            <ul class="trust" aria-label="At a glance">
+              <li>GitHub and AWS CodeCommit</li>
+              <li>Hosted in the EU</li>
+              <li>Agents never merge</li>
+            </ul>
+          </div>
+
+          <!-- Product preview -->
+          <figure class="preview" aria-label="Tandem working on a task">
+            <div class="window">
+              <div class="window-bar">
+                <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="window-title">WEB-42 · Add a dark mode toggle to settings</span>
+              </div>
+              <div class="stage-row">
+                <span class="stage-name" id="stage-name">Build</span>
+                <span class="stage-now" id="stage-now">Copilot coding · 2m 14s</span>
+                <span class="stage-count" id="stage-count">4 of 8</span>
+              </div>
+              <div class="bar" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <div class="window-body">
+                <div class="convo">
+                  <p class="bubble">Add a dark mode toggle to the settings page. It should remember the choice.</p>
+                  <div class="card">
+                    <span class="ic doc" aria-hidden="true"></span>
+                    <div><b>Spec v1</b><small>Approved by you · 3 acceptance criteria</small></div>
+                  </div>
+                  <div class="card live">
+                    <span class="ic av" aria-hidden="true">C</span>
+                    <div><b>Building the change</b><small class="shimmer" id="live-step">Editing settings-page.tsx…</small></div>
+                  </div>
+                  <div class="card dim" id="card-checks">
+                    <span class="ic ok" aria-hidden="true"></span>
+                    <div><b>Checks passed</b><small>All 5 checks passed · lint, types, build, tests</small></div>
+                  </div>
+                  <div class="card dim" id="card-pr">
+                    <span class="ic pr" aria-hidden="true"></span>
+                    <div><b>Add dark mode toggle</b><small><span class="pill">Open</span> web-app · ready for review</small></div>
+                  </div>
+                </div>
+                <aside class="spec" aria-label="Spec">
+                  <p class="spec-h">Acceptance criteria</p>
+                  <ol>
+                    <li><span>Given</span> the settings page, <span>when</span> I switch the toggle, <span>then</span> the app turns dark at once.</li>
+                    <li><span>Given</span> I chose dark, <span>when</span> I reload, <span>then</span> it stays dark.</li>
+                    <li><span>Given</span> no choice yet, <span>then</span> it follows the system setting.</li>
+                  </ol>
+                  <p class="spec-h">Tests to add</p>
+                  <p class="spec-t">theme-toggle.spec.ts → criteria 1, 2, 3</p>
+                </aside>
+              </div>
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      <!-- Works with -->
+      <section class="works" aria-label="Works with">
+        <div class="wrap works-row">
+          <span>Works with</span>
+          <ul>
+            <li>GitHub Copilot</li>
+            <li>GitHub</li>
+            <li>GitHub Enterprise Cloud</li>
+            <li>AWS CodeCommit</li>
+            <li>Jira</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section class="section" id="how">
+        <div class="wrap">
+          <p class="kicker">How it works</p>
+          <h2>Four steps. You decide at every one.</h2>
+          <ol class="steps">
+            <li>
+              <span class="n">1</span>
+              <h3>Ask</h3>
+              <p>Describe the change in a chat, like you would to a colleague. Tandem asks only what it needs to know.</p>
+            </li>
+            <li>
+              <span class="n">2</span>
+              <h3>Approve the spec</h3>
+              <p>A short spec with acceptance criteria and the tests to add. Nothing is built until you, and your PM if you like, approve it.</p>
+            </li>
+            <li>
+              <span class="n">3</span>
+              <h3>Copilot builds, Tandem checks</h3>
+              <p>Copilot writes the code on its own branch. Tandem runs your lint, types, build and tests, sends failures back, then reviews the change against the spec.</p>
+            </li>
+            <li>
+              <span class="n">4</span>
+              <h3>Review and merge</h3>
+              <p>One clean commit and a pull request with every criterion traced to its test. A person reviews and merges. Agents never do.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section class="section alt" id="features">
+        <div class="wrap">
+          <p class="kicker">Features</p>
+          <h2>Everything a careful team would do. Done for you.</h2>
+          <div class="features">
+            <article>
+              <span class="fi" aria-hidden="true">◎</span>
+              <h3>Specs before code</h3>
+              <p>Given, when, then. Every requirement becomes a criterion, and every criterion gets a test.</p>
+            </article>
+            <article>
+              <span class="fi" aria-hidden="true">✓</span>
+              <h3>Checks that really run</h3>
+              <p>Your own commands, in a clean workspace. Failures that were already on your main branch are told apart from new ones.</p>
+            </article>
+            <article>
+              <span class="fi" aria-hidden="true">⌘</span>
+              <h3>A self-review</h3>
+              <p>A second pass reads the whole diff against the spec, your repo rules and a security checklist, and fixes what matters.</p>
+            </article>
+            <article>
+              <span class="fi" aria-hidden="true">≡</span>
+              <h3>History that reads well</h3>
+              <p>One commit per task with a short, human title, on a <code>feature/</code> branch. No noise in your log.</p>
+            </article>
+            <article>
+              <span class="fi" aria-hidden="true">◷</span>
+              <h3>Live progress</h3>
+              <p>See each stage as it happens: what Copilot is reading, which check is running, what comes next.</p>
+            </article>
+            <article>
+              <span class="fi" aria-hidden="true">€</span>
+              <h3>Spend you control</h3>
+              <p>Daily and per-task limits on Copilot credits, the model per task, and an estimate before you start.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Runner -->
+      <section class="section" id="runner">
+        <div class="wrap split">
+          <div>
+            <p class="kicker">For companies</p>
+            <h2>Your code stays where it lives.</h2>
+            <p class="body">Run tasks in Tandem's isolated EU sandboxes, or install the Tandem runner on your own laptops, VMs or cluster. The runner connects out over HTTPS, works in the clones you already have, and uses your own SSH keys and cloud sign-in. Your source code never leaves your network.</p>
+            <ul class="ticks">
+              <li>Outbound only: no inbound ports, no VPN</li>
+              <li>Uses your existing git, SSH and AWS sign-in</li>
+              <li>One switch per project: hosted or your runners</li>
+            </ul>
+          </div>
+          <div class="diagram" aria-hidden="true">
+            <div class="node cloud"><b>Tandem</b><small>EU cloud · coordinates</small></div>
+            <div class="link"><span>jobs, status</span></div>
+            <div class="node runner"><b>Your runner</b><small>laptop, VM or cluster</small></div>
+            <div class="link"><span>git over SSH or HTTPS</span></div>
+            <div class="node repo"><b>Your repositories</b><small>GitHub or CodeCommit</small></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Security -->
+      <section class="section alt" id="security">
+        <div class="wrap">
+          <p class="kicker">Security and privacy</p>
+          <h2>Built for teams who read the fine print.</h2>
+          <div class="sec">
+            <div><h3>Hosted in the EU</h3><p>Tandem's data and processing stay in Frankfurt, backups in the EU. GDPR by design, with a data processing agreement for your company.</p></div>
+            <div><h3>Your Copilot, your terms</h3><p>Copilot runs under your own GitHub account and plan. We never resell it, and never train on your code.</p></div>
+            <div><h3>Guardrails in code</h3><p>Agents can't push to your main branch, merge, deploy, reach the network or run migrations. Enforced by Tandem, not by a prompt.</p></div>
+            <div><h3>Secrets stay secret</h3><p>Tokens are encrypted per workspace and never reach the browser. Sign-ins renew themselves and can be revoked at any time.</p></div>
+            <div><h3>Every step on record</h3><p>A tamper-evident audit log of approvals, commits and pull requests, exportable for your auditors.</p></div>
+            <div><h3>Your data, your call</h3><p>Export everything or delete your account yourself, at any time. No tracking cookies, no ads, no analytics on you.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section class="section" id="faq">
+        <div class="wrap narrow">
+          <p class="kicker">FAQ</p>
+          <h2>Questions, answered.</h2>
+          <div class="faq">
+            <details>
+              <summary>Which Copilot plans work?</summary>
+              <p>Any plan that may use Copilot from the CLI or SDK: Copilot Free, Pro and Pro+, and Copilot Business or Enterprise from your company, on github.com or on GitHub Enterprise Cloud (*.ghe.com). Your organisation may need to allow the Copilot CLI policy.</p>
+            </details>
+            <details>
+              <summary>Does Tandem merge or deploy anything?</summary>
+              <p>No. Tandem pushes only to its own task branch and opens a pull request. A person reviews and merges. Deploys stay with your existing pipeline.</p>
+            </details>
+            <details>
+              <summary>What does it cost to run a task?</summary>
+              <p>Copilot work counts against your Copilot plan. Tandem shows an estimate in AI credits before you start, and stops a task at the limits you set.</p>
+            </details>
+            <details>
+              <summary>Where is my data processed?</summary>
+              <p>Tandem's own storage and processing are in the EU. Copilot is processed by GitHub under your agreement with them; with GitHub Enterprise Cloud data residency in the EU, that stays in the EU too.</p>
+            </details>
+            <details>
+              <summary>Can we keep our source code inside the company?</summary>
+              <p>Yes. Install the Tandem runner on your own machines. Tasks then run there with your own credentials, and the code never reaches Tandem's cloud.</p>
+            </details>
+            <details>
+              <summary>Can Tandem run on my own computer only?</summary>
+              <p>Yes. The local edition runs entirely on your machine, with the same workflow, for individual use.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- Final CTA -->
+      <section class="cta">
+        <div class="wrap cta-box">
+          <h2>Hand over the next ticket.</h2>
+          <p>Connect GitHub, pick a repository and describe the change. You'll have a spec to approve in a minute.</p>
+          <a class="btn btn-light btn-lg" href="/app/signup">Get started with GitHub</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-row">
+        <div>
+          <a class="brand" href="#top"><span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 4.5h9M8 4.5v8" /></svg></span> Tandem</a>
+          <p class="fine">© <span id="year">2026</span> [Operator]. Hosted in the EU.</p>
+        </div>
+        <nav aria-label="Legal" class="foot-links">
+          <a href="/legal/privacy">Privacy</a>
+          <a href="/legal/terms">Terms</a>
+          <a href="/legal/dpa">Data processing agreement</a>
+          <a href="/legal/subprocessors">Subprocessors</a>
+          <a href="mailto:[Privacy contact]">Contact</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="./site.js" defer></script>
+  </body>
+</html>
