@@ -9,7 +9,7 @@ code changes with GitHub Copilot.
 ## 1. Who is responsible
 
 CHD Labs ([legal form]), [Address], registered under [Registration number].
-Privacy questions: privacy@chdlabs.com. Data protection officer: [DPO, or "not
+Privacy questions: [privacy email]. Data protection officer: [DPO, or "not
 required"].
 
 For data that a business customer puts into its Tandem workspace (tasks, code,
@@ -64,7 +64,7 @@ we do not ask for cookie consent. If this ever changes, we will ask first.
 You can access, export, correct and delete your data, restrict or object to
 processing, and withdraw consent where processing relies on it. Most of this is
 self-service in Settings › Privacy (export, delete account). Otherwise write to
-privacy@chdlabs.com; we answer within one month. You may complain to a
+[privacy email]; we answer within one month. You may complain to a
 supervisory authority, for example [Supervisory authority].
 
 ## 8. Security

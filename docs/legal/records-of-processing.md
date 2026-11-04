@@ -2,7 +2,7 @@
 
 *Internal, under Article 30 GDPR. Draft for legal review.*
 
-Controller: CHD Labs, [Address]. Contact: privacy@chdlabs.com. DPO: [DPO].
+Controller: CHD Labs, [Address]. Contact: [privacy email]. DPO: [DPO].
 
 ## As controller
 

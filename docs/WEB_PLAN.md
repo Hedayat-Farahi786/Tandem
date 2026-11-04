@@ -140,12 +140,13 @@ working throughout.
 
 * **Operator:** CHD Labs (chdlabs.com). Still needed for the legal texts: the
   legal form, address, registration number, VAT ID; whether a DPO is required.
-* **Domain:** `tandem.chdlabs.com`, with the website at `/` and the app at
-  `/app`. One origin keeps the session cookie first-party and the security
-  headers simple. Email from `tandem@chdlabs.com`; privacy questions to
-  `privacy@chdlabs.com`.
+* **Domain:** not chosen yet (`[domain]`). The website goes on `[domain]`
+  and the app on `app.[domain]`: the app keeps its paths at the root, and
+  its session cookie stays on its own host. Every address is configuration
+  (`TANDEM_PUBLIC_URL`), never in the code. Email from `tandem@[domain]`,
+  privacy questions to `[privacy email]`.
 * **GitHub App:** "Tandem by CHD Labs" (app names are unique on GitHub),
-  callback `https://tandem.chdlabs.com/app/auth/github/callback`, webhook
-  `https://tandem.chdlabs.com/app/hooks/github`.
+  callback `https://app.[domain]/auth/github/callback`, webhook
+  `https://app.[domain]/hooks/github`.
 * **AWS:** a new AWS organization for the hosted service, separate from any
   company account used for testing (being created by the operator).
