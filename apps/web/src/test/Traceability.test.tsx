@@ -184,9 +184,9 @@ describe('Project avatars', () => {
     const other = { ...project, id: 'p2', name: 'Partner portal' };
     mockApi({ 'GET /api/bootstrap': boot({ projects: [project, other] }), 'GET /api/tasks': [], 'GET /api/rules': [], 'GET /api/projects/p1/threads': [], 'GET /api/project-icons': { p1: { v: 'abc123def456' }, p2: null } });
     renderApp('/projects');
-    const shop = await screen.findByRole('region', { name: 'Shop' });
+    const shop = await screen.findByRole('article', { name: 'Shop' });
     await waitFor(() => expect(shop.querySelector('img')?.getAttribute('src')).toBe('/api/projects/p1/icon?v=abc123def456'));
-    const partner = screen.getByRole('region', { name: 'Partner portal' });
+    const partner = screen.getByRole('article', { name: 'Partner portal' });
     expect(partner.querySelector('img')).toBeNull();
     expect(within(partner).getByText('PP')).toBeTruthy();
   });

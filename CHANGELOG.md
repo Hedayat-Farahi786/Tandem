@@ -8,6 +8,13 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A Projects page that reads like one.** Projects are cards in a grid:
+  the name and task key, how specs get approved, three counts (in
+  progress, in review, done), the repositories with their stack, role and
+  build order, and a "New chat" shortcut. A "New project" card leads to
+  setup. "Rules for Copilot" is its own section below, with the note
+  about the repositories' own instruction files under it.
+
 - **A review of the recent tasks, and what it fixed.**
   - *Copilot can run your tests while it builds.* In every recent task
     Copilot tried to run the repo's tests and was blocked. The workspace

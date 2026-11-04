@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, CheckCircle2, ChevronRight, Clock3, FolderGit2, Pencil, Plus, Trash2 } from 'lucide-react';
-import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
+import { CheckCircle2, ChevronRight, Clock3, FolderGit2, MessageSquarePlus, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { BrandLogo, TechStack, hostBrand } from '../ui/brands';
+import { Link } from '../lib/router';
 import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared';
 import { api, del, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
@@ -225,11 +226,10 @@ function RulesSection({ repos }: { repos: Repo[] }) {
   const repoOf = (id: string) => repos.find((x) => x.id === id);
   return (
     <>
-      <section aria-labelledby="rules-title" className="overflow-hidden rounded-2xl bg-surface shadow-panel">
-        <div className="flex items-center gap-3.5 px-5 py-4">
-          <BrandTile brand="copilot" size="lg" />
-          <div className="min-w-0 flex-1">
-            <h2 id="rules-title" className="text-[15px] font-semibold tracking-[-0.01em]">
+      <section aria-labelledby="rules-title">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="rules-title" className="text-[17px] font-semibold tracking-[-0.01em]">
               Rules for Copilot
             </h2>
             <p className="mt-0.5 text-[13px] text-muted">Short instructions Copilot follows every time it changes your code.</p>
@@ -240,7 +240,8 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             </Button>
           )}
         </div>
-        <div className="divide-y divide-line border-t border-line px-5">
+        <div className="overflow-hidden rounded-2xl bg-surface shadow-panel">
+        <div className="divide-y divide-line px-5">
         {rules.isLoading ? (
           <div className="py-4">
             <Loading rows={2} />
@@ -250,7 +251,7 @@ function RulesSection({ repos }: { repos: Repo[] }) {
             <p className="text-[13px] text-muted">No rules yet. Write them in plain words, or start from one of these:</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {RULE_EXAMPLES.map((ex) => (
-                <button key={ex} type="button" onClick={() => setAdding(ex)} disabled={!repos.length} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] text-muted shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg">
+                <button key={ex} type="button" onClick={() => setAdding(ex)} disabled={!repos.length} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-left text-[13px] text-muted shadow-[0_0_0_1px_var(--border)] transition-colors duration-150 hover:bg-surface-2 hover:text-fg">
                   <Plus aria-hidden className="size-3" />
                   {ex}
                 </button>
@@ -289,9 +290,93 @@ function RulesSection({ repos }: { repos: Repo[] }) {
           })
         )}
         </div>
+        </div>
+        <p className="mt-3 px-1 text-[12px] text-faint">Copilot also follows the instruction files already in your repositories: .github/copilot-instructions.md and .github/agents/.</p>
       </section>
       {adding !== null && <RuleDialog repos={repos} initial={adding} onClose={() => setAdding(null)} />}
     </>
+  );
+}
+
+/** How a project's specs get approved, in a few words. */
+const GATE: Record<string, string> = { off: 'Your approval', tandem: 'You and a PM approve', jira: 'You and a PM approve in Jira' };
+
+function Stat({ value, label, tone }: { value: number; label: string; tone?: 'accent' | 'ok' }) {
+  return (
+    <div className="min-w-0 px-4 py-3 first:pl-5 last:pr-5">
+      <p className={cx('text-[19px] leading-tight font-semibold tracking-[-0.01em] tabular-nums', value === 0 ? 'text-faint' : tone === 'accent' ? 'text-accent-text' : tone === 'ok' ? 'text-ok' : 'text-fg')}>{value}</p>
+      <p className="mt-0.5 truncate text-[12px] text-muted">{label}</p>
+    </div>
+  );
+}
+
+/** One project as a card: who it is, how its work is going, and the repositories Copilot works in. */
+function ProjectCard({ p, repos, tasks, onEdit, onRepo }: { p: Project; repos: Repo[]; tasks: TaskListItem[]; onEdit: () => void; onRepo: (r: Repo) => void }) {
+  // The project's repositories, in the order Tandem builds them.
+  const rank = (id: string) => (p.contractOrder.includes(id) ? p.contractOrder.indexOf(id) : p.contractOrder.length);
+  const list = p.repoIds
+    .map((id) => repos.find((x) => x.id === id))
+    .filter((r): r is Repo => Boolean(r))
+    .sort((a, b) => rank(a.id) - rank(b.id));
+  const mine = tasks.filter((t) => t.projectId === p.id);
+  const open = mine.filter((t) => !['DONE', 'CANCELLED', 'PR_OPEN'].includes(t.state)).length;
+  const review = mine.filter((t) => t.state === 'PR_OPEN').length;
+  const done = mine.filter((t) => t.state === 'DONE').length;
+  return (
+    <article aria-labelledby={`project-${p.id}`} className="flex min-w-0 flex-col rounded-2xl bg-surface shadow-panel transition-shadow duration-200 hover:shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_rgb(0_0_0/0.04)]">
+      <header className="flex items-start gap-3.5 px-5 pt-5 pb-4">
+        <ProjectAvatar name={p.name} projectId={p.id} size={42} />
+        <div className="min-w-0 flex-1 pt-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 id={`project-${p.id}`} className="truncate text-[16px] font-semibold tracking-[-0.01em]">
+              {p.name}
+            </h2>
+            <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-px text-[11px] font-medium tracking-wide text-muted tabular-nums" title={`Task keys start with ${p.keyPrefix}`}>
+              {p.keyPrefix}
+            </span>
+          </div>
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12.5px] text-muted">
+            <ShieldCheck aria-hidden className="size-3.5 shrink-0 text-faint" />
+            {GATE[p.pmGate] ?? 'Your approval'}
+          </p>
+        </div>
+        <IconButton icon={Pencil} label={`Edit ${p.name}`} size="sm" onClick={onEdit} />
+      </header>
+      <div className="mx-5 grid grid-cols-3 divide-x divide-line rounded-xl bg-surface-2/60 [&>div]:!px-3.5">
+        <Stat value={open} label="In progress" tone="accent" />
+        <Stat value={review} label="In review" />
+        <Stat value={done} label="Done" tone="ok" />
+      </div>
+      <div className="flex-1 px-5 pt-4 pb-2">
+        <p className="mb-1 text-[11px] font-semibold tracking-wider text-faint uppercase">{list.length === 1 ? 'Repository' : `${list.length} repositories`}</p>
+        <ul className="-mx-2.5">
+          {list.map((r, n) => (
+            <li key={r.id}>
+              <button type="button" onClick={() => onRepo(r)} title={r.url} className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface shadow-[0_0_0_1px_var(--border)]">
+                  <BrandLogo brand={hostBrand(r.host.kind)} size={16} title={r.host.kind === 'github' ? 'GitHub' : 'AWS CodeCommit'} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium">{r.name}</span>
+                  <TechStack language={r.language} framework={r.framework} className="mt-0.5 text-[12px] text-muted" />
+                </span>
+                <span className="hidden shrink-0 flex-col items-end gap-0.5 sm:flex">
+                  <span className="rounded-full px-2 py-px text-[11.5px] text-muted shadow-[0_0_0_1px_var(--border)]">{ROLE_LABEL[r.role]}</span>
+                  {list.length > 1 && <span className="text-[11px] text-faint">{n === 0 ? 'Builds first' : 'Builds next'}</span>}
+                </span>
+                <ChevronRight aria-hidden className="size-4 shrink-0 text-faint opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <footer className="flex items-center justify-between gap-2 border-t border-line px-5 py-3">
+        <span className="text-[12px] text-faint">{mine.length ? `${mine.length} task${mine.length === 1 ? '' : 's'} in all` : 'No tasks yet'}</span>
+        <LinkButton to={`/chat?project=${p.id}`} size="sm" variant="ghost" icon={MessageSquarePlus}>
+          New chat
+        </LinkButton>
+      </footer>
+    </article>
   );
 }
 
@@ -304,73 +389,37 @@ export function ProjectsScreen() {
   if (boot.isError || !boot.data) return <ErrorState error={boot.error} retry={() => void boot.refetch()} />;
   const { projects, repos } = boot.data;
   return (
-    <div className="mx-auto w-full max-w-[760px]">
-      <div className="mb-6 flex items-end justify-between gap-4">
+    <div className="mx-auto w-full max-w-[1040px]">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-[26px] leading-tight">Projects</h1>
+          <h1 className="font-display text-[28px] leading-tight">Projects</h1>
           <p className="mt-1 text-[14px] text-muted">Your products, and the repositories Copilot works in.</p>
         </div>
-        <LinkButton to="/setup" icon={Plus}>
+        <LinkButton to="/setup" icon={Plus} variant="primary">
           Add repository
         </LinkButton>
       </div>
-      {projects.length === 0 && <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />}
-      <div className="flex flex-col gap-4">
-        {projects.map((p) => {
-          // The project's repositories, in the order Tandem builds them.
-          const rank = (id: string) => (p.contractOrder.includes(id) ? p.contractOrder.indexOf(id) : p.contractOrder.length);
-          const list = p.repoIds
-            .map((id) => repos.find((x) => x.id === id))
-            .filter((r): r is Repo => Boolean(r))
-            .sort((a, b) => rank(a.id) - rank(b.id));
-          const mine = (tasks.data ?? []).filter((t) => t.projectId === p.id);
-          const open = mine.filter((t) => !['DONE', 'CANCELLED', 'PR_OPEN'].includes(t.state)).length;
-          const review = mine.filter((t) => t.state === 'PR_OPEN').length;
-          const done = mine.filter((t) => t.state === 'DONE').length;
-          const meta = [`${list.length} ${list.length === 1 ? 'repository' : 'repositories'}`, open ? `${open} open` : '', review ? `${review} in review` : '', done ? `${done} done` : '', !mine.length ? 'no tasks yet' : ''].filter(Boolean).join(' · ');
-          return (
-            <section key={p.id} aria-label={p.name} className="overflow-hidden rounded-2xl bg-surface shadow-panel">
-              <div className="flex items-center gap-3.5 px-5 py-4">
-                <ProjectAvatar name={p.name} projectId={p.id} size={36} />
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{p.name}</h2>
-                  <p className="mt-0.5 truncate text-[13px] text-muted">{meta}</p>
-                </div>
-                <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditProject(p)} aria-label={`Edit ${p.name}`}>
-                  Edit
-                </Button>
-              </div>
-              <ul className="divide-y divide-line border-t border-line">
-                {list.map((r, n) => {
-                  const notes = [ROLE_LABEL[r.role], list.length > 1 ? `builds ${n === 0 ? 'first' : n === 1 ? 'second' : `${n + 1}th`}` : '', list.length > 1 && p.specRepoId === r.id ? 'holds the specs' : ''].filter(Boolean).join(' · ');
-                  return (
-                    <li key={r.id}>
-                      <button type="button" onClick={() => setEditRepo(r)} title={r.url} className="group flex w-full items-center gap-3 px-5 py-3 text-left transition-colors duration-150 hover:bg-surface-2/60">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface shadow-[0_0_0_1px_var(--border)]">
-                          <BrandLogo brand={hostBrand(r.host.kind)} size={16} title={r.host.kind === 'github' ? 'GitHub' : 'AWS CodeCommit'} />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13.5px] font-medium">{r.name}</span>
-                          <TechStack language={r.language} framework={r.framework} className="mt-0.5 text-[12px] text-muted" />
-                        </span>
-                        <span className="hidden shrink-0 text-[12px] text-faint sm:block">{notes}</span>
-                        <ChevronRight aria-hidden className="size-4 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-fg" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
-      <div className="mt-10">
+      {projects.length === 0 ? (
+        <EmptyState icon={FolderGit2} title="No projects yet" body="Run the setup wizard to add repositories and group them into a project." action={<LinkButton to="/setup" variant="primary">Open setup</LinkButton>} />
+      ) : (
+        <div className="grid gap-5 md:grid-cols-2">
+          {projects.map((p) => (
+            <ProjectCard key={p.id} p={p} repos={repos} tasks={tasks.data ?? []} onEdit={() => setEditProject(p)} onRepo={setEditRepo} />
+          ))}
+          <Link to="/setup" className="group grid min-h-[120px] place-items-center rounded-2xl border border-dashed md:min-h-[200px] border-line-strong p-6 text-center transition-colors duration-150 hover:border-fg/30 hover:bg-surface/60">
+            <span>
+              <span className="mx-auto grid size-10 place-items-center rounded-full bg-surface text-muted shadow-[0_0_0_1px_var(--border)] transition-colors group-hover:text-fg">
+                <Plus aria-hidden className="size-4.5" />
+              </span>
+              <span className="mt-3 block text-[14px] font-medium">New project</span>
+              <span className="mt-0.5 block text-[12.5px] text-muted">Group repositories that ship together</span>
+            </span>
+          </Link>
+        </div>
+      )}
+      <div className="mt-12">
         <RulesSection repos={repos} />
       </div>
-      <p className="mt-4 flex items-start gap-2 px-1 text-[12px] text-faint">
-        <BookOpen aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-        Copilot also follows the instruction files already in your repositories (.github/copilot-instructions.md and .github/agents/).
-      </p>
       {editRepo && <RepoDialog repo={editRepo} onClose={() => setEditRepo(null)} />}
       {editProject && <ProjectDialog project={editProject} repos={repos} jira={boot.data.jiraConfigured} onClose={() => setEditProject(null)} />}
     </div>
