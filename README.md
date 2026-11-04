@@ -82,7 +82,7 @@ On a remote machine (for example over VS Code Remote-SSH), forward port
   git and file helpers. Cloud CLIs, `curl`, `ssh`, `git push` or `commit`,
   publish and deploy commands are refused, and it can't write outside the
   task folder. This is enforced in code, not in the prompt.
-- Tandem pushes only to `agent/*` branches it created, never with
+- Tandem pushes only to the `feature/<key>-…` branches it created, never with
   `--force` (only `--force-with-lease` after its own rebase), and never
   merges.
 - Secrets (Jira and GitHub tokens) live only in the OS keychain. Logs and

@@ -60,7 +60,7 @@ import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
 import { TaskChatView, type PanelTab } from "./TaskChat";
 import { ChecksTab } from "./ChecksPanel";
-import { ProgressTab, StageTracker } from "./TaskProgress";
+import { StageTracker } from "./TaskProgress";
 import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
@@ -1217,11 +1217,8 @@ function defaultPanel(d: TaskDetail): PanelTab | null {
   if (t.state === "SPEC_REVIEW") return "spec";
   if (!window.matchMedia?.("(min-width: 1280px)").matches) return null;
   if (t.state === "PR_OPEN" || (t.state === "DONE" && d.prs.length)) return "prs";
-  if (RUNNING.has(t.state)) return "progress";
   if (d.verifyRuns.at(-1)?.passed === false) return "checks";
-  // Not ready: the request is what needs editing.
-  if (t.state === "BLOCKED" && t.blockedReason === "readiness-missing") return "overview";
-  if (t.state === "BLOCKED" || t.state === "FAILED") return "progress";
+  if (t.state === "BUILDING" || t.state === "VERIFYING" || t.state === "SELF_REVIEW") return "changes";
   return "overview";
 }
 
@@ -1254,7 +1251,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
     const before = seenState.current;
     seenState.current = state;
     if (!before || before === state) return;
-    const next: PanelTab | null = state === "SPEC_REVIEW" ? "spec" : state === "PR_OPEN" ? "prs" : failing && state === "BUILDING" ? "checks" : RUNNING.has(state) && !RUNNING.has(before) ? "progress" : null;
+    const next: PanelTab | null = state === "SPEC_REVIEW" ? "spec" : state === "PR_OPEN" ? "prs" : failing && state === "BUILDING" ? "checks" : null;
     if (next) setPanel((p) => (p === null ? p : next));
   }, [state, failing]);
   if (q.isLoading) return <Loading rows={5} />;
@@ -1266,7 +1263,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
   const openFindings = d.findings.filter((f) => f.status === "open").length;
   const lastVerify = d.verifyRuns.at(-1);
   const tabDefs: Array<{ id: PanelTab; label: string; badge?: ReactNode }> = [
-          { id: "progress", label: "Progress" },
           { id: "overview", label: "Overview" },
           {
             id: "spec",
@@ -1311,7 +1307,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
           },
           {
             id: "prs",
-            label: "PRs",
+            label: "Pull requests",
             ...(d.prs.length
               ? {
                   badge: (
@@ -1326,7 +1322,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
         ];
   const renderTab = (id: PanelTab) => (
     <>
-      {id === "progress" && <ProgressTab d={d} />}
       {id === "overview" && <Overview d={d} />}
       {id === "spec" && <SpecTab d={d} />}
       {id === "changes" && <ChangesTab d={d} />}
@@ -1376,7 +1371,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
             </div>
           </header>
           {/* Where the task is: every stage, what is done, what is happening now. */}
-          <StageTracker d={d} onOpen={() => setPanel("progress")} />
+          <StageTracker d={d} />
       <TaskChatView d={d} panel={panel} setPanel={setPanel} tabs={tabDefs} renderPanel={renderTab} banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} />} />
       <Dialog
         open={confirmCancel}

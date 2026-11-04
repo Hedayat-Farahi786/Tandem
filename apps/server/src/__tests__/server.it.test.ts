@@ -135,12 +135,12 @@ describe('server in test mode', () => {
     expect(d.verifyRuns.at(-1)?.passed).toBe(true);
     expect(d.prs).toHaveLength(1);
     expect(d.prs[0]).toMatchObject({ status: 'manual-pending', manual: true });
-    expect(d.prs[0]!.url).toMatch(/^https:\/\/eu-central-1\.console\.aws\.amazon\.com\/codesuite\/codecommit\/repositories\/shop\/pull-requests\/new\/refs\/heads\/main\/\.\.\.\/refs\/heads\/agent\/TND-1-/);
+    expect(d.prs[0]!.url).toMatch(/^https:\/\/eu-central-1\.console\.aws\.amazon\.com\/codesuite\/codecommit\/repositories\/shop\/pull-requests\/new\/refs\/heads\/main\/\.\.\.\/refs\/heads\/feature\/TND-1-/);
     const diff = await call<Array<{ name: string; diff: string }>>('GET', `/api/tasks/${taskId}/diff`);
     expect(diff.data[0]!.name).toBe('shop');
     expect(diff.data[0]!.diff).toContain('+++ b/HEALTH.md');
     const branches = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'], { cwd: join(dir, 'remotes', 'shop.git') }).toString();
-    expect(branches).toMatch(/agent\/TND-1-/);
+    expect(branches).toMatch(/feature\/TND-1-/);
   });
 
   it('streamed the transitions live over SSE', () => {

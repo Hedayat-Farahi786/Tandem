@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { harness } from './harness.js';
 
-const BRANCH = 'agent/TND-1-add-a-get-health-endpoint';
+const BRANCH = 'feature/TND-1-add-a-get-health-endpoint';
 
 /** A task with its PR open, the base at `b1` and the branch exactly as Tandem pushed it. */
 async function openPr(o: Parameters<typeof harness>[0] = {}) {
@@ -48,7 +48,7 @@ describe('open PRs and their base branch', () => {
 
     expect(conflictCalls()).toBe(1);
     expect(h.agent.calls.at(-1)!.prompt).toContain('conflicts in: src/app.ts');
-    expect(h.git.merges).toEqual([{ worktree: wt, ref: 'b2', message: `Merge main into ${BRANCH}` }]);
+    expect(h.git.merges).toEqual([{ worktree: wt, ref: 'b2', message: `Merge branch 'main' into ${BRANCH}` }]);
     expect(h.process.calls.slice(checksBefore).map((c) => c.command)).toEqual(['npm ci', 'npm run lint', 'npm run typecheck', 'npm run build', 'npm test']);
     expect(h.host.pushes).toEqual([{ repoId: 'r-app' }, { repoId: 'r-app' }]);
     const sha = (await h.get(t.id)).progress.pushed as Record<string, string>;

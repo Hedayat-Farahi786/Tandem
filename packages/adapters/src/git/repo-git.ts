@@ -6,13 +6,21 @@ import type { Repo } from '@tandem/shared';
 import { GitError, git, runGit } from './git.js';
 
 export const AGENT_REF_PREFIX = 'refs/heads/agent/';
+export const FEATURE_REF_PREFIX = 'refs/heads/feature/';
+/** A task's own branch under feature/: its key first ("feature/SHOP-12-…"), so a person's feature branch is never touched. */
+const TASK_BRANCH = /^[A-Z][A-Z0-9]*-\d+(-[a-z0-9][a-z0-9-]*)?$/;
 
-/** Code-level guard: Tandem only ever pushes to agent/* branches. */
+/**
+ * Code-level guard: Tandem only ever pushes to its own task branches, feature/<KEY>-<slug> (or
+ * agent/* from before branches were named like a person's). Never a default or shared branch.
+ */
 export function assertAgentBranch(branch: string): string {
   const ref = branch.startsWith('refs/') ? branch : `refs/heads/${branch}`;
-  const rest = ref.slice(AGENT_REF_PREFIX.length);
-  if (!ref.startsWith(AGENT_REF_PREFIX) || !rest || ref.includes('..') || /[\s~^:?*[\\]|@\{|\/\/|^\/|\/$|\.lock$/.test(rest)) {
-    throw new GitError(`Refusing to push "${branch}": Tandem only pushes to branches under agent/.`, '', null);
+  const legacy = ref.startsWith(AGENT_REF_PREFIX);
+  const rest = ref.slice((legacy ? AGENT_REF_PREFIX : FEATURE_REF_PREFIX).length);
+  const ok = legacy ? Boolean(rest) : ref.startsWith(FEATURE_REF_PREFIX) && TASK_BRANCH.test(rest);
+  if (!ok || ref.includes('..') || /[\s~^:?*[\\]|@\{|\/\/|^\/|\/$|\.lock$/.test(rest)) {
+    throw new GitError(`Refusing to push "${branch}": Tandem only pushes to its own task branches (feature/<task key>-…).`, '', null);
   }
   return ref;
 }
@@ -233,6 +241,17 @@ export class RepoGit implements GitOps {
 
   async commitTracked(worktree: string, message: string): Promise<string | undefined> {
     await git(['add', '-u'], { cwd: worktree });
+    if ((await runGit(['diff', '--cached', '--quiet'], { cwd: worktree, allowFail: true })).code === 0) return undefined;
+    await git(['commit', '--no-verify', '-m', message], { cwd: worktree, config: await identity(worktree) });
+    return git(['rev-parse', 'HEAD'], { cwd: worktree });
+  }
+
+  async squash(worktree: string, onto: string, message: string): Promise<string | undefined> {
+    const base = await git(['merge-base', 'HEAD', onto], { cwd: worktree });
+    const n = Number(await git(['rev-list', '--count', `${base}..HEAD`], { cwd: worktree }));
+    if (n === 0) return undefined;
+    // Only Tandem's own commits on its task branch, not yet shared (or re-pushed with a lease).
+    await git(['reset', '--soft', base], { cwd: worktree });
     if ((await runGit(['diff', '--cached', '--quiet'], { cwd: worktree, allowFail: true })).code === 0) return undefined;
     await git(['commit', '--no-verify', '-m', message], { cwd: worktree, config: await identity(worktree) });
     return git(['rev-parse', 'HEAD'], { cwd: worktree });

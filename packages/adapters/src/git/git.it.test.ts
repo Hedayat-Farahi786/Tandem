@@ -65,7 +65,7 @@ describe('git layer (real git, local bare remote)', () => {
     rmSync(join(wt, 'coverage.json'));
     const c2 = await ops.head(wt);
 
-    await expect(pushBranch(wt, 'main')).rejects.toThrow(/only pushes to branches under agent/);
+    await expect(pushBranch(wt, 'main')).rejects.toThrow(/only pushes to its own task branches/);
     const p1 = await pushBranch(wt, 'agent/T-1-x');
     expect(p1).toEqual({ ok: true, sha: c2 });
 
@@ -81,6 +81,16 @@ describe('git layer (real git, local bare remote)', () => {
     const stat = await ops.diffStat(wt, 'origin/main');
     expect(stat).toEqual({ files: 1, insertions: 1, deletions: 0 });
     expect(await ops.diff(wt, 'origin/main')).toContain('+x');
+
+    // Before pushing, the task's commits fold into one, with the message a person would write.
+    expect(Number(await git(['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt }))).toBe(2);
+    const one = await ops.squash(wt, 'origin/main', 'T-1: Add x\n\nWhy x is needed.');
+    expect(one).toMatch(/^[0-9a-f]{40}$/);
+    expect(Number(await git(['rev-list', '--count', 'origin/main..HEAD'], { cwd: wt }))).toBe(1);
+    expect(await git(['log', '-1', '--format=%B'], { cwd: wt })).toBe('T-1: Add x\n\nWhy x is needed.');
+    expect(await ops.diff(wt, 'origin/main')).toContain('+x fixed');
+    expect(await ops.squash(wt, 'origin/main', 'again')).toMatch(/^[0-9a-f]{40}$/); // one commit: reworded only
+    expect(await git(['log', '-1', '--format=%s'], { cwd: wt })).toBe('again');
   });
 
   it('detects conflicts, aborts cleanly, and continues after a resolution', async () => {
@@ -259,6 +269,13 @@ describe('git layer (real git, local bare remote)', () => {
     for (const bad of ['main', 'refs/heads/main', 'agent', 'agent/', 'agent/../main', 'agent/a b', 'agent/x:y', 'refs/tags/v1', 'agent/x.lock', 'agent//x']) {
       expect(() => assertAgentBranch(bad), bad).toThrow();
     }
+    // A person's feature branch is never Tandem's to push: only feature/<task key>-….
+    for (const bad of ['feature/login', 'feature/', 'feature/tnd-1-x', 'feature/TND-1 x', 'feature/TND-1-x/y', 'feature/TND-x']) {
+      expect(() => assertAgentBranch(bad), bad).toThrow();
+    }
+    expect(assertAgentBranch('feature/TND-1-health')).toBe('refs/heads/feature/TND-1-health');
+    expect(assertAgentBranch('feature/SHOP12-7-add-a-health-endpoint')).toBe('refs/heads/feature/SHOP12-7-add-a-health-endpoint');
+    // Branches from before (agent/…) still push, so their open pull requests keep working.
     expect(assertAgentBranch('agent/TND-1-health')).toBe('refs/heads/agent/TND-1-health');
   });
 });

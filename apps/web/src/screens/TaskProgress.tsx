@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { STEPS, type TaskState, type VerifyRun } from '@tandem/shared';
 import { api } from '../lib/api';
@@ -255,55 +256,75 @@ export function doingNow(d: TaskDetail, liveKind: string | undefined): string {
 /* ------------------------------------------------------------------ tracker */
 
 /**
- * The task's stages across the top: what is done (and how long it took), what is happening now,
- * and what comes next. Narrow screens get one line and a bar. Opens the Progress panel.
+ * Where the task is, in one quiet line and a thin bar: the stage, what is happening now and for how
+ * long. Click it for every stage, its time and the live steps.
  */
-export function StageTracker({ d, onOpen }: { d: TaskDetail; onOpen: () => void }) {
+export function StageTracker({ d }: { d: TaskDetail }) {
   const running = WORKING.has(d.task.state) || d.task.state === 'SPEC_REVIEW' || d.task.state === 'PR_OPEN';
   const now = useNow(running);
   const liveCheck = useLiveCheck(d.task.id, d.task.state === 'VERIFYING' || d.task.state === 'SELF_REVIEW');
   const { stages, at, step } = stagesOf(d, now);
   const cur = at >= 0 ? stages[at] : undefined;
+  const done = d.task.state === 'DONE';
   const words = cur ? nowWords(d, cur, step, liveCheck) : 'Not started';
-  const summary = d.task.state === 'DONE' ? 'Done' : cur ? `Step ${at + 1} of ${FLOW.length}: ${STAGE[cur.state].short}, ${words}` : 'Not started yet';
-  const tone = (s: Stage) => (s.status === 'failed' ? 'text-danger' : s.status === 'blocked' || s.status === 'waiting' ? 'text-warn' : s.status === 'active' ? 'text-accent-text' : 'text-faint');
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  const live = cur && (cur.status === 'active' || cur.status === 'waiting');
+  const tone = !cur ? 'text-faint' : cur.status === 'failed' ? 'text-danger' : cur.status === 'blocked' || cur.status === 'waiting' ? 'text-warn' : cur.status === 'active' ? 'text-accent-text' : 'text-muted';
+  const summary = done ? 'All stages done' : cur ? `Step ${at + 1} of ${FLOW.length}: ${STAGE[cur.state].short}, ${words}` : 'Not started yet';
   return (
-    <div className="@container shrink-0 pb-3 lg:border-b lg:border-line lg:px-4 lg:py-2.5">
-      <button type="button" onClick={onOpen} className="group block w-full rounded-xl text-left outline-offset-4">
-        <span className="sr-only">{summary}. Show progress</span>
-        {/* Wide: every stage, labelled. */}
-        <span aria-hidden className="hidden items-start @4xl:flex">
-          {stages.map((s, i) => {
-            const meta = s.status === 'done' ? (s.ms >= 1000 ? duration(s.ms) : '') : s.index === at ? `${words}${s.status === 'active' || s.status === 'waiting' ? ` · ${duration(s.ms)}` : ''}` : '';
-            return (
-              <span key={s.state} className={cx('flex min-w-0 items-start', i < stages.length - 1 ? 'flex-1' : 'shrink-0')}>
-                <span className={cx('flex min-w-0 items-start gap-2', s.index === at ? 'shrink-0' : 'shrink')}>
-                  <StageMark status={s.status} n={i + 1} size={18} />
-                  <span className="min-w-0">
-                    <span className={cx('block truncate text-[12.5px] leading-[18px]', s.status === 'upcoming' ? 'text-muted' : 'font-medium text-fg')}>{STAGE[s.state].short}</span>
-                    <span key={s.index === at ? words : undefined} className={cx('block min-h-4 truncate text-[11.5px] leading-4 tabular-nums', s.index === at ? cx('animate-in', tone(s)) : 'text-faint')}>{meta}</span>
-                  </span>
-                </span>
-                {i < stages.length - 1 && <span aria-hidden className={cx('mx-2.5 mt-[9px] h-px min-w-3 flex-1 rounded-full transition-colors duration-500', s.status === 'done' ? 'bg-ok/60' : 'bg-line')} />}
-              </span>
-            );
-          })}
+    <div ref={box} className="relative shrink-0 pb-3 lg:border-b lg:border-line lg:px-4 lg:pt-2 lg:pb-2.5">
+      <button ref={trigger} type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} className="group flex w-full flex-col gap-1.5 rounded-lg text-left outline-offset-2">
+        <span className="sr-only">{summary}. Show all stages</span>
+        <span aria-hidden className="flex min-w-0 items-center gap-1.5 text-[12.5px] leading-5">
+          <span className="shrink-0 font-medium text-fg">{done ? 'Done' : cur ? STAGE[cur.state].short : 'Not started'}</span>
+          {cur && !done && (
+            <>
+              <span className="text-faint">·</span>
+              <span key={words} className={cx('min-w-0 animate-in truncate', tone)}>{words}</span>
+              {live && cur.ms >= 1000 && <span className="shrink-0 text-faint tabular-nums">{duration(cur.ms)}</span>}
+            </>
+          )}
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-faint tabular-nums transition-colors group-hover:text-muted">
+            {done ? `${FLOW.length} of ${FLOW.length}` : `${Math.max(at, 0) + 1} of ${FLOW.length}`}
+            <ChevronDown className={cx('size-3.5 transition-transform duration-200', open && 'rotate-180')} />
+          </span>
         </span>
-        {/* Narrow: where it is, in one line, and a bar. */}
-        <span aria-hidden className="flex flex-col gap-2 @4xl:hidden">
-          <span className="flex min-w-0 items-center gap-2 text-[12.5px]">
-            {cur && <StageMark status={cur.status} n={at + 1} size={16} />}
-            <span className="shrink-0 font-medium">{cur ? STAGE[cur.state].short : 'Not started'}</span>
-            {cur && d.task.state !== 'DONE' && <span className={cx('min-w-0 truncate', tone(cur))}>{words}{cur.status === 'active' || cur.status === 'waiting' ? ` · ${duration(cur.ms)}` : ''}</span>}
-            <span className="ml-auto shrink-0 text-faint tabular-nums">{d.task.state === 'DONE' ? 'Done' : `Step ${Math.max(at, 0) + 1} of ${FLOW.length}`}</span>
-          </span>
-          <span className="flex gap-1">
-            {stages.map((s) => (
-              <span key={s.state} className={cx('h-1 flex-1 rounded-full transition-colors duration-500', s.status === 'done' ? 'bg-ok' : s.status === 'active' ? 'bg-accent' : s.status === 'failed' ? 'bg-danger' : s.status === 'blocked' || s.status === 'waiting' ? 'bg-warn' : 'bg-surface-3')} />
-            ))}
-          </span>
+        <span aria-hidden className="flex gap-[3px]">
+          {stages.map((s) => (
+            <span
+              key={s.state}
+              className={cx(
+                'h-[3px] flex-1 rounded-full transition-colors duration-500',
+                s.status === 'done' ? 'bg-ok' : s.status === 'active' ? 'animate-pulse bg-accent/45 motion-reduce:animate-none' : s.status === 'failed' ? 'bg-danger' : s.status === 'blocked' || s.status === 'waiting' ? 'bg-warn' : s.status === 'stopped' ? 'bg-line-strong' : 'bg-surface-3',
+              )}
+            />
+          ))}
         </span>
       </button>
+      {open && (
+        <div role="dialog" aria-label="Task stages" className="absolute top-full left-0 z-40 mt-1.5 w-[min(420px,calc(100vw-16px))] animate-pop rounded-2xl bg-surface p-4 shadow-lg ring-1 ring-line lg:left-4">
+          <StageList d={d} />
+        </div>
+      )}
     </div>
   );
 }
@@ -314,22 +335,22 @@ type Sub = { key: string; label: string; status: StageStatus; detail?: string | 
 
 function SubRow({ s }: { s: Sub }) {
   return (
-    <li className="flex items-start gap-2.5 py-1">
-      <span className="mt-[2px]">
+    <li className="flex items-start gap-2 py-[3px]">
+      <span className="mt-[3px]">
         {s.status === 'upcoming' ? (
-          <span aria-hidden className="grid size-[15px] place-items-center">
+          <span aria-hidden className="grid size-[14px] place-items-center">
             <span className="size-[7px] rounded-full shadow-[inset_0_0_0_1.5px_var(--border-strong,var(--border))]" />
           </span>
         ) : (
-          <StageMark status={s.status} n={0} size={15} />
+          <StageMark status={s.status} n={0} size={14} />
         )}
       </span>
       <span className="min-w-0 flex-1">
-        <span className={cx('block text-[13px] leading-5', s.status === 'upcoming' ? 'text-muted' : s.status === 'active' ? 'font-medium text-fg' : 'text-fg')}>
+        <span className={cx('block text-[12.5px] leading-5', s.status === 'upcoming' ? 'text-muted' : s.status === 'active' ? 'font-medium text-fg' : 'text-fg')}>
           {s.label}
           <span className="sr-only">, {STATUS_WORD[s.status]}</span>
         </span>
-        {s.detail && <span key={s.detail} className={cx('mt-0.5 block truncate text-[12.5px] leading-5', s.live ? 'shimmer-text animate-in' : 'text-muted')} title={s.detail}>{s.detail}</span>}
+        {s.detail && <span key={s.detail} className={cx('block truncate text-[12px] leading-5', s.live ? 'shimmer-text animate-in' : 'text-muted')} title={s.detail}>{s.detail}</span>}
       </span>
     </li>
   );
@@ -424,7 +445,7 @@ function outcome(d: TaskDetail, s: FlowState): string | undefined {
 }
 
 /** Every stage of the task in order, with its status and time; the current one shows its steps. */
-export function ProgressTab({ d }: { d: TaskDetail }) {
+export function StageList({ d }: { d: TaskDetail }) {
   const ticking = WORKING.has(d.task.state) || d.task.state === 'SPEC_REVIEW' || d.task.state === 'PR_OPEN';
   const now = useNow(ticking);
   const liveCheck = useLiveCheck(d.task.id, d.task.state === 'VERIFYING' || d.task.state === 'SELF_REVIEW');
@@ -438,42 +459,40 @@ export function ProgressTab({ d }: { d: TaskDetail }) {
   const subs = cur ? subStepsOf(d, cur, step, liveCheck, copilotNow) : [];
   const total = stages.reduce((n, s) => n + (s.state === 'SPEC_REVIEW' || s.state === 'PR_OPEN' || s.state === 'DONE' ? 0 : s.ms), 0);
   const reason = d.task.state === 'BLOCKED' || d.task.state === 'FAILED' ? plainReason(d.transitions.at(-1)?.reason ?? '') : '';
-  const fixAttempts = Number(d.task.progress.fixAttempts ?? 0);
   return (
     <div>
-      <div className="mb-5 flex items-baseline justify-between gap-3">
-        <p className="text-[13px] text-muted">
-          {d.task.state === 'DONE' ? 'Every stage is done.' : cur ? <>Step {at + 1} of {FLOW.length} · <span className="text-fg">{STAGE[cur.state].title}</span></> : 'Starts when you start the task.'}
-        </p>
-        {total >= 1000 && <p className="shrink-0 text-[12px] text-faint tabular-nums" title="Time Tandem and Copilot spent working, without the waits for approval and review">{duration(total)} working</p>}
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <p className="text-[13px] font-medium">Stages</p>
+        {total >= 1000 && <p className="shrink-0 text-[12px] text-faint tabular-nums" title="Time Tandem and Copilot spent working, without the waits for approval and review">{duration(total)} of work</p>}
       </div>
       <ol aria-label="Stages" className="flex flex-col">
         {stages.map((s, i) => {
-          const isCur = s.index === at;
+          const isCur = s.index === at && d.task.state !== 'DONE';
           const last = i === stages.length - 1;
           const out = s.status === 'done' ? outcome(d, s.state) : undefined;
           return (
-            <li key={s.state} className="relative flex gap-3.5" aria-current={isCur ? 'step' : undefined}>
-              {!last && <span aria-hidden className={cx('absolute top-7 bottom-1 left-[11px] w-px', s.status === 'done' ? 'bg-ok/50' : 'bg-line')} />}
-              <StageMark status={s.status} n={i + 1} size={23} />
-              <div className={cx('min-w-0 flex-1', last ? 'pb-1' : 'pb-6')}>
-                <div className="flex min-h-[23px] items-center justify-between gap-3">
-                  <p className={cx('text-[14px] leading-tight', s.status === 'upcoming' ? 'text-muted' : 'font-medium text-fg')}>
+            <li key={s.state} className="relative flex gap-3" aria-current={isCur ? 'step' : undefined}>
+              {!last && <span aria-hidden className={cx('absolute top-[22px] bottom-0.5 left-[8.5px] w-px', s.status === 'done' ? 'bg-ok/40' : 'bg-line')} />}
+              <span className="mt-px">
+                <StageMark status={s.status} n={i + 1} size={18} />
+              </span>
+              <div className={cx('min-w-0 flex-1', last ? '' : 'pb-3')}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className={cx('text-[13px] leading-5', s.status === 'upcoming' ? 'text-muted' : 'font-medium text-fg')}>
                     {STAGE[s.state].title}
                     {s.state === 'VERIFYING' && s.visits > 1 && <span className="font-normal text-faint"> · ran {s.visits} times</span>}
                     <span className="sr-only">, {STATUS_WORD[s.status]}</span>
                   </p>
-                  {(s.status !== 'upcoming' && s.ms >= 1000) && <span className={cx('shrink-0 text-[12px] tabular-nums', isCur && s.status === 'active' ? 'text-accent-text' : 'text-faint')}>{duration(s.ms)}</span>}
+                  {s.status !== 'upcoming' && s.ms >= 1000 && <span className={cx('shrink-0 text-[12px] tabular-nums', isCur && s.status === 'active' ? 'text-accent-text' : 'text-faint')}>{duration(s.ms)}</span>}
                 </div>
-                {out && <p className="mt-1 text-[13px] text-muted">{out}</p>}
-                {!out && s.status !== 'done' && (!isCur || !reason) && <p className={cx('mt-1 text-[13px] leading-relaxed', isCur ? 'text-muted' : 'text-faint')}>{STAGE[s.state].about}</p>}
-                {isCur && reason && <p className={cx('mt-1 text-[13px] leading-relaxed', d.task.state === 'FAILED' ? 'text-danger' : 'text-warn')}>{reason}</p>}
-                {isCur && s.status !== 'stopped' && d.task.state !== 'DONE' && subs.some((g) => g.items.length) && (
-                  <div className="mt-3 animate-in rounded-xl bg-surface-2/70 px-3 py-2 shadow-[inset_0_0_0_1px_var(--border)]">
-                    {s.state === 'BUILDING' && fixAttempts > 0 && <p className="pt-1 pb-1.5 text-[12px] text-faint">Checks failed, so Copilot is fixing them. Then the checks run again.</p>}
+                {out && <p className="text-[12.5px] leading-5 text-muted">{out}</p>}
+                {isCur && reason && <p className={cx('text-[12.5px] leading-5', d.task.state === 'FAILED' ? 'text-danger' : 'text-warn')}>{reason}</p>}
+                {isCur && !reason && <p className="text-[12.5px] leading-5 text-muted">{STAGE[s.state].about}</p>}
+                {isCur && s.status !== 'stopped' && subs.some((g) => g.items.length) && (
+                  <div className="mt-1.5">
                     {subs.map((g, gi) => (
-                      <div key={g.title ?? gi} className={cx(gi > 0 && 'mt-1.5 border-t border-line pt-1.5')}>
-                        {g.title && <p className="pt-1 text-[12px] font-medium text-muted">{g.title}</p>}
+                      <div key={g.title ?? gi} className={cx(gi > 0 && 'mt-1')}>
+                        {g.title && <p className="pt-0.5 text-[12px] font-medium text-muted">{g.title}</p>}
                         <ol>
                           {g.items.map((it) => (
                             <SubRow key={it.key} s={it} />

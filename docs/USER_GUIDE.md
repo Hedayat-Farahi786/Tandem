@@ -14,7 +14,8 @@ Request ─▶ Readiness ─▶ Spec ─▶ Approvals ─▶ Build ─▶ Checks
 2. **Tandem writes a spec.** You approve it, and so does your PM (if your
    project uses PM approval).
 3. **Copilot builds it** in a separate folder per task, on a new
-   `agent/<key>-<title>` branch.
+   `feature/<key>-<title>` branch. When it is pushed, the branch holds one
+   commit, written like a person's: `<key>: <title>` and a line on why.
 4. **Tandem runs your repo's checks**: install, lint, type-check, build,
    tests, and one test per acceptance criterion. If they fail, the agent
    gets two attempts to fix them.

@@ -170,13 +170,15 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     const files = await git(['ls-tree', '-r', '--name-only', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
     expect(files.split('\n').sort()).toEqual(['README.md', 'src/health.js', 'test/health.test.js']);
     const log = await git(['log', '--format=%s', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
-    expect(log.split('\n')[0]).toBe('feat(TND-1): Add a GET /health endpoint');
+    expect(log.split('\n')[0]).toBe('TND-1: Add a GET /health endpoint');
+    // One commit on top of main, however many rounds it took.
+    expect(await git(['rev-list', '--count', `refs/heads/main..refs/heads/${task.branch}`], { gitDir: remotes.app!.bare })).toBe('1');
 
     // No AWS permission: a console-link PR with a ready description.
     const prs = await t.store.prs.list(task.id);
     expect(prs).toHaveLength(1);
     expect(prs[0]).toMatchObject({ manual: true, status: 'manual-pending' });
-    expect(prs[0]!.url).toContain('/pull-requests/new/refs/heads/main/.../refs/heads/agent/TND-1-add-a-get-health-endpoint');
+    expect(prs[0]!.url).toContain('/pull-requests/new/refs/heads/main/.../refs/heads/feature/TND-1-add-a-get-health-endpoint');
     expect(prs[0]!.description).toContain('| Criterion | Test | Result |');
     expect(prs[0]!.description).toContain('✅ pass');
     const comments = await t.store.trackerComments.list(task.key);

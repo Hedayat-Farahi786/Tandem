@@ -212,6 +212,12 @@ export class FakeGit implements GitOps {
     this.commits.push({ worktree, message });
     return `commit-${this.commits.length}`;
   }
+  /** Squashes recorded per worktree: the message the pushed branch's one commit carries. */
+  squashes: Array<{ worktree: string; onto: string; message: string }> = [];
+  async squash(worktree: string, onto: string, message: string): Promise<string | undefined> {
+    this.squashes.push({ worktree, onto, message });
+    return `squash-${this.squashes.length}`;
+  }
   async head(): Promise<string> {
     return `commit-${this.commits.length}`;
   }

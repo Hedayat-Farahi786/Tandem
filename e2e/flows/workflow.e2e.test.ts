@@ -272,7 +272,7 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     expect(d.prs[0]!.sync!.files).toEqual(['src/server/app.ts']);
     const after = h.remoteBranches('fullstack').get(d.task.branch)!;
     expect(after).not.toBe(before);
-    expect(h.gitLog('fullstack', d.task.branch, `${before}..${after}`)).toMatch(/^Merge \S+ into agent\//m); // a merge commit on top: nothing rewritten
+    expect(h.gitLog('fullstack', d.task.branch, `${before}..${after}`)).toMatch(/^Merge branch '\S+' into feature\//m); // a merge commit on top: nothing rewritten
     expect(h.isAncestorOnRemote('fullstack', d.task.branch, before, after)).toBe(true);
     const merged = h.remoteFile('fullstack', d.task.branch, 'src/server/app.ts');
     expect(merged).toContain("app.get('/health'");

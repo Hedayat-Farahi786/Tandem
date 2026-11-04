@@ -54,7 +54,7 @@ Both hosts share the git layer in `git/repo-git.ts`:
   `gh auth git-credential` for GitHub over HTTPS, nothing for SSH. They're
   written into Tandem's own mirror config only; the user's git config is
   never changed.
-- **Safety**: `assertAgentBranch` refuses any push outside `agent/*`.
+- **Safety**: `assertAgentBranch` refuses any push outside Tandem's own task branches, `feature/<KEY>-<slug>` (and `agent/*` from older tasks).
   `pushBranch` never uses `--force`, only `--force-with-lease=<ref>:<sha>`
   after Tandem's own rebase.
 - **Concurrency**: `withMirror` runs one git operation per mirror at a time;

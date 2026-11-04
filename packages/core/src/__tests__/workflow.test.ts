@@ -28,7 +28,10 @@ describe('workflow: one full-stack repo', () => {
     expect((await h.store.specs.latest(t.id))!.markdown).toContain('| TND-1 | 1 |');
     expect((await h.store.approvals.list(t.id)).map((a) => a.role).sort()).toEqual(['owner', 'pm']);
     expect(h.host.opened[0]!.description).toContain('Spec: version 1, approved (Kept in Tandem with task TND-1)');
-    expect(h.git.commits.map((c) => c.message)).toEqual(['feat(TND-1): Add a GET /health endpoint']);
+    expect(h.git.commits.map((c) => c.message)).toEqual(['TND-1: Add a GET /health endpoint']);
+    // Pushed as one commit, written like a person's: the key, the change, then why.
+    expect(h.git.squashes).toHaveLength(1);
+    expect(h.git.squashes[0]!.message).toMatch(/^TND-1: Add a GET \/health endpoint\n\n\S/);
 
     // Verify ran every repo command, deterministic and by Tandem.
     expect(h.process.calls.map((c) => c.command)).toEqual(['npm ci', 'npm run lint', 'npm run typecheck', 'npm run build', 'npm test']);
@@ -41,7 +44,7 @@ describe('workflow: one full-stack repo', () => {
     // One PR, with the criterion table; pushed to the agent branch; report posted.
     expect(h.host.pushes).toEqual([{ repoId: 'r-app' }]);
     expect(h.host.opened).toHaveLength(1);
-    expect(h.host.opened[0]!.sourceBranch).toBe('agent/TND-1-add-a-get-health-endpoint');
+    expect(h.host.opened[0]!.sourceBranch).toBe('feature/TND-1-add-a-get-health-endpoint');
     expect(h.host.opened[0]!.idempotencyKey).toBe(`${t.id}:r-app`);
     expect(h.host.opened[0]!.description).toContain('| Criterion | Test | Result |');
     expect(h.tracker.comments.at(-1)!.body).toMatch(/Pull requests for TND-1 are ready/);
@@ -294,7 +297,7 @@ describe('workflow: verification and review', () => {
     expect(fixes[1]!.prompt).toContain('fix attempt 2 of 2');
     expect(fixes[0]!.opts.resumeId).toBe(t.progress.buildSessionId); // the build session is resumed, not restarted
     expect(fixes[0]!.opts.resumeId).toBe(h.agent.calls.find((c) => c.prompt.startsWith('Implement'))!.opts.resumeId ?? 'scripted-3');
-    expect(h.git.commits.map((c) => c.message)).toEqual(['feat(TND-1): Add a GET /health endpoint', 'fix(TND-1): address verification failures (attempt 1)', 'fix(TND-1): address verification failures (attempt 2)']);
+    expect(h.git.commits.map((c) => c.message)).toEqual(['TND-1: Add a GET /health endpoint', 'Fix failing checks', 'Fix failing checks']);
     expect(h.host.opened[0]!.title).toBe('Add a GET /health endpoint');
     expect(h.host.opened[0]!.description).toContain('**Needs attention.**');
     expect((await h.store.verifyRuns.list(t.id)).map((v) => v.passed)).toEqual([false, false, false]);
@@ -345,7 +348,7 @@ describe('workflow: verification and review', () => {
       ['TND-1-F1', 'fixed'],
       ['TND-1-F2', 'open'],
     ]);
-    expect(h.git.commits.at(-1)!.message).toBe('fix(TND-1): address self-review findings');
+    expect(h.git.commits.at(-1)!.message).toBe('Address review findings');
     expect(h.host.opened[0]!.description).toContain('Naming');
     expect(h.host.opened[0]!.description).not.toContain('Unvalidated input');
     expect(h.agent.calls.filter((c) => c.prompt.startsWith('Review this change'))).toHaveLength(1);
@@ -522,7 +525,7 @@ describe('workflow: checks the owner skips', () => {
     wt = join(h.deps.paths.taskDir(t0.id), 'app');
     const t = await h.approveAll(t0.id);
     expect(t.state).toBe('PR_OPEN');
-    expect(h.git.commits.map((c) => c.message)).toContain("style(TND-1): keep what app's checks changed");
+    expect(h.git.commits.map((c) => c.message)).toContain('Apply lint and formatting fixes');
   });
 
   it('an expired sign-in while checking an open PR leaves the task open with a clear note, and the note clears once it works', async () => {
@@ -603,13 +606,13 @@ describe('workflow: resilience', () => {
     };
     let t = await h.approveAll(started.id);
     expect(['BLOCKED', 'FAILED']).toContain(t.state); // stopped mid-fix
-    expect(h.git.commits.map((c) => c.message)).not.toContain('fix(TND-1): address self-review findings');
+    expect(h.git.commits.map((c) => c.message)).not.toContain('Address review findings');
     await h.service.resume(t.id);
     await h.runner.runUntilIdle();
     t = await h.get(t.id);
     expect(t.blockedMessage ?? '').toBe('');
     expect(t.state).toBe('PR_OPEN');
-    expect(h.git.commits.map((c) => c.message)).toContain('fix(TND-1): address self-review findings');
+    expect(h.git.commits.map((c) => c.message)).toContain('Address review findings');
     expect((await h.store.verifyRuns.list(t.id)).at(-1)!.attempt).toBe(100);
   });
 
@@ -800,5 +803,19 @@ describe('service: partial requirement updates', () => {
     expect(t.requirement.goal).toBe('Keep me');
     const u = await h.service.update(t.id, { requirement: { outOfScope: 'Auth', goal: undefined } });
     expect(u.requirement).toMatchObject({ goal: 'Keep me', outOfScope: 'Auth' });
+  });
+});
+
+describe('workflow: branch names', () => {
+  it('a task not built yet moves from an old agent/ branch name to feature/; a built one keeps its branch', async () => {
+    const h = harness();
+    const t = await h.start();
+    await h.store.tasks.upsert({ ...t, branch: `agent/${t.key}-${t.slug}` });
+    expect(await h.service.renameUnbuiltBranches()).toBe(1);
+    expect((await h.store.tasks.get(t.id))!.branch).toBe(`feature/${t.key}-${t.slug}`);
+    const built = await h.approveAll(t.id);
+    await h.store.tasks.upsert({ ...built, branch: `agent/${t.key}-${t.slug}` });
+    expect(await h.service.renameUnbuiltBranches()).toBe(0);
+    expect((await h.store.tasks.get(t.id))!.branch).toBe(`agent/${t.key}-${t.slug}`);
   });
 });

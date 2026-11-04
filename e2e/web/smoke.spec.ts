@@ -124,7 +124,7 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
   // The task opens as a conversation; its details open beside it.
   const panel = page.getByRole('complementary', { name: 'Task details' });
   const convo = page.getByRole('region', { name: 'Conversation' });
-  await panel.getByRole('tab', { name: /^PRs/ }).click();
+  await panel.getByRole('tab', { name: /Pull requests/ }).click();
   await expect(page.getByRole('link', { name: 'Open create page' })).toBeVisible({ timeout: 400_000 });
   const href = await page.getByRole('link', { name: 'Open create page' }).getAttribute('href');
   expect(href).toContain('console.aws.amazon.com/codesuite/codecommit/repositories/tandem-sandbox-fullstack/pull-requests/new/');
@@ -155,7 +155,7 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
 
 test('task: paste the PR link, then mark it merged', async () => {
   const panel = page.getByRole('complementary', { name: 'Task details' });
-  await panel.getByRole('tab', { name: /^PRs/ }).click();
+  await panel.getByRole('tab', { name: /Pull requests/ }).click();
   await page.getByLabel('Link to the new pull request').fill('https://eu-central-1.console.aws.amazon.com/codesuite/codecommit/repositories/tandem-sandbox-fullstack/pull-requests/1/details');
   await page.getByRole('button', { name: 'Save link' }).click();
   await expect(page.getByRole('link', { name: 'Open pull request' })).toBeVisible();

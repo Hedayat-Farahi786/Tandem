@@ -270,7 +270,7 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
    older versions stop counting. Request changes → SPEC_DRAFTING with the
    feedback. Both keys on the current version → BUILDING.
 6. **Build.** `prepare-workspace` creates `~/.tandem/tasks/<taskId>/` with a
-   worktree per affected repo on `agent/<taskKey>-<slug>` from the freshly
+   worktree per affected repo on `feature/<taskKey>-<slug>` from the freshly
    fetched default branch. Pending learned rules are appended to
    `docs/agent-rules.md` in that branch. One build session runs in the task
    folder with build-mode tools. Context sent explicitly (not left to
@@ -302,8 +302,11 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
    branch. On conflict, the build session resolves conflict markers, Tandem
    continues the rebase and re-runs verify. Still failing → `git rebase
    --abort`, BLOCKED `rebase-conflict` with the conflicting files. Push over
-   SSH with an explicit refspec. Code refuses any push whose destination is
-   not `refs/heads/agent/*`.
+   SSH with an explicit refspec. Before the push, the branch's commits (the
+   build, fix rounds, formatter passes) fold into one, `<KEY>: <title>` with
+   the goal as its body. Code refuses any push whose destination is not a
+   task branch, `refs/heads/feature/<KEY>-<slug>` (or `refs/heads/agent/*`
+   from older tasks).
 10. **Pull requests.** One per repo through its adapter. CodeCommit:
     `CreatePullRequest` with `clientRequestToken = <taskId>:<repoId>` so a
     retry after restart cannot create a duplicate; if the profile lacks
@@ -371,16 +374,16 @@ pass on 2.25.
   `--mirror` clone is deliberately not used: with `remote.origin.mirror`
   set, git refuses explicit refspecs on push and a plain push would mirror
   every ref, which is the opposite of safe.
-- **Worktree**: `git --git-dir=<mirror> worktree add -b agent/<key>-<slug>
+- **Worktree**: `git --git-dir=<mirror> worktree add -b feature/<key>-<slug>
   tasks/<id>/<repo> origin/<default>`.
 - **Reference checkout** (Ask, size, spec, review context): detached
   worktree at `origin/<default>` under `projects/<id>/<repo>`, refreshed
   before each read-only session.
 - **Rebase**: `git fetch origin`, `git rebase origin/<default>`; conflicts
   read from `git diff --name-only --diff-filter=U`.
-- **Push**: `git push origin refs/heads/agent/X:refs/heads/agent/X`. A
-  re-push after a rebase uses `--force-with-lease=refs/heads/agent/X:<sha>`,
-  only on `agent/*` branches Tandem created. Never `--force`.
+- **Push**: `git push origin refs/heads/feature/X:refs/heads/feature/X`. A
+  re-push after a rebase uses `--force-with-lease=refs/heads/feature/X:<sha>`,
+  only on task branches Tandem created. Never `--force`.
 - Windows: `core.longpaths=true` on mirrors, short task ids in paths.
 
 ### SourceHost port

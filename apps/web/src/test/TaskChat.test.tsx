@@ -61,7 +61,7 @@ describe('Task as a conversation', () => {
     expect(within(convo).getByRole('link', { name: /Open the pull request/ }).getAttribute('href')).toBe('https://example.com/pr/1');
     await user.click(within(convo).getByRole('button', { name: 'View' }));
     const panel = screen.getByRole('complementary', { name: 'Task details' });
-    expect(within(panel).getByRole('tab', { name: /^PRs/ }).getAttribute('aria-selected')).toBe('true');
+    expect(within(panel).getByRole('tab', { name: /Pull requests/ }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('a failed task asks for help in the conversation', async () => {
@@ -95,12 +95,10 @@ describe('Task as a conversation', () => {
       ] }, { state: 'BUILDING', step: 'implement' }),
       { 'GET /api/tasks/task1/activity': [specRun, buildRun] },
     );
-    // Under the title: where the task is, in words.
+    // Under the title: where the task is, in words; click it for every stage.
     const tracker = await screen.findByRole('button', { name: /Step 4 of 8: Build, Copilot coding/ });
     await user.click(tracker);
-    const panel = screen.getByRole('complementary', { name: 'Task details' });
-    expect(within(panel).getByRole('tab', { name: 'Progress' }).getAttribute('aria-selected')).toBe('true');
-    const stages = within(panel).getByRole('list', { name: 'Stages' });
+    const stages = within(screen.getByRole('dialog', { name: 'Task stages' })).getByRole('list', { name: 'Stages' });
     expect(within(stages).getByText(/Write the spec/).closest('li')!.textContent).toContain('done');
     const build = within(stages).getByText(/^Build/).closest('li')!;
     expect(build.getAttribute('aria-current')).toBe('step');

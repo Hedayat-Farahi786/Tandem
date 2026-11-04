@@ -172,6 +172,23 @@ export class TaskService {
   }
 
   /** DRAFT -> READINESS. */
+  /**
+   * Tasks from before branches were named like a person's (agent/…) take the new name when nothing
+   * has been built yet: no worktree or push exists under the old one. Built tasks keep theirs, so
+   * their pull requests keep working. Returns how many were renamed.
+   */
+  async renameUnbuiltBranches(): Promise<number> {
+    const tasks = await this.deps.store.tasks.listByState(['DRAFT', 'READINESS', 'SPEC_DRAFTING', 'SPEC_REVIEW']);
+    let n = 0;
+    for (const t of tasks) {
+      const next = branchName(t.key, t.slug);
+      if (!t.branch.startsWith('agent/') || t.branch === next) continue;
+      await this.deps.store.tasks.upsert({ ...t, branch: next });
+      n++;
+    }
+    return n;
+  }
+
   async submit(taskId: string): Promise<Task> {
     const task = await this.task(taskId);
     this.requireState(task, ['DRAFT'], 'submit');

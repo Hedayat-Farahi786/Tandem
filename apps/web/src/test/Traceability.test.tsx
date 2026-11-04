@@ -82,7 +82,7 @@ describe('Task trace', () => {
   beforeEach(() => wideScreen());
   const trace: Trace = {
     generatedAt: now,
-    task: { id: 't1', key: 'TND-1', title: 'Health endpoint', state: 'PR_OPEN', source: 'chat', branch: 'agent/TND-1-health', createdAt: now, updatedAt: now, project: 'Shop' },
+    task: { id: 't1', key: 'TND-1', title: 'Health endpoint', state: 'PR_OPEN', source: 'chat', branch: 'feature/TND-1-health', createdAt: now, updatedAt: now, project: 'Shop' },
     requirement: { goal: 'Add GET /health.', userStory: '', exampleData: '', affectedAreas: '', outOfScope: 'Auth' },
     criteria: [
       { n: 1, given: 'the API runs', when: 'GET /health', then: 'it returns 200', status: 'pass', tests: [{ repo: 'shop', file: 'test/health.test.ts', name: 'returns ok', result: 'pass', scope: 'single' }] },
@@ -92,7 +92,7 @@ describe('Task trace', () => {
     agent: [{ kind: 'build', runs: 1, succeeded: 1, failed: 0, models: ['gpt-5.4'], prompts: 2, modelCalls: 9, aiCredits: 0.42 }],
     checks: [{ attempt: 0, passed: true, at: now, results: [{ repo: 'shop', kind: 'test', command: 'npm test', exitCode: 0, durationMs: 2100, timedOut: false }] }],
     findings: [],
-    commits: [{ repo: 'shop', branch: 'agent/TND-1-health', commit: '1a2b3c4d5e6f', at: now }],
+    commits: [{ repo: 'shop', branch: 'feature/TND-1-health', commit: '1a2b3c4d5e6f', at: now }],
     pullRequests: [{ repo: 'shop', url: 'https://example.com/pr/1', status: 'open', manual: false }],
     usage: { prompts: 2, modelCalls: 9, aiCredits: 0.42 },
     audit: [{ seq: 4, at: now, actor: 'system', action: 'pr.opened', summary: 'TND-1: opened a pull request in shop.', hash: HEAD }],

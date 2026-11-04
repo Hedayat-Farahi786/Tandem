@@ -183,6 +183,8 @@ export interface GitOps {
   commitAll(worktree: string, message: string): Promise<string | undefined>;
   /** Commits changes to files git already tracks (not new files such as reports); undefined when there are none. */
   commitTracked(worktree: string, message: string): Promise<string | undefined>;
+  /** Folds every commit since its merge base with `onto` into one with this message; undefined when there is nothing to fold. */
+  squash(worktree: string, onto: string, message: string): Promise<string | undefined>;
   head(worktree: string): Promise<string>;
   diff(worktree: string, base: string): Promise<string>;
   diffStat(worktree: string, base: string): Promise<{ files: number; insertions: number; deletions: number }>;

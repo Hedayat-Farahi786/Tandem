@@ -164,7 +164,7 @@ describe('naming', () => {
     expect(slugify('!!!')).toBe('task');
     expect(slugify('a'.repeat(60)).length).toBeLessThanOrEqual(40);
     expect(slugify('implement the very long feature name that goes on and on')).toBe('implement-the-very-long-feature-name');
-    expect(branchName('TND-7', 'health')).toBe('agent/TND-7-health');
+    expect(branchName('TND-7', 'health')).toBe('feature/TND-7-health');
     expect(specFileName('TND-7', 'health')).toBe('specs/TND-7-health.md');
   });
 });

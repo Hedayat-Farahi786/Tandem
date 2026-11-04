@@ -225,7 +225,7 @@ export class CodeCommitHost implements SourceHost {
     // Manual fallback without API access: merged when the branch tip is on the default branch.
     const mirror = this.mirrorPath(repo);
     await runGit(['fetch', '--prune', '--no-tags', 'origin'], { gitDir: mirror, allowFail: true });
-    const branch = /refs\/heads\/(agent\/[^?]+)/.exec(decodeURIComponent(pr.url))?.[1];
+    const branch = /refs\/heads\/((?:agent|feature)\/[^?]+)/.exec(decodeURIComponent(pr.url))?.[1];
     if (!branch) return pr.status;
     const tip = await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { gitDir: mirror, allowFail: true });
     if (tip.code !== 0) return pr.status;

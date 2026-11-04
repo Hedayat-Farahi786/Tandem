@@ -22,6 +22,7 @@ import { checkReadiness, readinessMessage } from '../policies/ready.js';
 import { decideSize } from '../policies/size.js';
 import { redactor } from '../policies/redact.js';
 import { buildPrDescription, prTitle } from '../pr/description.js';
+import { commitMessage } from '../naming.js';
 import type { StepContext, StepHandlers, StepOutcome } from '../runner/runner.js';
 import { DEFAULT_TEMPLATE, finalizeSpec, validateSpec } from '../spec/template.js';
 import { affectedRepos, loadProject, openSession, refreshReferences, repoCommands, repoContext, worktreeOf, type GatedSession, type WorkflowDeps } from './context.js';
@@ -376,7 +377,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
       // The spec stays in Tandem (every version, with its approvals); the repository gets only the change.
-      await commitRepos(deps, task, repos, `feat(${task.key}): ${task.title}`);
+      await commitRepos(deps, task, repos, commitMessage(task.key, task.title));
       return { kind: 'goto', state: 'VERIFYING', reason: 'Implementation committed; running checks.' };
     },
 
@@ -400,7 +401,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         } finally {
           await s.stop();
         }
-        await commitRepos(deps, ctx.task, repos, `fix(${ctx.task.key}): address verification failures (attempt ${attempt + 1})`);
+        await commitRepos(deps, ctx.task, repos, 'Fix failing checks');
       }
     },
 
@@ -444,7 +445,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
             await s.stop();
           }
         }
-        await commitRepos(deps, ctx.task, repos, `fix(${task.key}): address self-review findings`);
+        await commitRepos(deps, ctx.task, repos, 'Address review findings');
         await ctx.saveProgress({ reviewFixDone: true });
         const { run } = await verifyAll(deps, ctx.task, project, repos, 100);
         if (!run.passed) return { kind: 'next', patch: attention(ctx.task, failureNotes(run, names).map((n) => `After review fixes: ${n}`)) };
@@ -459,7 +460,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const names = await repoNames(task);
       // Edits an interrupted run left uncommitted would block the rebase: keep them, and check them.
       let leftover: Partial<Task> | undefined;
-      if (await commitRepos(deps, task, repos, `fix(${task.key}): keep changes from an interrupted Copilot run`)) {
+      if (await commitRepos(deps, task, repos, 'Save work in progress')) {
         const { run } = await verifyAll(deps, task, project, repos, 150);
         if (!run.passed) leftover = attention(task, failureNotes(run, names).map((n) => `After an interrupted run: ${n}`));
       }
@@ -502,6 +503,10 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       for (const repo of repos) {
         const wt = { repoId: repo.id, path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` };
         const lease = pushed[repo.id];
+        // One commit per task, written like a person's: the fix rounds and formatter passes on the way
+        // there are Tandem's working steps, not history the team needs to read.
+        const squashed = await deps.git.squash(wt.path, wt.base, commitMessage(task.key, task.title, task.requirement.goal));
+        if (squashed) await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.committed', summary: `${task.key}: folded the branch into one commit in ${repo.name}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { commit: squashed, message: commitMessage(task.key, task.title, task.requirement.goal), branch: task.branch, files: [] } });
         const r = await deps.hosts(repo).push(repo, wt, lease ? { forceWithLease: lease } : undefined);
         if (r.kind === 'rejected') return { kind: 'block', reason: 'push-rejected', message: `Pushing ${task.branch} to ${repo.name} was rejected: ${r.message}`, resumeTo: { state: 'SELF_REVIEW', step: 'sync' } };
         pushed[repo.id] = r.sha;
@@ -753,7 +758,7 @@ async function syncWithBase(deps: WorkflowDeps, ctx: StepContext): Promise<void>
       notes.push(`${repo.name}: the PR conflicts with ${repo.defaultBranch} in ${list} and waits for a person.`);
       continue;
     }
-    const merged = await deps.git.merge(wt, base, `Merge ${repo.defaultBranch} into ${task.branch}`);
+    const merged = await deps.git.merge(wt, base, `Merge branch '${repo.defaultBranch}' into ${task.branch}`);
     if (merged.kind === 'conflict') {
       const s = await buildSession(deps, ctx, project, repos, 'conflict');
       try {

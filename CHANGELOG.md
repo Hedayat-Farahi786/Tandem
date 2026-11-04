@@ -8,26 +8,32 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
-- **See every stage of a task while it runs.** Under the task's title, a
-  tracker names all eight stages (Readiness, Spec, Approval, Build, Checks,
-  Self-review, Pull request, Done): finished ones show a check and how long
-  they took, and the current one says what is happening right now
-  ("Copilot coding · 4m 02s", "Running tests", "Waiting for you"). Narrow
-  screens get the same in one line above a bar. Click it to open the new
-  Progress panel, which opens by default while a task runs. It lists every
-  stage with its outcome ("4 of 5 passed · 1 already failing", "Approved by
-  …") and the current stage's steps. The step in progress says what Copilot
-  is doing, and while the checks run it marks each one as done, running or
-  next. The self-review shows its fix-and-check-again steps, and a blocked
-  or failed task shows why at the stage where it stopped. In the
-  conversation, what Copilot says between its steps now appears in order
-  with those steps, and its closing message comes last as its answer. A fix
-  run after the self-review is called "Fixed review findings", not "Fixed
-  failing checks". The line that shows what Tandem is doing now uses the
-  same words as the tracker, so it no longer says "Bringing the branch up to
-  date" while the checks run again. Run cards hide the model name, then the
-  credits, before cutting their titles short. The details tabs fit (PRs),
-  and the task composer's hints fit on one line.
+- **See every stage of a task while it runs.** Under the task's title, one
+  quiet line and a thin bar show where the task is: the stage, what is
+  happening now and for how long ("Build · Copilot coding 4m 02s", "Checks ·
+  Running tests", "Approval · Waiting for you"), and "4 of 8". Click it to
+  see every stage with its time and outcome ("4 of 5 passed · 1 already
+  failing", "Approved by …"). The current stage lists its steps as done,
+  running or next. The running step says what Copilot is doing, and each
+  check is ticked off as it runs. The self-review shows its fix and
+  re-check, and a blocked or failed task shows why at the stage where it
+  stopped. In the conversation, what Copilot says between its steps now
+  appears in order with those steps, and its closing message comes last as
+  its answer. A fix run after the self-review is called "Fixed review
+  findings". The line that shows what Tandem is doing uses the same words as
+  the bar. Run cards hide the model name, then the credits, before cutting
+  their titles short, and the task composer's hints fit on one line.
+
+- **Branches and commits that look like a person's.** A task's branch is
+  now `feature/<key>-<title>` instead of `agent/…`, and before it is pushed
+  its commits (the build, each fix round, formatter passes) fold into one
+  commit, `SHOP-12: Add a health endpoint`, with the goal as a
+  short body. Later commits read plainly, for example "Merge branch
+  'development' into …". Tasks not built yet take the new branch name on
+  start; tasks already pushed keep theirs, so their pull requests keep
+  working. The push guard still allows only Tandem's own task branches:
+  `feature/<KEY>-…`, never someone's `feature/login`, and never a default
+  branch.
 
 - **A polish pass over every screen.** Chats are named from their first
   message at once (a request still takes Copilot's short name for the change

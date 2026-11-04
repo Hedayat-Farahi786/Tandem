@@ -15,7 +15,7 @@ import { SkipCheckButton } from './SkipCheck';
 import { checksLine, doingNow, useTaskActivity } from './TaskProgress';
 
 /** The parts of a task that open beside its conversation. */
-export type PanelTab = 'progress' | 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'trace';
+export type PanelTab = 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'trace';
 
 /** Runs that already show as chat answers (or belong to the request chat) are not repeated. */
 const CHAT_RUNS = new Set(['task-chat', 'ask', 'request']);
@@ -294,7 +294,7 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
             className="fixed inset-y-2 right-2 left-2 z-40 flex animate-in flex-col overflow-hidden rounded-2xl bg-bg shadow-lg sm:left-auto sm:w-[min(680px,calc(100vw-1rem))] lg:static lg:inset-auto lg:z-auto lg:h-full lg:w-auto lg:rounded-none lg:rounded-br-[14px] lg:border-l lg:border-line lg:bg-surface lg:shadow-none"
           >
             <div className="flex shrink-0 items-center gap-2 pr-2 pl-5">
-              <div className="min-w-0 flex-1 [&_[role=tablist]]:gap-[18px]">
+              <div className="min-w-0 flex-1">
                 <Tabs label="Task details" value={panel} onChange={setPanel} tabs={tabs} />
               </div>
               <IconButton icon={X} label="Close details" size="sm" onClick={() => setPanel(null)} />
