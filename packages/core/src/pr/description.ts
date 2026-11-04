@@ -4,7 +4,8 @@ export interface PrDescriptionInput {
   taskKey: string;
   title: string;
   summary: string;
-  specPath: string;
+  /** Where the approved spec lives (Tandem keeps it; it is not committed to the repository). */
+  specRef: string;
   specVersion: number;
   repoName: string;
   criteria: readonly Criterion[];
@@ -53,7 +54,7 @@ export function buildPrDescription(i: PrDescriptionInput): string {
     parts.push(`> **Needs attention.** Tandem could not get everything green:\n${i.attentionNotes.map((n) => `> - ${esc(n)}`).join('\n')}`);
   }
   parts.push(`## Summary\n\n${i.summary.trim() || i.title}`);
-  const links = [`- Spec: \`${i.specPath}\` (version ${i.specVersion})`];
+  const links = [`- Spec: version ${i.specVersion}, approved (${i.specRef})`];
   if (i.trackerUrl) links.push(`- Ticket: ${i.trackerUrl}`);
   for (const pr of i.otherPrs) links.push(`- ${pr.repoName}: ${pr.url}`);
   parts.push(`## Links\n\n${links.join('\n')}`);
@@ -77,14 +78,14 @@ export function buildPrDescription(i: PrDescriptionInput): string {
     parts.push('## Open review findings\n\nNone.');
   }
   parts.push('_Opened by Tandem. Agents never merge; a person reviews and merges this PR._');
-  return fit(parts, i.limit, i.specPath);
+  return fit(parts, i.limit, i.specRef);
 }
 
 /** Drops detail from the bottom up until the description fits the host's limit. */
-function fit(parts: string[], limit: number, specPath: string): string {
+function fit(parts: string[], limit: number, specRef: string): string {
   let out = parts.join('\n\n');
   if (out.length <= limit) return out;
-  const note = `\n\n_Trimmed to fit the ${limit}-character limit. The full details are in \`${specPath}\` and in Tandem._`;
+  const note = `\n\n_Trimmed to fit the ${limit}-character limit. The full spec and details are in Tandem (${specRef.replace(/^Kept in Tandem with /, '')})._`;
   out = out.slice(0, Math.max(0, limit - note.length));
   const cut = out.lastIndexOf('\n');
   return `${out.slice(0, cut > 0 ? cut : out.length)}${note}`;

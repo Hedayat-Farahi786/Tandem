@@ -8,6 +8,10 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **The spec stays in Tandem.** Tasks no longer commit
+  `specs/<KEY>-<slug>.md` to the repository; the pull request carries only
+  the change. Tandem keeps every spec version with its approvals and trace,
+  and the pull request names the approved version.
 - **A spec that writes itself beside a request.** The request chat shows
   the spec draft on the right, filling in live with a typing cursor as
   Copilot reads the code and takes your answers, with what it is looking at

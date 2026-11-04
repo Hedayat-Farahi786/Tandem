@@ -21,10 +21,13 @@ describe('workflow: one full-stack repo', () => {
     expect(t.step).toBe('poll');
     expect(await states(h, t.id)).toEqual(['DRAFT', 'READINESS', 'SPEC_DRAFTING', 'SPEC_REVIEW', 'BUILDING', 'VERIFYING', 'SELF_REVIEW', 'PR_OPEN']);
 
-    // Build happened in the task folder, spec committed in the spec repo, commits by Tandem.
+    // Build happened in the task folder, commits by Tandem. The spec stays in Tandem, not in the repo.
     const wt = join(h.deps.paths.taskDir(t.id), 'app');
     expect(readFileSync(join(wt, 'src/health.ts'), 'utf8')).toContain("status: 'ok'");
-    expect(readFileSync(join(wt, 'specs/TND-1-add-a-get-health-endpoint.md'), 'utf8')).toContain('| TND-1 | 1 | Approved |');
+    expect(existsSync(join(wt, 'specs'))).toBe(false);
+    expect((await h.store.specs.latest(t.id))!.markdown).toContain('| TND-1 | 1 |');
+    expect((await h.store.approvals.list(t.id)).map((a) => a.role).sort()).toEqual(['owner', 'pm']);
+    expect(h.host.opened[0]!.description).toContain('Spec: version 1, approved (Kept in Tandem with task TND-1)');
     expect(h.git.commits.map((c) => c.message)).toEqual(['feat(TND-1): Add a GET /health endpoint']);
 
     // Verify ran every repo command, deterministic and by Tandem.
@@ -87,7 +90,8 @@ describe('workflow: separate frontend and backend repos', () => {
     expect(prs).toHaveLength(2);
     expect(h.host.updatedDescriptions).toHaveLength(2);
     expect(h.host.updatedDescriptions[0]!.description).toMatch(/- frontend: https:\/\/pr\.example\/frontend\/2|- backend: https:\/\/pr\.example\/backend\/1/);
-    expect(readFileSync(join(h.deps.paths.taskDir(t.id), 'backend', 'specs', 'TND-1-add-a-get-health-endpoint.md'), 'utf8')).toContain('## API contract');
+    expect(existsSync(join(h.deps.paths.taskDir(t.id), 'backend', 'specs'))).toBe(false);
+    expect((await h.store.specs.latest(t.id))!.markdown).toContain('## API contract');
     expect(h.git.commits.map((c) => c.worktree.split('/').pop())).toEqual(['backend', 'frontend']);
   });
 

@@ -24,7 +24,6 @@ import { redactor } from '../policies/redact.js';
 import { buildPrDescription, prTitle } from '../pr/description.js';
 import type { StepContext, StepHandlers, StepOutcome } from '../runner/runner.js';
 import { DEFAULT_TEMPLATE, finalizeSpec, validateSpec } from '../spec/template.js';
-import { specFileName } from '../naming.js';
 import { affectedRepos, loadProject, openSession, refreshReferences, repoCommands, repoContext, worktreeOf, type GatedSession, type WorkflowDeps } from './context.js';
 import * as P from './prompts.js';
 import { failureNotes, failuresOf, verifyAll } from './verify.js';
@@ -352,11 +351,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const task = ctx.task;
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
-      const spec = await approvedSpec(deps, task, project);
-      const specRepo = repos.find((r) => r.id === project.specRepoId) ?? repos[0]!;
-      const specPath = join(worktreeOf(deps, task, specRepo), specFileName(task.key, task.slug));
-      await mkdir(dirname(specPath), { recursive: true });
-      await writeFile(specPath, spec.markdown);
+      // The spec stays in Tandem (every version, with its approvals); the repository gets only the change.
       await commitRepos(deps, task, repos, `feat(${task.key}): ${task.title}`);
       return { kind: 'goto', state: 'VERIFYING', reason: 'Implementation committed; running checks.' };
     },
@@ -647,7 +642,7 @@ function describePr(deps: WorkflowDeps, task: Task, specRepo: Repo, repo: Repo, 
     taskKey: task.key,
     title: task.title,
     summary: task.requirement.goal,
-    specPath: `${specRepo.name}/${specFileName(task.key, task.slug)}`,
+    specRef: `Kept in Tandem with task ${task.key}`,
     specVersion: f.specVersion,
     repoName: repo.name,
     criteria: task.requirement.criteria,

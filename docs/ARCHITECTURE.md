@@ -280,9 +280,9 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
    then the frontend in a second prompt against the approved contract. The
    agent must call the custom tool `tandem_record_test` for every
    criterion; code rejects completion while a criterion has no test (one
-   follow-up prompt, then "needs attention"). Tandem commits: the spec to
-   `specs/<taskKey>-<slug>.md` in the spec repo, then the work, with
-   conventional messages. The agent may run `git add/diff/status/log`, but
+   follow-up prompt, then "needs attention"). Tandem commits the work with
+   conventional messages. The spec is not committed: Tandem keeps every
+   version with its approvals, and the pull request names the version. The agent may run `git add/diff/status/log`, but
    commits, rebases and pushes are Tandem's.
 7. **Verify.** Tandem (never the agent) runs per repo: install, lint,
    type-check, build, test; then the project's integration command if set.
@@ -310,10 +310,10 @@ accepting the split, retrying) re-enters the workflow at `resumeTo`.
     permission, a console link plus ready-to-paste title and description.
     GitHub: REST `POST /repos/{o}/{r}/pulls`, or a compare link. After all
     PRs exist, descriptions are updated with links to each other. The
-    description (built by `core/pr/description.ts`): summary, spec link,
+    description (built by `core/pr/description.ts`): summary, spec version,
     other PRs, criterion → test → result table, verification results, open
     findings, Jira link when on. Over-length descriptions (CodeCommit allows
-    10,240 characters) are trimmed with a pointer to the spec file.
+    10,240 characters) are trimmed with a pointer to the task in Tandem.
 11. **Report.** PR links and results on the task page; with Jira, a comment
     and a transition to "In Review" when that transition exists.
 12. **Done.** A poller checks PR status (CodeCommit `GetPullRequest`, GitHub

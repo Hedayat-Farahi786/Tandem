@@ -61,7 +61,8 @@ export function summarizeFailures(output: string): FailureSummary {
   const names = new Set<string>();
   // Karma: "Chrome Headless 1.0 (Linux): Suite does a thing FAILED"; Jest/Vitest: "✕ does a thing".
   for (const m of text.matchAll(/^[^\n]*?\)[ \t]*:?[ \t]*([^\n]+?) FAILED[ \t]*$/gm)) if (!/Executed \d+ of \d+/.test(m[0])) names.add(m[1]!.trim());
-  for (const m of text.matchAll(/^\s*[✕×]\s+(.+?)(?:\s+\(\d+\s*ms\))?\s*$/gm)) names.add(m[1]!.trim());
+  // Durations vary run to run ('12ms', '(4 ms)', '1.2s'), so they are not part of a test's name.
+  for (const m of text.matchAll(/^\s*[✕×]\s+(.+?)(?:\s+\(?\d+(?:\.\d+)?\s*m?s\)?)?\s*$/gm)) names.add(m[1]!.trim());
   for (const m of text.matchAll(/^--- FAIL: (\S+)/gm)) names.add(m[1]!);
   return { ...(failures !== undefined ? { failures } : {}), ...(names.size ? { names: [...names] } : {}) };
 }

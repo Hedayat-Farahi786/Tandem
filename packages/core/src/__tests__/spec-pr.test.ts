@@ -103,7 +103,7 @@ describe('PR description', () => {
     taskKey: 'TND-1',
     title: 'Add a health endpoint',
     summary: 'Adds GET /health.',
-    specPath: 'backend/specs/TND-1-health.md',
+    specRef: 'Kept in Tandem with task TND-1',
     specVersion: 2,
     repoName: 'backend',
     criteria: [
@@ -125,7 +125,7 @@ describe('PR description', () => {
     const d = buildPrDescription(base);
     expect(d).toContain('**Needs attention.**');
     expect(d).toContain('## Summary\n\nAdds GET /health.');
-    expect(d).toContain('Spec: `backend/specs/TND-1-health.md` (version 2)');
+    expect(d).toContain('Spec: version 2, approved (Kept in Tandem with task TND-1)');
     expect(d).toContain('- frontend: https://pr/2');
     expect(d).toContain('- Ticket: https://jira/TND-1');
     expect(d).toContain('`test/health.test.ts` › returns ok | ✅ pass');
@@ -140,6 +140,7 @@ describe('PR description', () => {
     const d = buildPrDescription({ ...base, summary: 'x'.repeat(20_000), limit: 2_000 });
     expect(d.length).toBeLessThanOrEqual(2_000);
     expect(d).toContain('Trimmed to fit the 2000-character limit');
+    expect(d).toContain('The full spec and details are in Tandem (task TND-1)');
     const clean = buildPrDescription({ ...base, openFindings: [], needsAttention: false, attentionNotes: [], otherPrs: [], verification: [], criteria: [] });
     expect(clean).toContain('## Open review findings\n\nNone.');
     expect(clean).not.toContain('Needs attention');

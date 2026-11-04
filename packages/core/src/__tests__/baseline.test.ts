@@ -9,6 +9,9 @@ describe('reading check output', () => {
     expect(summarizeFailures('=== 3 failed, 5 passed in 0.2s ===')).toEqual({ failures: 3 });
     expect(summarizeFailures('--- FAIL: TestHealth (0.00s)\nFAIL')).toEqual({ failures: 1, names: ['TestHealth'] });
     expect(summarizeFailures('all good')).toEqual({});
+    // The same failing test with a different duration is the same test.
+    expect(summarizeFailures(' × test/a.test.ts > keeps ok 12ms').names).toEqual(['test/a.test.ts > keeps ok']);
+    expect(summarizeFailures(' × test/a.test.ts > keeps ok 1.4s').names).toEqual(['test/a.test.ts > keeps ok']);
     // A progress line right before a failure doesn't swallow its name.
     expect(summarizeFailures('Chrome 1 (Linux): Executed 3 of 9 (1 FAILED) (0 secs)\nChrome 1 (Linux) Guard redirects FAILED\nTOTAL: 1 FAILED').names).toEqual(['Guard redirects']);
   });

@@ -280,22 +280,24 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     h.record('conflict after the PR is open', d);
   });
 
-  it('failing tests: two fix attempts, then a PR marked "needs attention"', async () => {
+  it('a test already failing on the base branch: not the task\'s, so no fix rounds, and the PR says so', async () => {
     h.upstream('fullstack', 'test/upstream-regression.test.ts', () => FAILING_TEST, 'Add a failing test');
     try {
       const task = await fromChat(ids.shop);
       await reviewReady(task.id);
       await h.approveBoth(task.id);
       const d = await prsOpen(task.id, 1, 600_000);
-      expect(d.task.needsAttention).toBe(true);
-      expect(d.task.attentionNotes.join('\n')).toMatch(/test/);
-      expect(d.verifyRuns.map((v) => v.passed)).toEqual([false, false, false]);
-      expect(d.runs.filter((r) => r.kind === 'fix')).toHaveLength(2);
+      // Tandem ran the tests on the base branch too, saw the same failure there, and left it alone.
+      expect(d.task.needsAttention).toBe(false);
+      expect(d.runs.filter((r) => r.kind === 'fix')).toHaveLength(0);
+      const test = d.verifyRuns[0]!.results.find((r) => r.kind === 'test') as { preexisting?: { base: string } } | undefined;
+      expect(test?.preexisting?.base).toBe(h.base);
+      expect(d.verifyRuns.every((v) => v.passed)).toBe(true);
       expect(d.prs[0]!.title).toBe(d.task.title);
-      expect(d.prs[0]!.description).toContain('Needs attention');
-      expect(d.prs[0]!.description).toContain('**Needs attention.**');
+      expect(d.prs[0]!.description).toContain(`fails on ${h.base} too`);
+      expect(d.prs[0]!.description).not.toContain('**Needs attention.**');
       expectPr(d);
-      h.record('failing tests → needs attention', d);
+      h.record('test failing on the base branch → left alone', d);
     } finally {
       h.upstream('fullstack', 'test/upstream-regression.test.ts', () => null, 'Remove the failing test');
     }
