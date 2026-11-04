@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, MessageSquareText, ThumbsUp, X, type LucideIcon } from 'lucide-react';
 import type { TaskState } from '@tandem/shared';
@@ -42,7 +42,8 @@ function Milestone({ icon, title, body, at }: { icon: ReactNode; title: string; 
       <span aria-hidden className="mt-[3px] grid size-4 shrink-0 place-items-center">
         {icon}
       </span>
-      <p className="min-w-0 flex-1 leading-relaxed">
+      {/* Long notes (a list of links, say) stay to two lines here; the full text is on hover. */}
+      <p className="line-clamp-2 min-w-0 flex-1 leading-relaxed break-words" title={body ? `${title} · ${body}` : title}>
         <span className="font-medium text-fg">{title}</span>
         {body && <span className="text-muted"> · {body}</span>}
       </p>
@@ -56,13 +57,13 @@ function Milestone({ icon, title, body, at }: { icon: ReactNode; title: string; 
 /** Something Copilot produced (a spec, checks, a pull request): opens beside the conversation. */
 function ArtifactCard({ icon: Icon, logo, title, sub, at, badge, open, openLabel, extra }: { icon?: LucideIcon; logo?: ReactNode; title: string; sub?: ReactNode; at: string; badge?: ReactNode; open: () => void; openLabel: string; extra?: ReactNode }) {
   return (
-    <div className="flex animate-in items-center gap-3 rounded-xl bg-surface px-3.5 py-3 shadow-panel">
-      <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-surface-2 text-muted shadow-[0_0_0_1px_var(--border)]">
+    <div className="flex animate-in items-center gap-3 rounded-xl bg-surface px-3 py-2.5 shadow-panel">
+      <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted shadow-[0_0_0_1px_var(--border)]">
         {logo ?? (Icon && <Icon className="size-4" strokeWidth={1.9} />)}
       </span>
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2">
-          <span className="truncate text-[14px] font-medium">{title}</span>
+          <span className="truncate text-[13.5px] font-medium">{title}</span>
           {badge}
         </p>
         <p className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
@@ -136,7 +137,7 @@ function RunItem({ run }: { run: RunActivity }) {
   const [open, setOpen] = useState(run.status === 'running');
   return (
     <ol className="list-none">
-      <RunCard run={run} open={open} onToggle={() => setOpen(!open)} />
+      <RunCard dense run={run} open={open} onToggle={() => setOpen(!open)} />
     </ol>
   );
 }
@@ -227,6 +228,8 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
   const thread = useQuery({ queryKey: ['task-thread', d.task.id], queryFn: () => api<{ id: string }>(`/api/tasks/${d.task.id}/thread`) });
   const { items: timeline, copilotWorking } = useTimeline(d, thread.data?.id, setPanel);
   const since = d.transitions.at(-1)?.at ?? d.task.updatedAt;
+  // On wide screens the conversation scrolls in its own column, so the details beside it stay put.
+  const convo = useRef<HTMLElement | null>(null);
   // Escape closes the panel when it covers the conversation (narrow screens).
   useEffect(() => {
     if (!panel) return;
@@ -237,8 +240,9 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
     return () => window.removeEventListener('keydown', onKey);
   }, [panel, setPanel]);
   return (
-    <div data-layout={panel ? 'split' : 'single'} className={cx('grid gap-6', panel && 'lg:grid-cols-[minmax(380px,1fr)_minmax(0,1.25fr)]')}>
-      <section aria-label="Conversation" className={cx('flex min-w-0 flex-col', !panel && 'mx-auto w-full max-w-[780px]')}>
+    <div className={cx('grid min-h-0 gap-6 lg:flex-1 lg:gap-0', panel && 'lg:grid-cols-[minmax(400px,1fr)_minmax(0,1.15fr)]')}>
+      <section ref={convo} aria-label="Conversation" className="flex min-w-0 flex-col lg:h-full lg:overflow-y-auto lg:px-6 lg:[scrollbar-gutter:stable]">
+        <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col lg:pt-5">
         {thread.isLoading ? (
           <Loading />
         ) : thread.isError || !thread.data ? (
@@ -247,10 +251,11 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
           <ThreadPanel
             threadId={thread.data.id}
             repos={d.repos}
-            placeholder="Ask about the spec, the build or the checks, or tell Copilot what to change…"
+            placeholder="Ask Copilot about this task…"
             compact
             task={{ id: d.task.id, state: d.task.state, needsAttention: d.task.needsAttention }}
             timeline={timeline}
+            scrollRoot={convo}
             tail={
               <>
                 {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking taskId={d.task.id} state={d.task.state} since={since} repos={d.repos} />}
@@ -259,15 +264,16 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
             }
           />
         )}
+        </div>
       </section>
       {panel && (
         <>
           <button type="button" aria-label="Close details" tabIndex={-1} onClick={() => setPanel(null)} className="fixed inset-0 z-30 animate-in bg-[rgb(0_0_0/0.25)] lg:hidden" />
           <aside
             aria-label="Task details"
-            className="fixed inset-y-2 right-2 left-2 z-40 flex animate-in flex-col overflow-hidden rounded-2xl bg-bg shadow-lg sm:left-auto sm:w-[min(680px,calc(100vw-1rem))] lg:sticky lg:inset-auto lg:top-6 lg:z-auto lg:h-[calc(100dvh-5.5rem)] lg:w-auto lg:self-start lg:bg-surface lg:shadow-panel"
+            className="fixed inset-y-2 right-2 left-2 z-40 flex animate-in flex-col overflow-hidden rounded-2xl bg-bg shadow-lg sm:left-auto sm:w-[min(680px,calc(100vw-1rem))] lg:static lg:inset-auto lg:z-auto lg:h-full lg:w-auto lg:rounded-none lg:rounded-br-[14px] lg:border-l lg:border-line lg:bg-surface lg:shadow-none"
           >
-            <div className="flex items-center gap-2 pr-2 pl-5">
+            <div className="flex shrink-0 items-center gap-2 pr-2 pl-5">
               <div className="min-w-0 flex-1">
                 <Tabs label="Task details" value={panel} onChange={setPanel} tabs={tabs} />
               </div>

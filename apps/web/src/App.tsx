@@ -532,7 +532,7 @@ function Shell() {
         <div className="flex flex-1 flex-col bg-bg md:min-h-[calc(100vh-16px)] md:rounded-[14px] md:shadow-panel">
           <main
             id="main"
-            className={cx("mx-auto w-full max-w-[1120px] flex-1 has-[[data-layout=split]]:max-w-[1640px]", path.startsWith("/chat") ? "px-4 pb-4 md:px-8" : "px-5 py-8 md:px-10 md:py-10")}
+            className={cx("mx-auto w-full max-w-[1120px] flex-1 has-[[data-layout=split]]:max-w-[1640px] lg:has-[[data-layout=app]]:!max-w-none lg:has-[[data-layout=app]]:!p-0", path.startsWith("/chat") ? "px-4 pb-4 md:px-8" : "px-5 py-8 md:px-10 md:py-10")}
           >
             {boot.isError ? (
               <ErrorState

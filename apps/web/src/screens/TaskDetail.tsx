@@ -17,6 +17,7 @@ import {
   Scissors,
   ShieldAlert,
   Sparkles,
+  PanelRight,
   SkipForward,
   LayoutList,
   MessagesSquare,
@@ -50,6 +51,7 @@ import {
   CopyButton,
   Dialog,
   EmptyState,
+  IconButton,
   ErrorState,
   Input,
   Loading,
@@ -452,7 +454,7 @@ function CopilotCard({ d }: { d: TaskDetail }) {
   );
 }
 
-function Overview({ d }: { d: TaskDetail }) {
+function Overview({ d, inChat }: { d: TaskDetail; /** Beside the conversation, which already tells the history. */ inChat?: boolean }) {
   const [editing, setEditing] = useState(false);
   const r = d.task.requirement;
   const canEdit =
@@ -544,9 +546,11 @@ function Overview({ d }: { d: TaskDetail }) {
             </dl>
           </div>
         </Card>
-        <Card title="Timeline">
-          <Timeline d={d} />
-        </Card>
+        {!inChat && (
+          <Card title="Timeline">
+            <Timeline d={d} />
+          </Card>
+        )}
       </div>
       <div className="flex flex-col gap-6">
         <Card title="Definition of Ready">
@@ -1850,68 +1854,122 @@ export function TaskDetailScreen({ id }: { id: string }) {
       {id === "chat" && <ChatTab d={d} />}
     </>
   );
+  const statusPill = (
+    <Pill tone={STATE_TONE[t.state]}>
+      <StatusIcon state={t.state} className="size-3.5" />
+      {STATE_LABEL[t.state]}
+      {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
+    </Pill>
+  );
+  const startTask = () =>
+    act.mutate({
+      path: `/api/tasks/${t.id}/submit`,
+      done: "Started: checking readiness, then drafting the spec.",
+    });
+  const flowAt = Math.max(0, FLOW.indexOf((t.state === "BLOCKED" || t.state === "FAILED" ? (t.resumeTo?.state ?? "READINESS") : t.state) as (typeof FLOW)[number]));
   return (
-    <div>
+    // Chat view: an app-style page on wide screens. One compact bar, then the conversation and the
+    // details side by side, each scrolling on its own, so nothing needs the whole page to scroll.
+    <div data-layout={view === "chat" ? "app" : undefined} className={cx(view === "chat" && "flex flex-col lg:h-[calc(100dvh-16px)]")}>
+      {view === "chat" ? (
+        <>
+          <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 pb-3 lg:h-14 lg:flex-nowrap lg:border-b lg:border-line lg:px-4 lg:pb-0">
+            <Link to="/tasks" aria-label="Back to Tasks" className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg">
+              <ArrowLeft aria-hidden className="size-4" />
+            </Link>
+            <div className="min-w-0 flex-1 basis-60">
+              <p className="flex min-w-0 items-center gap-1.5 text-[12px] leading-tight text-faint">
+                <span className="font-mono">{t.key}</span>
+                <span aria-hidden>·</span>
+                <span className="truncate">{d.project.name}</span>
+              </p>
+              <h1 className="truncate text-[15px] leading-snug font-semibold tracking-[-0.01em]" title={t.title}>
+                {t.title}
+              </h1>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {statusPill}
+              {t.state === "DRAFT" && (
+                <Button size="sm" variant="primary" icon={Sparkles} busy={act.isPending} onClick={startTask}>
+                  Start task
+                </Button>
+              )}
+              <ViewSwitch value={view} onChange={setView} />
+              <IconButton icon={PanelRight} label={panel ? "Hide details" : "Show details"} aria-pressed={Boolean(panel)} onClick={() => setPanel(panel ? null : (defaultPanel(d) ?? "overview"))} />
+              {!finished && <IconButton icon={Ban} label="Cancel task" className="text-danger hover:bg-danger-soft" onClick={() => setConfirmCancel(true)} />}
+            </div>
+          </header>
+          {/* Where the task is, at a glance: one segment per stage. */}
+          <div role="progressbar" aria-label={`Stage ${flowAt + 1} of ${FLOW.length}: ${STATE_LABEL[FLOW[flowAt]!]}`} aria-valuemin={1} aria-valuemax={FLOW.length} aria-valuenow={flowAt + 1} className="flex shrink-0 gap-1 pb-3 lg:px-4 lg:py-2">
+            {FLOW.map((st, i) => (
+              <span key={st} title={STATE_LABEL[st]} className={cx("h-1 flex-1 rounded-full transition-colors duration-500", t.state === "DONE" || i < flowAt ? "bg-ok" : i === flowAt ? (t.state === "FAILED" ? "bg-danger" : t.state === "BLOCKED" || t.needsAttention ? "bg-warn" : "bg-accent") : "bg-surface-3")} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
       <Link
-        to="/tasks"
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg"
-      >
-        <ArrowLeft aria-hidden className="size-3.5" /> Tasks
-      </Link>
-      <PageHeader
-        eyebrow={
-          <>
-            <span className="font-mono">{t.key}</span>
-            <span aria-hidden>·</span>
-            <span>{d.project.name}</span>
-            <span aria-hidden>·</span>
-            <span>
-              {t.source === "chat"
-                ? "From chat"
-                : t.source === "jira"
-                  ? "From Jira"
-                  : t.source === "split"
-                    ? "Split task"
-                    : "Created in Tandem"}
-            </span>
-          </>
-        }
-        title={t.title}
-        actions={
-          <>
-            <ViewSwitch value={view} onChange={setView} />
-            <Pill tone={STATE_TONE[t.state]}>
-              <StatusIcon state={t.state} className="size-3.5" />
-              {STATE_LABEL[t.state]}
-              {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
-            </Pill>
-            {t.state === "DRAFT" && (
-              <Button
-                variant="primary"
-                icon={Sparkles}
-                busy={act.isPending}
-                onClick={() =>
-                  act.mutate({
-                    path: `/api/tasks/${t.id}/submit`,
-                    done: "Started: checking readiness, then drafting the spec.",
-                  })
-                }
-              >
-                Start task
-              </Button>
-            )}
-            {!finished && (
-              <Button
-                variant="danger"
-                icon={Ban}
-                onClick={() => setConfirmCancel(true)}
-              >
-                Cancel task
-              </Button>
-            )}
-          </>
-        }
-      />
+          to="/tasks"
+          className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg"
+        >
+          <ArrowLeft aria-hidden className="size-3.5" /> Tasks
+        </Link>
+        <PageHeader
+          eyebrow={
+            <>
+              <span className="font-mono">{t.key}</span>
+              <span aria-hidden>·</span>
+              <span>{d.project.name}</span>
+              <span aria-hidden>·</span>
+              <span>
+                {t.source === "chat"
+                  ? "From chat"
+                  : t.source === "jira"
+                    ? "From Jira"
+                    : t.source === "split"
+                      ? "Split task"
+                      : "Created in Tandem"}
+              </span>
+            </>
+          }
+          title={t.title}
+          actions={
+            <>
+              <ViewSwitch value={view} onChange={setView} />
+              <Pill tone={STATE_TONE[t.state]}>
+                <StatusIcon state={t.state} className="size-3.5" />
+                {STATE_LABEL[t.state]}
+                {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
+              </Pill>
+              {t.state === "DRAFT" && (
+                <Button
+                  variant="primary"
+                  icon={Sparkles}
+                  busy={act.isPending}
+                  onClick={() =>
+                    act.mutate({
+                      path: `/api/tasks/${t.id}/submit`,
+                      done: "Started: checking readiness, then drafting the spec.",
+                    })
+                  }
+                >
+                  Start task
+                </Button>
+              )}
+              {!finished && (
+                <Button
+                  variant="danger"
+                  icon={Ban}
+                  onClick={() => setConfirmCancel(true)}
+                >
+                  Cancel task
+                </Button>
+              )}
+            </>
+          }
+        />
+        </>
+      )}
       {view === "details" ? (
         <>
           <ProgressRail task={t} />
@@ -1936,12 +1994,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
           tabs={panelTabs}
           renderPanel={(id) => (
             <>
-              {id === "overview" && (
-                <div className="mb-6">
-                  <ProgressRail task={t} />
-                </div>
-              )}
-              {renderTab(id)}
+              {id === "overview" ? <Overview d={d} inChat /> : renderTab(id)}
             </>
           )}
           banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} onOpenChat={() => undefined} inChat />}

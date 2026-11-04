@@ -8,6 +8,13 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A task page that fits one screen.** On wide screens the task opens as
+  an app-style page: a compact one-line bar (back, key, title, status,
+  view, details toggle, cancel) with a slim stage strip, then the
+  conversation and the details side by side, each scrolling on its own,
+  with the message box always in view. Cards in the conversation are
+  tighter, long notes stay to two lines, and the details panel no longer
+  repeats the progress steps or the history.
 - **The spec stays in Tandem.** Tasks no longer commit
   `specs/<KEY>-<slug>.md` to the repository; the pull request carries only
   the change. Tandem keeps every spec version with its approvals and trace,

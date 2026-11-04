@@ -161,7 +161,7 @@ export function Step({ s }: { s: AgentStep }) {
   }
 }
 
-export function RunCard({ run, open, onToggle }: { run: RunActivity; open: boolean; onToggle: () => void }) {
+export function RunCard({ run, open, onToggle, dense }: { run: RunActivity; open: boolean; onToggle: () => void; /** Tighter, for the task conversation. */ dense?: boolean }) {
   const running = run.status === 'running';
   const lastIntent = [...run.steps].reverse().find((s) => s.kind === 'intent')?.text;
   const tools = run.steps.filter((s) => s.kind === 'tool');
@@ -173,14 +173,14 @@ export function RunCard({ run, open, onToggle }: { run: RunActivity; open: boole
   // Old runs (before steps were recorded) have nothing to open.
   const empty = run.steps.length === 0;
   return (
-    <li className="overflow-hidden rounded-2xl bg-surface shadow-panel">
-      <button type="button" aria-expanded={open} disabled={empty} onClick={onToggle} className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors enabled:hover:bg-surface-2/50 disabled:cursor-default">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-surface text-fg shadow-[0_0_0_1px_var(--border)]">
+    <li className={cx("overflow-hidden bg-surface shadow-panel", dense ? "rounded-xl" : "rounded-2xl")}>
+      <button type="button" aria-expanded={open} disabled={empty} onClick={onToggle} className={cx("flex w-full items-center text-left transition-colors enabled:hover:bg-surface-2/50 disabled:cursor-default", dense ? "gap-3 px-3 py-2.5" : "gap-3.5 px-4 py-3.5")}>
+        <span className={cx("grid shrink-0 place-items-center bg-surface text-fg shadow-[0_0_0_1px_var(--border)]", dense ? "size-7 rounded-lg" : "size-8 rounded-[10px]")}>
           {running ? <Spinner className="size-3.5" /> : <BrandLogo brand="copilot" size={16} />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="truncate text-[14px] font-medium">{RUN_TITLE[run.kind] ?? run.kind}</span>
+            <span className={cx("truncate font-medium", dense ? "text-[13.5px]" : "text-[14px]")}>{RUN_TITLE[run.kind] ?? run.kind}</span>
             {run.status === 'succeeded' && <CheckCircle2 aria-label="done" className="size-3.5 shrink-0 text-ok" />}
             {run.status === 'failed' && <XCircle aria-label="failed" className="size-3.5 shrink-0 text-danger" />}
             {run.status === 'aborted' && <span className="shrink-0 text-[12px] text-faint">stopped</span>}

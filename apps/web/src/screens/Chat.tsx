@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler } from 'lucide-react';
@@ -89,7 +89,7 @@ export interface TimelineItem {
   node?: ReactNode;
 }
 
-export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task, timeline, tail }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask; timeline?: TimelineItem[]; tail?: ReactNode }) {
+export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task, timeline, tail, scrollRoot }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask; timeline?: TimelineItem[]; tail?: ReactNode; /** The element that scrolls the conversation, when it isn't the page (a column of its own). */ scrollRoot?: RefObject<HTMLElement | null> }) {
   const stuck = Boolean(task && (task.state === 'BLOCKED' || task.state === 'FAILED' || (task.state === 'PR_OPEN' && task.needsAttention)));
   const bootInfo = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
   const testAgent = bootInfo.data && bootInfo.data.agent !== 'copilot';
@@ -197,22 +197,37 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   // glide down when they send, and offer a "jump to latest" button when they have scrolled up.
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
+  // The conversation scrolls in its own column on wide screens (the task page), else with the page.
+  const scroller = (): HTMLElement | null => {
+    const el = scrollRoot?.current;
+    return el && /(auto|scroll)/.test(getComputedStyle(el).overflowY) ? el : null;
+  };
   useEffect(() => {
     const measure = () => {
+      const el = scroller();
       const d = document.documentElement;
-      const near = d.scrollHeight - (window.scrollY + window.innerHeight) < 140;
+      const near = el ? el.scrollHeight - (el.scrollTop + el.clientHeight) < 140 : d.scrollHeight - (window.scrollY + window.innerHeight) < 140;
       atBottomRef.current = near;
       setAtBottom(near);
     };
     measure();
+    const el = scrollRoot?.current;
     window.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('resize', measure);
+    el?.addEventListener('scroll', measure, { passive: true });
     return () => {
       window.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      el?.removeEventListener('scroll', measure);
     };
-  }, []);
-  const toBottom = (behavior: ScrollBehavior) => requestAnimationFrame(() => window.scrollTo?.({ top: document.documentElement.scrollHeight, behavior }));
+    // The scroll element is fixed for the life of the panel.
+  }, [scrollRoot]);
+  const toBottom = (behavior: ScrollBehavior) =>
+    requestAnimationFrame(() => {
+      const el = scroller();
+      if (el) el.scrollTo?.({ top: el.scrollHeight, behavior });
+      else window.scrollTo?.({ top: document.documentElement.scrollHeight, behavior });
+    });
   const opened = useRef(false);
   useEffect(() => {
     if (!view.data || opened.current) return;
