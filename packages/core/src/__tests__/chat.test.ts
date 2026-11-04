@@ -157,6 +157,43 @@ describe('chat: task thread', () => {
     await expect(c.applySpecChange(th.id)).rejects.toThrow(/no proposed spec change/);
   });
 
+  it('renames the task when asked, and its open pull request takes the name at once', async () => {
+    const h = harness();
+    await h.ready;
+    const task = await h.approveAll((await h.start()).id);
+    expect(task.state).toBe('PR_OPEN');
+    const c = chat(h);
+    const th = await c.taskThread(task.id);
+    h.overrides.chat = (call) => {
+      // The chat knows the pull requests and their titles.
+      expect(call.prompt).toContain('Pull requests:\n- app: "Add a GET /health endpoint" (open)');
+      expect(call.opts.tools?.map((t) => t.name)).toContain('tandem_rename_task');
+      return { text: 'Done.', tools: [{ name: 'tandem_rename_task', args: { title: 'TND-1: Health check endpoint.' } }] };
+    };
+    await c.send(th.id, 'Call it Health check endpoint');
+    expect((await h.get(task.id)).title).toBe('Health check endpoint');
+    const [pr] = await h.store.prs.list(task.id);
+    expect(pr!.title).toBe('Health check endpoint');
+    expect(h.host.updatedTitles.at(-1)).toEqual({ prId: pr!.id, title: 'Health check endpoint' });
+    expect((await h.store.audit.list({ taskId: task.id })).some((e) => e.action === 'task.renamed')).toBe(true);
+  });
+
+  it('after asking for help, says so when the problem resolved itself', async () => {
+    const h = harness({ process: { 'npm test': { exitCode: 1 } } });
+    await h.ready;
+    let task = await h.approveAll((await h.start()).id);
+    const c = chat(h);
+    await c.notifyStuck(task.id);
+    const th = await c.taskThread(task.id);
+    expect((await c.messages(th.id)).at(-1)!.content).toMatch(/^I need your help with TND-1\./);
+    task = (await h.service.continueWith(task.id, 'No Chrome here.', { skip: [{ repoId: 'r-app', kind: 'test' }] })).task;
+    await h.runner.runUntilIdle();
+    await c.notifyResolved(task.id);
+    expect((await c.messages(th.id)).at(-1)!.content).toBe("That's sorted: the checks pass and the pull request is up to date. Nothing needs you right now.");
+    await c.notifyResolved(task.id); // said once
+    expect((await c.messages(th.id)).filter((m) => m.content.startsWith("That's sorted"))).toHaveLength(1);
+  });
+
   it('applies an exact spec edit, and can dismiss a proposal', async () => {
     const h = harness();
     const task = await h.start();
@@ -230,7 +267,7 @@ describe('chat: a stuck task', () => {
 
     // Copilot proposes how to go on; its answer links to the run that wrote it.
     h.overrides.chat = (call) => {
-      expect(call.opts.tools?.map((x) => x.name)).toEqual(['tandem_request_spec_change', 'tandem_continue_task']);
+      expect(call.opts.tools?.map((x) => x.name)).toEqual(['tandem_request_spec_change', 'tandem_continue_task', 'tandem_rename_task']);
       return { text: 'The date test compares local time. I suggest using UTC.', tools: [{ name: 'tandem_continue_task', args: { summary: 'Use UTC in the date test', guidance: 'Compare dates in UTC in test/health.test.ts.' } }] };
     };
     const reply = await c.send(thread.id, 'Why do the checks fail?');

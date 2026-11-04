@@ -9,6 +9,7 @@ import { NotFoundError, affectedRepos, loadProject, type WorkflowDeps } from './
 import { approvalState, currentSpecTemplate } from './steps.js';
 import { ownerOf } from '../audit.js';
 import { checkKey, stopCheck } from './live-checks.js';
+import { prTitle } from '../pr/description.js';
 
 export class ActionError extends Error {
   override readonly name = 'ActionError';
@@ -142,6 +143,31 @@ export class TaskService {
     if (patch.requirement) delete next.sizeEstimate;
     await this.deps.store.tasks.upsert(next);
     this.deps.events?.emit({ type: 'task.updated', taskId, at: this.deps.clock.iso() });
+    return next;
+  }
+
+  /**
+   * Renames a task at any point before it ends; its open pull requests take the new name at once
+   * (a PR is titled with the task's short name).
+   */
+  async rename(taskId: string, title: string): Promise<Task> {
+    const task = await this.task(taskId);
+    if (task.state === 'DONE' || task.state === 'CANCELLED') throw new ActionError(`${task.key} is finished, so its name stays.`);
+    if (!title.trim()) throw new ActionError('Write the new name.');
+    const name = prTitle(redactor.redact(title));
+    const now = this.deps.clock.iso();
+    const next: Task = { ...task, title: name, updatedAt: now };
+    await this.deps.store.tasks.upsert(next);
+    await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(await this.deps.settings()), action: 'task.renamed', summary: `${task.key}: renamed "${task.title}" to "${name}".`, taskId, projectId: task.projectId, detail: { from: task.title, to: name } });
+    for (const pr of await this.deps.store.prs.list(taskId)) {
+      if (pr.status !== 'open' || pr.manual || pr.title === name) continue;
+      const repo = await this.deps.store.repos.get(pr.repoId);
+      if (!repo) continue;
+      // The status check renames it later if the host can't be reached now.
+      const ok = await this.deps.hosts(repo).updatePullRequestDescription(repo, pr, pr.description, name).then(() => true, () => false);
+      if (ok) await this.deps.store.prs.upsert({ ...pr, title: name });
+    }
+    this.deps.events?.emit({ type: 'task.updated', taskId, at: now });
     return next;
   }
 

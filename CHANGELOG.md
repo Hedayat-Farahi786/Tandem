@@ -33,6 +33,11 @@ All notable changes to Tandem. The format follows
   no "[needs attention]" (that is in the description), cut cleanly at 72
   characters. Open pull requests with an old-style title are renamed on the
   next status check. Copilot names requests in 3 to 8 words.
+- The task chat can rename a task: its open pull requests take the new name
+  at once. It knows each pull request's title and status, no longer claims
+  to "submit a handoff", and says plainly when a message has no step left
+  to act on. When a problem it asked for help with resolves itself, the
+  chat says so instead of leaving the alarm as the last word.
 - Saying the same thing twice in the task chat no longer repeats it in every
   later Copilot prompt.
 - The task chat no longer answers "this session can't create a PR": it says

@@ -74,7 +74,10 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   bus.subscribe(({ event: e }) => {
     const stuck = e.type === 'task.blocked' || (e.type === 'task.transition' && (e.to === 'FAILED' || e.to === 'PR_OPEN'));
     if (stuck) void chat.notifyStuck(e.taskId).catch((err: unknown) => logger.warn('could not post to the task chat', { taskId: e.taskId, error: String(err) }));
+    if (e.type === 'task.transition' && (e.to === 'PR_OPEN' || e.to === 'DONE')) void chat.notifyResolved(e.taskId).catch((err: unknown) => logger.warn('could not post to the task chat', { taskId: e.taskId, error: String(err) }));
   });
+  // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
+  for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
   const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };
   const { app, token } = await buildApp(ctx, { port: config.port, webDir: o.webDir ?? WEB_DIR, version: VERSION });
   try {

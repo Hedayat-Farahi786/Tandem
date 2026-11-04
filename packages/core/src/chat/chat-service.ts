@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, Requirement, type OwnerAnswer, type SkippableCheck, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
+import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, RenameTaskArgs, Requirement, type OwnerAnswer, type SkippableCheck, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
@@ -29,7 +29,8 @@ const TASK_RULES = `${READ_ONLY_RULES}
 You answer the owner's questions about this task: its spec, the build, the diff and failing checks. Cite files as repo/path:line.
 If the owner asks to change what will be built, call tandem_request_spec_change: kind "redraft" with the feedback for small or unclear changes, or kind "edit" with the full new spec Markdown when the change is precise. Tandem asks the owner to confirm before anything changes. You never change code.
 If the task is stuck (blocked, failed, or its pull request needs attention), explain in plain words what went wrong and what you would do. When you and the owner agree on how to go on, call tandem_continue_task with a one-line summary and clear guidance for the agent that will do the work; Tandem asks the owner to confirm.
-You never create branches, commits or pull requests yourself, and neither does this chat: Tandem opens the pull requests on its own once the checks pass and the self-review is done. Never tell the owner "this session can't do it"; say what Tandem will do next.
+You never create branches, commits or pull requests yourself, and neither does this chat: Tandem opens the pull requests on its own once the checks pass and the self-review is done, titles each one with the task's short name (never a task key or a status) and keeps it up to date. If the owner wants a different name for the task or its pull requests, call tandem_rename_task; it takes effect at once.
+Call tandem_continue_task only when the task is stuck or the owner wants Copilot to work on the code again. Never say you "submitted a handoff" or that the owner must confirm something unless a tool told you so; say plainly what has happened and what Tandem will do next.
 If a check fails or hangs for a reason outside the change (for example the test runner can't start on this machine) and the owner wants to go on without it, call tandem_continue_task with skipChecks listing the repo folder and the check (install, lint, typecheck, build, test or integration). Tandem asks the owner to confirm, stops that check if it is running, carries on without it, and says so on the pull request.`;
 
 /** File references in an answer (repo/path:line or path:line), kept only if the file exists. */
@@ -160,7 +161,7 @@ export class ChatService {
 
     const tools: AgentTool<never>[] = [];
     if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>, this.askTool(threadId) as AgentTool<never>);
-    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId, repos) as AgentTool<never>);
+    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId, repos) as AgentTool<never>, this.renameTool(threadId) as AgentTool<never>);
     const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
     const session = await openSession(this.deps, {
       ...(task ? { taskId: task.id } : {}),
@@ -202,9 +203,12 @@ export class ChatService {
     const spec = await this.deps.store.specs.latest(task.id);
     const verify = (await this.deps.store.verifyRuns.list(task.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
     const fails = verify ? failuresOf(verify).map((f) => `- ${f.kind} \`${f.command}\` failed:\n${f.outputTail.slice(-1_500)}`) : [];
+    const prs = await this.deps.store.prs.list(task.id);
+    const prLines = prs.map((p) => `- ${repos.find((r) => r.id === p.repoId)?.name ?? 'repo'}: "${p.title}" (${p.status}) ${p.url}`);
     return [
       repoLine,
-      `Task ${task.key} "${task.title}" is ${task.state}${task.step ? ` (${task.step})` : ''}.${task.blockedMessage ? ` Note: ${task.blockedMessage}` : ''}`,
+      `Task ${task.key} "${task.title}" is ${task.state}${task.step ? ` (${task.step})` : ''}.${task.blockedMessage ? ` Note: ${task.blockedMessage}` : ''}${task.needsAttention ? ` Needs attention: ${task.attentionNotes.join('; ')}` : ''}`,
+      prLines.length ? `Pull requests:\n${prLines.join('\n')}` : '',
       spec ? `Current spec (version ${spec.version}):\n${spec.markdown.slice(0, 30_000)}` : 'No spec yet.',
       fails.length ? `Latest failing checks:\n${fails.join('\n')}` : '',
       `Owner: ${text}`,
@@ -258,6 +262,21 @@ export class ChatService {
         await this.deps.store.threads.upsert({ ...t, pendingQuestions: { questions, askedAt: this.deps.clock.iso() }, updatedAt: this.deps.clock.iso() });
         this.deps.events?.emit({ type: 'thread.updated', threadId });
         return 'The owner sees your questions as a card with the options, and can also write their own answer. Reply with one short sentence; do not repeat the questions.';
+      },
+    };
+  }
+
+  private renameTool(threadId: string): AgentTool<RenameTaskArgs> {
+    return {
+      name: 'tandem_rename_task',
+      description: 'Rename the task when the owner asks; its open pull requests take the new name at once. Use a short name: 3 to 8 words, no task key.',
+      schema: RenameTaskArgs,
+      handler: async (a) => {
+        const t = await this.thread(threadId);
+        if (!t.taskId) return 'This chat has no task.';
+        const task = await this.tasks.rename(t.taskId, a.title);
+        const prs = (await this.deps.store.prs.list(task.id)).filter((p) => p.status === 'open');
+        return `Renamed to "${task.title}".${prs.length ? ` ${prs.length === 1 ? 'Its pull request is' : 'Its pull requests are'} now titled "${task.title}".` : ''}`;
       },
     };
   }
@@ -322,7 +341,7 @@ export class ChatService {
       resumed: what ? `Skipping ${what} for this task and continuing.` : 'Continuing the task with your guidance.',
       fixing: 'Starting another round of fixes with your guidance; the pull request updates when checks pass.',
       redrafting: 'Redrafting the spec with your change. Earlier approvals will not count for the new version.',
-      noted: 'Noted. Copilot follows this from its next step.',
+      noted: r.task.state === 'PR_OPEN' ? 'Saved with the task. Its pull request is open for review, so Copilot has no step left to take; to change what is built, ask for a spec change.' : 'Noted. Copilot follows this from its next step.',
       skipping: `Skipping ${what} for this task. If it was running, it stopped; Tandem carries on without it and notes it on the pull request.`,
       rechecking: `Skipping ${what} and checking again; the pull request updates when the other checks pass.`,
     }[r.action];
@@ -348,6 +367,18 @@ export class ChatService {
     const last = (await this.deps.store.messages.list(thread.id)).at(-1);
     const text = `I need your help with ${task.key}. ${why}\n\nTell me how to continue and choose **Continue with this**, or ask me what went wrong first.`;
     if (last?.content === text) return;
+    const m = await this.say(thread.id, 'assistant', text);
+    this.deps.events?.emit({ type: 'chat.done', threadId: thread.id, messageId: m.id });
+  }
+
+  /** After Tandem asked for help, say so when the problem resolved itself, so the alarm isn't the last word. */
+  async notifyResolved(taskId: string): Promise<void> {
+    const task = await this.deps.store.tasks.get(taskId);
+    if (!task || !((task.state === 'PR_OPEN' && !task.needsAttention) || task.state === 'DONE')) return;
+    const thread = await this.taskThread(taskId);
+    const last = (await this.deps.store.messages.list(thread.id)).filter((m) => m.role !== 'system').at(-1);
+    if (!last || last.role !== 'assistant' || !last.content.startsWith(`I need your help with ${task.key}.`)) return;
+    const text = task.state === 'DONE' ? `${task.key} is done: every pull request is merged.` : "That's sorted: the checks pass and the pull request is up to date. Nothing needs you right now.";
     const m = await this.say(thread.id, 'assistant', text);
     this.deps.events?.emit({ type: 'chat.done', threadId: thread.id, messageId: m.id });
   }

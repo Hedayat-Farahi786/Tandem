@@ -90,6 +90,10 @@ export const SpecChangeArgs = z.object({
 });
 export type SpecChangeArgs = z.infer<typeof SpecChangeArgs>;
 
+/** Task chat: rename the task (and its pull requests) when the owner asks. */
+export const RenameTaskArgs = z.object({ title: z.string() });
+export type RenameTaskArgs = z.infer<typeof RenameTaskArgs>;
+
 /** Task chat: the agent proposes how the task should go on; the owner confirms. */
 export const ContinueArgs = z.object({
   /** One line for the owner, e.g. "Fix the failing date test by using UTC". */
