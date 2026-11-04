@@ -239,7 +239,7 @@ export class ChatService {
     if (thread.mode === 'request') {
       const draft = thread.draft ?? Requirement.parse({});
       const r = checkReadiness(draft);
-      const status = r.ready ? 'The draft meets the Definition of Ready. Tell the owner it is ready and summarise it; ask only if something is clearly wrong.' : `Still missing for the Definition of Ready:\n${r.missing.map((m) => `- ${m.label}`).join('\n')}`;
+      const status = r.ready ? 'The draft meets the Definition of Ready. Tell the owner in one or two sentences that the spec beside the chat is ready, and that they can choose Create and start or Save for later; ask only if something is clearly wrong.' : `Still missing for the Definition of Ready:\n${r.missing.map((m) => `- ${m.label}`).join('\n')}`;
       return [repoLine, `Draft so far:\n${requirementMarkdown(thread.draftTitle ?? 'Untitled', draft)}`, status, `Owner: ${text}`].join('\n\n');
     }
     if (!task) return text;
@@ -428,14 +428,20 @@ export class ChatService {
     this.deps.events?.emit({ type: 'chat.done', threadId: thread.id, messageId: m.id });
   }
 
-  /** Request mode: turns a ready draft into a task (DRAFT -> READINESS). */
-  async createTask(threadId: string): Promise<Task> {
+  /**
+   * Request mode: turns the draft into a task. By default it starts at once (DRAFT -> READINESS),
+   * which needs a ready draft; `start: false` saves it as a draft task to start later, even unfinished.
+   */
+  async createTask(threadId: string, o: { start?: boolean | undefined } = {}): Promise<Task> {
+    const start = o.start !== false;
     const t = await this.thread(threadId);
     if (t.mode !== 'request') throw new ActionError('Only a request chat can create a task.');
     if (t.createdTaskId) throw new ActionError('This request already became a task.');
+    if (t.busy && !(await this.staleBusy(t))) throw new ActionError('Copilot is still writing the spec. Create the task as soon as it finishes.');
     const draft = t.draft ?? Requirement.parse({});
     const r = checkReadiness(draft);
-    if (!r.ready) throw new ActionError(`Not ready yet. Missing: ${r.missing.map((m) => m.label).join('; ')}.`);
+    if (start && !r.ready) throw new ActionError(`Not ready yet. Missing: ${r.missing.map((m) => m.label).join('; ')}.`);
+    if (!start && !(t.draftTitle || draft.goal.trim())) throw new ActionError('Describe the change first, so the task has a name and a goal.');
     const task = await this.tasks.create({
       projectId: t.projectId,
       title: t.draftTitle || t.title,
@@ -447,6 +453,10 @@ export class ChatService {
     });
     if (t.draftSize) await this.deps.store.tasks.upsert({ ...task, sizeEstimate: t.draftSize });
     await this.deps.store.threads.upsert({ ...t, createdTaskId: task.id, updatedAt: this.deps.clock.iso() });
+    if (!start) {
+      await this.say(threadId, 'system', `Saved as ${task.key}. It starts when you choose Start task on its page.`);
+      return task;
+    }
     await this.say(threadId, 'system', `Created ${task.key}. Tandem is checking readiness and size, then drafts the spec.`);
     return this.tasks.submit(task.id);
   }

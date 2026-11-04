@@ -1626,6 +1626,33 @@ function StatusBanner({
       </Callout>
     );
   }
+  if (t.state === "DRAFT") {
+    return (
+      <Callout
+        tone="accent"
+        title="Saved, not started yet"
+        actions={
+          <Button
+            size="sm"
+            variant="primary"
+            icon={Sparkles}
+            busy={act.isPending}
+            onClick={() =>
+              act.mutate({
+                path: `/api/tasks/${t.id}/submit`,
+                done: "Started: checking readiness, then drafting the spec.",
+              })
+            }
+          >
+            Start task
+          </Button>
+        }
+      >
+        Nothing runs until you start it. Edit the requirement in Overview first if
+        you like; starting checks it is ready, then Copilot drafts the spec.
+      </Callout>
+    );
+  }
   if (t.state === "SPEC_REVIEW") {
     return (
       <Callout
@@ -1866,11 +1893,11 @@ export function TaskDetailScreen({ id }: { id: string }) {
                 onClick={() =>
                   act.mutate({
                     path: `/api/tasks/${t.id}/submit`,
-                    done: "Checking readiness.",
+                    done: "Started: checking readiness, then drafting the spec.",
                   })
                 }
               >
-                Check readiness
+                Start task
               </Button>
             )}
             {!finished && (

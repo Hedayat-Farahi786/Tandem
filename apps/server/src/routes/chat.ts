@@ -31,7 +31,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: ServerContext) {
     const body = z.object({ text: z.string(), answers: z.array(OwnerAnswer).optional() }).parse(req.body);
     return chat.send(id(req), body.text, undefined, body.answers);
   });
-  app.post('/api/threads/:id/create-task', async (req) => chat.createTask(id(req)));
+  app.post('/api/threads/:id/create-task', async (req) => chat.createTask(id(req), z.object({ start: z.boolean().optional() }).parse(req.body ?? {})));
   app.post('/api/threads/:id/spec-change/apply', async (req) => chat.applySpecChange(id(req)));
   /** Task chat: continue the task with the owner's message (text) or with what the agent proposed. */
   app.post('/api/threads/:id/continue', async (req) => chat.continueTask(id(req), z.object({ text: z.string().optional() }).parse(req.body ?? {}).text));

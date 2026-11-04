@@ -81,7 +81,7 @@ test('chat: a request becomes a ready task', async () => {
   const card = page.getByRole('region', { name: 'Copilot needs you' });
   await expect(card).toBeVisible({ timeout: 60_000 });
   const draft = page.getByRole('complementary', { name: 'Task draft' });
-  await expect(draft.getByRole('button', { name: 'Create task' })).toHaveCount(0);
+  await expect(draft.getByRole('button', { name: 'Create and start' })).toBeDisabled();
   await checkScreen(page, '06c-chat-question');
   await page.keyboard.press('1');
   await page.keyboard.press('Enter');
@@ -95,7 +95,7 @@ test('chat: a request becomes a ready task', async () => {
   await expect(draft.getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Conversations' }).getByText('Add a GET /health endpoint')).toBeVisible();
   await checkScreen(page, '07-chat-ready');
-  await draft.getByRole('button', { name: 'Create task' }).click();
+  await draft.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/tasks\/[\w-]+$/);
 });
 

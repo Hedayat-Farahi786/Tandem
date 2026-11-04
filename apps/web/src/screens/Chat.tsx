@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Check, Copy, FileText, HelpCircle, MessageSquarePlus, PencilRuler } from 'lucide-react';
 import type { AgentStep, ChatMessage, ChatThread, OwnerAnswer } from '@tandem/shared';
-import { ActivitySummary, LiveActivity } from '../ui/agent-steps';
+import { ActivitySummary, LiveActivity, describe } from '../ui/agent-steps';
 import { api, post, put } from '../lib/api';
 import { useEvents } from '../lib/events';
 import { relativeTime } from '../lib/format';
@@ -153,9 +153,9 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
     },
   });
   const createTask = useMutation({
-    mutationFn: () => post<{ id: string; key: string }>(`/api/threads/${threadId}/create-task`),
-    onSuccess: (t) => {
-      toast(`Created ${t.key}. Tandem is checking readiness and drafting the spec.`, 'ok');
+    mutationFn: (start: boolean) => post<{ id: string; key: string }>(`/api/threads/${threadId}/create-task`, { start }),
+    onSuccess: (t, start) => {
+      toast(start ? `Created ${t.key}. Tandem is checking readiness and drafting the spec.` : `Saved as ${t.key}. Start it from its page when you're ready.`, 'ok');
       void qc.invalidateQueries({ queryKey: ['thread', threadId] });
       void qc.invalidateQueries({ queryKey: ['threads'] });
       void qc.invalidateQueries({ queryKey: ['tasks'] });
@@ -276,7 +276,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const questions = thread?.pendingQuestions && !answering ? thread.pendingQuestions.questions : null;
   const entries: TimelineItem[] = [...(timeline ?? []), ...messages.map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
-    <div className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[minmax(0,1fr)_320px]')}>
+    <div data-layout={thread?.mode === 'request' && !compact ? 'split' : undefined} className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[minmax(360px,1fr)_minmax(0,1.1fr)] lg:gap-8')}>
       <div className="flex min-h-[420px] flex-col">
         <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={answering}>
           {entries.length === 0 && !showPending && (
@@ -422,7 +422,20 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
         </form>
       </div>
       {thread?.mode === 'request' && view.data.readiness && !compact && (
-        <RequestDraft thread={thread} readiness={view.data.readiness} repos={repos} working={send.isPending} creating={createTask.isPending} done={done} error={createTask.isError ? createTask.error : null} onCreate={() => createTask.mutate()} />
+        <RequestDraft
+          thread={thread}
+          readiness={view.data.readiness}
+          repos={repos}
+          working={answering}
+          liveLine={(() => {
+            const last = [...liveSteps].reverse().find((x) => x.kind === 'tool' || x.kind === 'intent');
+            return last ? (last.kind === 'intent' ? last.text : describe(last, true)) : undefined;
+          })()}
+          creating={createTask.isPending ? (createTask.variables ? 'start' : 'save') : null}
+          done={done}
+          error={createTask.isError ? createTask.error : null}
+          onCreate={(start) => createTask.mutate(start)}
+        />
       )}
     </div>
   );

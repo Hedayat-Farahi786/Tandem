@@ -63,9 +63,12 @@ A new chat starts in one of two modes:
   words. Number keys pick an answer and Enter goes on; **Answer in chat**,
   or simply typing a reply, works too.
 
-  Beside the chat, the **Task draft** fills in live as Copilot learns: the
-  item it is working on shimmers, finished ones tick and show what was
-  filled in. It tracks the Definition of Ready:
+  Beside the chat, the **spec draft** writes itself as Copilot reads the
+  code and learns from your answers: the title, problem and goal, user story,
+  acceptance criteria (Given / When / Then), example data, affected areas and
+  what is out of scope. New text types in with a cursor; the header shows
+  what Copilot is looking at, and a section still missing says what it
+  needs. It tracks the Definition of Ready:
   - a clear goal
   - at least 2 acceptance criteria in Given / When / Then form
   - example data
@@ -73,9 +76,13 @@ A new chat starts in one of two modes:
   - what is out of scope
   - no open questions
 
-  When the draft is ready, **Create task** appears with a summary
-  (criteria, repositories, size), and the page moves straight into the new
-  task's conversation.
+  At the bottom:
+  - **Create and start** (once the spec is ready) creates the task and moves
+    straight into its live run. Copilot writes the full spec next, and no
+    code is written before you approve it.
+  - **Save for later** keeps it as a draft task that doesn't run, even if
+    the spec isn't finished. Its page says **Saved, not started yet**;
+    choose **Start task** when you're ready.
 - **Ask**: questions about the code. Answers are read-only and cite files
   and lines.
 

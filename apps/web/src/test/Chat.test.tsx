@@ -36,12 +36,33 @@ describe('Chat', () => {
     // The task draft fills in beside the chat; it can be created once it is ready.
     const draft = screen.getByRole('complementary', { name: 'Task draft' });
     expect(within(draft).getByText('Health endpoint')).toBeTruthy();
-    expect(within(draft).queryByRole('button', { name: /Create task/ })).toBeNull();
+    expect((within(draft).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(true);
     await user.type(screen.getByLabelText('Message'), 'Show a spinner{Enter}');
-    await waitFor(() => expect((within(draft).getByRole('button', { name: /Create task/ }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((within(draft).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(false));
     expect(within(draft).getByText('Ready')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /Create task/ }));
+    await user.click(within(draft).getByRole('button', { name: 'Create and start' }));
+    expect(api.calls.find((c) => c.path === '/api/threads/t1/create-task')?.body).toEqual({ start: true });
     await waitFor(() => expect(window.location.pathname).toBe('/tasks/task1'));
+  });
+
+  it('the spec writes itself beside the chat; save it as a task for later without starting it', async () => {
+    const draft = { goal: 'Show the service status on the main page', userStory: '', criteria: [{ given: 'the backend is down', when: 'the page loads', then: 'it shows Status unavailable' }], exampleData: '', affectedAreas: '', outOfScope: '', openQuestions: [] };
+    const api = mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/projects/p1/threads': [thread],
+      'GET /api/threads/t1': { thread: { ...thread, draftTitle: 'Show service status', draft }, model: '', messages: [], readiness: readiness(false) },
+      'POST /api/threads/t1/create-task': { id: 'task9', key: 'TND-9' },
+      'GET /api/tasks/task9': () => new Response(JSON.stringify({ error: 'stop' }), { status: 404 }),
+    });
+    const user = userEvent.setup();
+    renderApp('/chat?project=p1&thread=t1');
+    const doc = await screen.findByRole('complementary', { name: 'Task draft' });
+    expect(within(doc).getByRole('heading', { name: 'Show service status' })).toBeTruthy();
+    expect(within(doc).getByText('Show the service status on the main page')).toBeTruthy();
+    expect(within(doc).getByText('Given the backend is down, when the page loads, then it shows Status unavailable.')).toBeTruthy();
+    expect((within(doc).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(within(doc).getByRole('button', { name: 'Save for later' }));
+    await waitFor(() => expect(api.calls.find((c) => c.path === '/api/threads/t1/create-task')?.body).toEqual({ start: false }));
   });
 
   it('a chat opened while Copilot is answering shows it working, and the answer when it lands', async () => {

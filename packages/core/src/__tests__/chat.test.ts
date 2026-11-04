@@ -138,6 +138,24 @@ describe('chat: Request', () => {
   });
 });
 
+describe('chat: save a request for later', () => {
+  it('saves an unfinished request as a draft task that does not run, and starts only a ready one', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await expect(c.createTask(t.id, { start: false })).rejects.toThrow(/Describe the change first/);
+    await h.store.threads.upsert({ ...(await c.thread(t.id)), draftTitle: 'Health endpoint', draft: { ...GOOD_REQUIREMENT, criteria: [GOOD_REQUIREMENT.criteria[0]!], exampleData: '' } });
+    await expect(c.createTask(t.id)).rejects.toThrow(/Not ready yet/);
+    const task = await c.createTask(t.id, { start: false });
+    expect(task).toMatchObject({ state: 'DRAFT', title: 'Health endpoint', source: 'chat' });
+    await h.runner.runUntilIdle();
+    expect((await h.get(task.id)).state).toBe('DRAFT'); // nothing runs until it is started
+    expect(h.agent.calls).toHaveLength(0);
+    expect((await c.messages(t.id)).at(-1)!.content).toMatch(/^Saved as TND-1\. It starts when you choose Start task/);
+  });
+});
+
 describe('chat: questions for the owner', () => {
   it('shows the agent questions as choices, keeps the answers, and closes them on reply', async () => {
     const h = harness();

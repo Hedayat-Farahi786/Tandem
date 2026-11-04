@@ -1,99 +1,169 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Circle, Sparkles } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { CheckCircle2, Circle, FileText, Play, Save } from 'lucide-react';
 import type { ChatThread } from '@tandem/shared';
 import type { Readiness } from '../lib/types';
 import { Button, ErrorState, Spinner, cx } from '../ui/kit';
-import { InlineText } from '../ui/text';
+import { Caret, Typed } from '../ui/typewriter';
 
-/** Items that just turned done, so they can celebrate once (not on every render or reload). */
-function useJustDone(items: Readiness['items']): Set<string> {
-  const before = useRef<Map<string, boolean> | null>(null);
-  const [fresh, setFresh] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    const prev = before.current;
-    before.current = new Map(items.map((i) => [i.id, i.ok]));
-    if (!prev) return;
-    const now = items.filter((i) => i.ok && prev.get(i.id) === false).map((i) => i.id);
-    if (!now.length) return;
-    setFresh(new Set(now));
-    const t = setTimeout(() => setFresh(new Set()), 1200);
-    return () => clearTimeout(t);
-  }, [items]);
-  return fresh;
+type ItemId = Readiness['items'][number]['id'];
+
+/** One section of the spec as it takes shape: done, being written, or still to come. */
+function Section({ title, item, readiness, current, children }: { title: string; item?: ItemId; readiness: Readiness; current: boolean; children?: ReactNode }) {
+  const r = item ? readiness.items.find((i) => i.id === item) : undefined;
+  const ok = r ? r.ok : Boolean(children);
+  return (
+    <section className="group/sec">
+      <h3 className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-fg">
+        {ok ? <CheckCircle2 aria-hidden className="size-3.5 text-ok" strokeWidth={2.4} /> : current ? <Spinner className="size-3" /> : <Circle aria-hidden className="size-3.5 text-line-strong" strokeWidth={2} strokeDasharray="3 3" />}
+        {title}
+        <span className="sr-only">{ok ? ' (done)' : ' (to do)'}</span>
+      </h3>
+      <div className="pl-[22px] text-[14.5px] leading-relaxed">
+        {children ? (
+          <>
+            {children}
+            {/* Written but not enough yet (one criterion of two, say): what's still needed. */}
+            {!ok && r && <p className={cx('mt-1.5 text-[12.5px]', current ? 'shimmer-text' : 'text-faint')}>{r.detail}</p>}
+          </>
+        ) : current ? (
+          <p className="shimmer-text">
+            {r?.detail ?? 'Writing…'}
+            <Caret />
+          </p>
+        ) : (
+          <p className="text-[13.5px] text-faint italic">{r?.detail ?? 'Not yet.'}</p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 /**
- * The task taking shape beside a request chat: Copilot fills in the Definition of Ready live (the
- * item it's on shimmers, finished ones tick), and once it's ready, the task to create.
+ * The spec beside a request chat, written live: as Copilot reads the code and learns from your
+ * answers, each section fills in (new text types out with a cursor). When it meets the Definition of
+ * Ready it can be created and started, or saved to start later.
  */
-export function RequestDraft({ thread, readiness, repos, working, creating, done, error, onCreate }: { thread: ChatThread; readiness: Readiness; repos: Array<{ id: string; name: string }>; working: boolean; creating: boolean; done: boolean; error: unknown; onCreate: () => void }) {
+export function RequestDraft({
+  thread,
+  readiness,
+  repos,
+  working,
+  liveLine,
+  creating,
+  done,
+  error,
+  onCreate,
+}: {
+  thread: ChatThread;
+  readiness: Readiness;
+  repos: Array<{ id: string; name: string }>;
+  working: boolean;
+  liveLine?: string | undefined;
+  creating: 'start' | 'save' | null;
+  done: boolean;
+  error: unknown;
+  onCreate: (start: boolean) => void;
+}) {
+  const d = thread.draft;
   const items = readiness.items;
-  const ok = items.filter((i) => i.ok).length;
-  const fresh = useJustDone(items);
+  const okCount = items.filter((i) => i.ok).length;
+  // The section Copilot is on: the first one still missing, while it works.
   const current = working ? items.find((i) => !i.ok)?.id : undefined;
-  const draft = thread.draft;
   const repoNames = (thread.draftRepoIds ?? []).map((id) => repos.find((r) => r.id === id)?.name).filter(Boolean) as string[];
   const lines = thread.draftSize?.estimatedLines;
+  const canSave = Boolean(thread.draftTitle || d?.goal.trim());
+  const left = items.length - okCount;
   return (
-    <aside aria-label="Task draft" className="h-fit overflow-hidden rounded-2xl bg-surface shadow-panel lg:sticky lg:top-20">
-      <div className="px-4 pt-4 pb-3.5">
-        <p className="text-[12px] font-medium text-faint">Task draft</p>
-        {thread.draftTitle ? (
-          <p key={thread.draftTitle} className="mt-1 animate-in text-[15px] leading-snug font-semibold tracking-[-0.01em]">
-            {thread.draftTitle}
-          </p>
-        ) : working ? (
-          <p className="shimmer-text mt-1 text-[15px] font-semibold">Reading your request…</p>
-        ) : (
-          <p className="mt-1 text-[15px] font-semibold text-faint">Untitled request</p>
-        )}
-        <div className="mt-3 flex items-center gap-3">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label="Definition of Ready" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={ok}>
-            <div className={cx('h-full rounded-full transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]', readiness.ready ? 'bg-ok' : 'bg-accent')} style={{ width: `${(ok / Math.max(1, items.length)) * 100}%` }} />
-          </div>
-          <span className={cx('shrink-0 text-[12px] font-medium tabular-nums', readiness.ready ? 'text-ok' : 'text-muted')}>{readiness.ready ? 'Ready' : `${ok} of ${items.length}`}</span>
+    <aside aria-label="Task draft" className="flex flex-col overflow-hidden rounded-2xl bg-surface shadow-panel lg:sticky lg:top-16 lg:h-[calc(100dvh-5.5rem)] lg:self-start">
+      <header className="border-b border-line px-6 pt-4 pb-3.5">
+        <div className="flex items-center gap-2">
+          <FileText aria-hidden className="size-4 text-muted" strokeWidth={1.9} />
+          <p className="flex-1 text-[12.5px] font-medium text-muted">Spec draft</p>
+          <span className={cx('text-[12px] font-medium tabular-nums', readiness.ready ? 'text-ok' : 'text-muted')}>{readiness.ready ? 'Ready' : `${okCount} of ${items.length}`}</span>
         </div>
-      </div>
-      <ul aria-label="Definition of Ready" className="flex flex-col border-t border-line px-2 py-2">
-        {items.map((i) => {
-          const on = current === i.id;
-          return (
-            <li key={i.id} className={cx('flex gap-2.5 rounded-lg px-2 py-2 transition-colors duration-300', on && 'bg-surface-2', fresh.has(i.id) && 'bg-ok-soft/60')}>
-              <span aria-hidden className="mt-px grid size-[18px] shrink-0 place-items-center">
-                {i.ok ? <CheckCircle2 key="ok" className={cx('size-[18px] text-ok', fresh.has(i.id) && 'animate-pop')} strokeWidth={2.2} /> : on ? <Spinner className="size-3.5" /> : <Circle className="size-[18px] text-line-strong" strokeWidth={1.75} strokeDasharray="3 3" />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className={cx('block text-[13.5px] leading-snug', i.ok ? 'font-medium' : on ? 'shimmer-text font-medium' : 'text-muted')}>{i.label}</span>
-                <span className="sr-only">{i.ok ? ' — done' : ' — missing'}</span>
-                {i.ok && (
-                  <span className="mt-0.5 line-clamp-2 block text-[12px] leading-snug break-words text-muted">
-                    <InlineText text={i.detail} />
+        <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label="Definition of Ready" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={okCount}>
+          <div className={cx('h-full rounded-full transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]', readiness.ready ? 'bg-ok' : 'bg-accent')} style={{ width: `${(okCount / Math.max(1, items.length)) * 100}%` }} />
+        </div>
+        {working && (
+          <p role="status" className="mt-2.5 flex min-w-0 animate-in items-center gap-2 text-[12.5px]">
+            <Spinner className="size-3" />
+            <span className="shimmer-text truncate">{liveLine ?? 'Reading your request and the code…'}</span>
+          </p>
+        )}
+      </header>
+
+      <div tabIndex={0} role="region" aria-label="Spec" className="min-h-0 flex-1 overflow-y-auto px-6 py-6 focus-visible:outline-offset-[-2px]">
+        <h2 className="font-display text-[22px] leading-snug">
+          {thread.draftTitle ? <Typed text={thread.draftTitle} /> : working ? <span className="shimmer-text">Naming the change…</span> : <span className="text-faint">Untitled request</span>}
+        </h2>
+        <div className="mt-6 flex flex-col gap-6">
+          <Section title="Problem and goal" item="goal" readiness={readiness} current={current === 'goal'}>
+            {d?.goal.trim() ? <Typed text={d.goal} /> : undefined}
+          </Section>
+          {d?.userStory?.trim() && (
+            <Section title="User story" readiness={readiness} current={false}>
+              <Typed text={d.userStory} />
+            </Section>
+          )}
+          <Section title="Acceptance criteria" item="criteria" readiness={readiness} current={current === 'criteria'}>
+            {d?.criteria.length ? (
+              <ol className="flex flex-col gap-2">
+                {d.criteria.map((c, i) => (
+                  <li key={i} className="flex gap-2.5">
+                    <span className="mt-[3px] grid size-[18px] shrink-0 place-items-center rounded-md bg-surface-2 text-[11px] font-semibold text-muted tabular-nums">{i + 1}</span>
+                    <Typed className="min-w-0" text={`Given ${c.given}, when ${c.when}, then ${c.then}.`.replace(/\.\.$/, '.')} />
+                  </li>
+                ))}
+              </ol>
+            ) : undefined}
+          </Section>
+          <Section title="Example data" item="example-data" readiness={readiness} current={current === 'example-data'}>
+            {d?.exampleData.trim() ? <Typed className="font-mono text-[13px]" text={d.exampleData} /> : undefined}
+          </Section>
+          <Section title="Affected areas" item="affected-areas" readiness={readiness} current={current === 'affected-areas'}>
+            {d?.affectedAreas.trim() ? (
+              <>
+                <Typed text={d.affectedAreas} />
+                {repoNames.length > 0 && (
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    {repoNames.map((n) => (
+                      <span key={n} className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[12px] text-muted">
+                        {n}
+                      </span>
+                    ))}
                   </span>
                 )}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="border-t border-line px-4 py-3.5">
-        {readiness.ready ? (
-          <div className="animate-in">
-            <p className="text-[13px] text-muted">
-              {[draft?.criteria.length ? `${draft.criteria.length} acceptance criteria` : null, repoNames.length ? repoNames.join(', ') : null, lines ? `about ${lines} lines` : null].filter(Boolean).join(' · ') || 'Ready to become a task.'}
-            </p>
-            {error ? (
-              <div className="mt-3">
-                <ErrorState error={error} />
-              </div>
-            ) : null}
-            <Button variant="primary" className="mt-3 w-full" icon={Sparkles} disabled={done} busy={creating} onClick={onCreate}>
-              {done ? 'Task created' : 'Create task'}
-            </Button>
-          </div>
-        ) : (
-          <p className="text-[12px] leading-relaxed text-faint">{working ? 'Copilot fills this in as it learns about your request.' : 'Answer Copilot’s questions to finish the draft. Then create the task here.'}</p>
-        )}
+              </>
+            ) : undefined}
+          </Section>
+          <Section title="Out of scope" item="out-of-scope" readiness={readiness} current={current === 'out-of-scope'}>
+            {d?.outOfScope.trim() ? <Typed text={d.outOfScope} /> : undefined}
+          </Section>
+          <Section title="Open questions" item="open-questions" readiness={readiness} current={current === 'open-questions'}>
+            {d && readiness.items.find((i) => i.id === 'open-questions')?.ok ? <span className="text-muted">None</span> : undefined}
+          </Section>
+          {lines ? <p className="text-[12px] text-faint">About {lines} lines across {repoNames.length || 1} repo{repoNames.length > 1 ? 's' : ''}.</p> : null}
+        </div>
       </div>
+
+      <footer className="border-t border-line bg-surface px-5 py-4">
+        {error ? (
+          <div className="mb-3">
+            <ErrorState error={error} />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <Button className="flex-1" icon={Save} disabled={done || !canSave || working} busy={creating === 'save'} onClick={() => onCreate(false)}>
+            Save for later
+          </Button>
+          <Button className="flex-[1.4]" variant="primary" icon={Play} disabled={done || !readiness.ready || working} busy={creating === 'start'} onClick={() => onCreate(true)}>
+            {done ? 'Task created' : 'Create and start'}
+          </Button>
+        </div>
+        <p className="mt-2 text-center text-[12px] text-faint">
+          {done ? 'This request is now a task.' : readiness.ready ? 'Starts with the full spec; no code is written before you approve it.' : working ? 'Copilot is still writing the spec.' : `${left} to go before it can start. Save for later keeps it as a draft task.`}
+        </p>
+      </footer>
     </aside>
   );
 }

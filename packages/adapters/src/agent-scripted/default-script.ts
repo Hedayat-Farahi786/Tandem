@@ -271,7 +271,7 @@ function chatReply(call: ScriptCall): ScriptReply {
     }
     if (!health)
       return {
-        text: 'That covers everything: the draft meets the Definition of Ready. Review the checklist and create the task.',
+        text: 'That covers everything: the spec on the right meets the Definition of Ready. Choose Create and start, or Save for later.',
         tools: [
           {
             name: 'tandem_update_draft',
@@ -292,7 +292,7 @@ function chatReply(call: ScriptCall): ScriptReply {
         ],
       };
     return {
-      text: 'That covers everything: the draft meets the Definition of Ready. Review the checklist and create the task.',
+      text: 'That covers everything: the spec on the right meets the Definition of Ready. Choose Create and start, or Save for later.',
       tools: [
         {
           name: 'tandem_update_draft',

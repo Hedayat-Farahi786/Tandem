@@ -8,6 +8,12 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A spec that writes itself beside a request.** The request chat shows
+  the spec draft on the right, filling in live with a typing cursor as
+  Copilot reads the code and takes your answers, with what it is looking at
+  in the header and what each missing section needs. **Create and start**
+  turns it into a running task and moves into the live run; **Save for
+  later** keeps it as a draft task that doesn't run until **Start task**.
 - **Knowing where a repo starts.** A failing check is compared with the
   same check on the base branch (once per base commit, cached). Failures
   that were already there no longer cost Copilot fix rounds or mark the PR
