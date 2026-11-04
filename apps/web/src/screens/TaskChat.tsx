@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, MessageSquareText, ThumbsUp, X, type LucideIcon } from 'lucide-react';
 import type { TaskState } from '@tandem/shared';
 import { api } from '../lib/api';
-import { STATE_LABEL, relativeTime } from '../lib/format';
+import { STATE_LABEL, plainReason, relativeTime } from '../lib/format';
 import { useEvents } from '../lib/events';
 import type { TaskDetail } from '../lib/types';
 import { BrandLogo, hostBrand } from '../ui/brands';
@@ -158,7 +158,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
       if (x.from === x.to && i > 0) continue;
       // The spec and pull request cards already say these.
       if ((x.to === 'SPEC_REVIEW' && d.specs.length) || (x.to === 'PR_OPEN' && d.prs.length)) continue;
-      items.push({ at: x.at, key: `tr-${i}`, node: <Milestone icon={<StatusIcon state={x.to as TaskState} className="size-3.5" />} title={STATE_LABEL[x.to]} body={x.reason} at={x.at} /> });
+      items.push({ at: x.at, key: `tr-${i}`, node: <Milestone icon={<StatusIcon state={x.to as TaskState} className="size-3.5" />} title={STATE_LABEL[x.to]} body={plainReason(x.reason)} at={x.at} /> });
     }
     for (const r of activity.data ?? []) if (!CHAT_RUNS.has(r.kind)) items.push({ at: r.startedAt, key: `run-${r.id}`, node: <RunItem run={r} /> });
     for (const s of d.specs)
@@ -256,8 +256,20 @@ export function TaskChatView({ d, panel, setPanel, tabs, renderPanel, banner }: 
             task={{ id: d.task.id, state: d.task.state, needsAttention: d.task.needsAttention }}
             timeline={timeline}
             scrollRoot={convo}
+            // Tandem's own "I need your help" and "That's sorted" notes repeat what the card and the
+            // timeline already say; they stay in the chat's history for Copilot.
+            hideMessage={(m) => m.role === 'assistant' && (m.content.startsWith(`I need your help with ${d.task.key}.`) || m.content.startsWith("That's sorted:") || m.content.startsWith(`${d.task.key} is done:`))}
             tail={
               <>
+                {d.task.state === 'PR_OPEN' && typeof d.task.progress.pollProblem === 'string' && (
+                  <div role="status" className="flex items-start gap-2.5 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[13px]">
+                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-warn" />
+                    <span className="min-w-0">
+                      <span className="font-medium text-warn">Can't reach the pull requests right now</span>
+                      <span className="block text-muted">{d.task.progress.pollProblem}</span>
+                    </span>
+                  </div>
+                )}
                 {WORKING.has(d.task.state) && !copilotWorking && <TandemWorking taskId={d.task.id} state={d.task.state} since={since} repos={d.repos} />}
                 <div className="empty:hidden">{banner}</div>
               </>

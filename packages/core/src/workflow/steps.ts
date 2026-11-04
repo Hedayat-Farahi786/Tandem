@@ -574,26 +574,38 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
     'PR_OPEN:poll': async (ctx) => {
       const task = ctx.task;
       const settings = await deps.settings();
-      const prs = await deps.store.prs.list(task.id);
-      for (const pr of prs) {
-        if (pr.status === 'merged' || pr.status === 'closed') continue;
-        const repo = await deps.store.repos.get(pr.repoId);
-        if (!repo) continue;
-        const status = await deps.hosts(repo).getPullRequestStatus(repo, pr);
-        // A PR opened with an older title format ("[needs attention] KEY: ...") gets the plain name.
-        const title = prTitle(task.title);
-        if (status === 'open' && !pr.manual && pr.title !== title) {
-          const renamed = await deps.hosts(repo).updatePullRequestDescription(repo, pr, pr.description, title).then(() => true, () => false);
-          await deps.store.prs.upsert({ ...pr, ...(renamed ? { title } : {}), status, lastPolledAt: deps.clock.iso() });
-        } else if (status !== pr.status) await deps.store.prs.upsert({ ...pr, status, lastPolledAt: deps.clock.iso() });
+      try {
+        const prs = await deps.store.prs.list(task.id);
+        for (const pr of prs) {
+          if (pr.status === 'merged' || pr.status === 'closed') continue;
+          const repo = await deps.store.repos.get(pr.repoId);
+          if (!repo) continue;
+          const status = await deps.hosts(repo).getPullRequestStatus(repo, pr);
+          // A PR opened with an older title format ("[needs attention] KEY: ...") gets the plain name.
+          const title = prTitle(task.title);
+          if (status === 'open' && !pr.manual && pr.title !== title) {
+            const renamed = await deps.hosts(repo).updatePullRequestDescription(repo, pr, pr.description, title).then(() => true, () => false);
+            await deps.store.prs.upsert({ ...pr, ...(renamed ? { title } : {}), status, lastPolledAt: deps.clock.iso() });
+          } else if (status !== pr.status) await deps.store.prs.upsert({ ...pr, status, lastPolledAt: deps.clock.iso() });
+        }
+        let fresh = await deps.store.prs.list(task.id);
+        if (fresh.length && fresh.every((p) => p.status === 'merged')) return { kind: 'goto', state: 'DONE', reason: 'All pull requests are merged.' };
+        await syncWithBase(deps, ctx);
+        fresh = await deps.store.prs.list(task.id);
+        const closed = fresh.filter((p) => p.status === 'closed');
+        const patch = closed.length ? attention(ctx.task, closed.map((p) => `A pull request was closed without merging: ${p.url}`)) : {};
+        // A check that works again clears the earlier problem (progress is merged, so clear it explicitly).
+        const cleared = ctx.task.progress.pollProblem !== undefined ? { progress: { pollProblem: undefined, pollProblemAt: undefined } } : {};
+        return { kind: 'wait', ms: settings.polling.prPollIntervalMin * 60_000, patch: { ...patch, ...cleared } };
+      } catch (err) {
+        // The pull requests are open; not reaching the host (an expired sign-in, the network) is no reason
+        // to fail the task. Say what's wrong and try again in a few minutes.
+        const message = err instanceof Error ? err.message : String(err);
+        const expired = /expired|reauthenticate|ExpiredToken|security token|credentials|sso/i.test(message);
+        const note = expired ? 'Your AWS sign-in has expired, so Tandem can\'t check the pull requests. Sign in again (for example aws sso login); Tandem keeps trying.' : `Tandem couldn't check the pull requests: ${message.split('\n')[0]} It tries again in a few minutes.`;
+        deps.logger?.warn('could not check the pull requests', { taskId: task.id, error: message });
+        return { kind: 'wait', ms: Math.min(5, settings.polling.prPollIntervalMin) * 60_000, patch: { progress: { pollProblem: note, pollProblemAt: deps.clock.iso() } } };
       }
-      let fresh = await deps.store.prs.list(task.id);
-      if (fresh.length && fresh.every((p) => p.status === 'merged')) return { kind: 'goto', state: 'DONE', reason: 'All pull requests are merged.' };
-      await syncWithBase(deps, ctx);
-      fresh = await deps.store.prs.list(task.id);
-      const closed = fresh.filter((p) => p.status === 'closed');
-      const patch = closed.length ? attention(task, closed.map((p) => `A pull request was closed without merging: ${p.url}`)) : undefined;
-      return { kind: 'wait', ms: settings.polling.prPollIntervalMin * 60_000, ...(patch ? { patch } : {}) };
     },
 
     /* ---------------------------------------------------------------- DONE / CANCELLED */

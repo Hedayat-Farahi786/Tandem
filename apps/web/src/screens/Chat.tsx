@@ -89,7 +89,7 @@ export interface TimelineItem {
   node?: ReactNode;
 }
 
-export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task, timeline, tail, scrollRoot }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask; timeline?: TimelineItem[]; tail?: ReactNode; /** The element that scrolls the conversation, when it isn't the page (a column of its own). */ scrollRoot?: RefObject<HTMLElement | null> }) {
+export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compact, initialMessage, onInitialSent, task, timeline, tail, scrollRoot, hideMessage }: { threadId: string; placeholder: string; repos: Array<{ id: string; name: string }>; onTaskCreated?: (taskId: string) => void; compact?: boolean; initialMessage?: string; onInitialSent?: () => void; task?: ChatTask; timeline?: TimelineItem[]; tail?: ReactNode; /** The element that scrolls the conversation, when it isn't the page (a column of its own). */ scrollRoot?: RefObject<HTMLElement | null>; /** Messages to leave out of view (they stay in the chat's history). */ hideMessage?: (m: ChatMessage) => boolean }) {
   const stuck = Boolean(task && (task.state === 'BLOCKED' || task.state === 'FAILED' || (task.state === 'PR_OPEN' && task.needsAttention)));
   const bootInfo = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
   const testAgent = bootInfo.data && bootInfo.data.agent !== 'copilot';
@@ -289,7 +289,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const lastMine = messages.filter((m) => m.role === 'user').at(-1);
   const showPending = pending && !(lastMine && lastMine.content === pending.content && Date.parse(lastMine.createdAt) >= since - 5_000);
   const questions = thread?.pendingQuestions && !answering ? thread.pendingQuestions.questions : null;
-  const entries: TimelineItem[] = [...(timeline ?? []), ...messages.map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
+  const entries: TimelineItem[] = [...(timeline ?? []), ...messages.filter((m) => !hideMessage?.(m)).map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <div data-layout={thread?.mode === 'request' && !compact ? 'split' : undefined} className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[minmax(360px,1fr)_minmax(0,1.1fr)] lg:gap-8')}>
       <div className="flex min-h-[420px] flex-col">

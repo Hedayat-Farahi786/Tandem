@@ -31,3 +31,26 @@ export function relativeTime(iso: string, now = Date.now()): string {
 }
 
 export const stepLabel = (step?: string) => (step ? step.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : '');
+
+/** What a step is, in words people use. */
+const STEP_WORDS: Record<string, string> = {
+  'check-ready': 'Checking the request',
+  'check-size': 'Sizing the request',
+  'refresh-refs': 'Reading the latest code',
+  draft: 'Drafting the spec',
+  'await-pm': 'Waiting for approval',
+  'prepare-workspace': 'Preparing the workspace',
+  implement: 'Building',
+  commit: 'Committing',
+  verify: 'Running the checks',
+  review: 'Self-review',
+  sync: 'Updating the branch',
+  push: 'Pushing the branch',
+  'open-prs': 'Opening the pull requests',
+  report: 'Reporting',
+  poll: 'Checking the pull requests',
+  cleanup: 'Cleaning up',
+};
+
+/** "PR_OPEN / poll failed: X" reads as "Checking the pull requests failed: X". */
+export const plainReason = (text: string) => text.replace(/^[A-Z_]+ \/ ([a-z-]+) failed: /, (_m, step: string) => `${STEP_WORDS[step] ?? stepLabel(step)} failed: `);

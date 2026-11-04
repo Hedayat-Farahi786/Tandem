@@ -8,6 +8,13 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **An open pull request no longer fails its task** when Tandem can't
+  reach the host to check it (an expired AWS sign-in, the network). The task
+  stays open with a plain note in the conversation, Tandem tries again every
+  few minutes, and the note clears once it works. The task conversation
+  says each problem once (the card and the timeline; Tandem's repeated
+  "I need your help" notes are left out of view), and failure reasons read
+  in plain words ("Checking the pull requests failed: …").
 - **One view for a task, and a fuller trace.** The task page is the
   conversation with the details beside it; the separate Details view is
   gone. The Checks tab opens with criteria proven, checks passing and

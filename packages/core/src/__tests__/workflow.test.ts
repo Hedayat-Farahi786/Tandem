@@ -525,6 +525,31 @@ describe('workflow: checks the owner skips', () => {
     expect(h.git.commits.map((c) => c.message)).toContain("style(TND-1): keep what app's checks changed");
   });
 
+  it('an expired sign-in while checking an open PR leaves the task open with a clear note, and the note clears once it works', async () => {
+    let fail = true;
+    const h = harness({
+      host: {
+        prStatus: () => {
+          if (fail) throw new Error('Your session has expired. Please reauthenticate.');
+          return 'open';
+        },
+      },
+    });
+    const t = await h.approveAll((await h.start()).id);
+    expect(t.state).toBe('PR_OPEN');
+    await h.store.jobs.upsert({ taskId: t.id, state: 'PR_OPEN', step: 'poll', status: 'queued', attempt: 0, notBefore: h.clock.now() });
+    await h.runner.runUntilIdle();
+    let now = await h.get(t.id);
+    expect(now.state).toBe('PR_OPEN');
+    expect(now.progress.pollProblem).toMatch(/AWS sign-in has expired/);
+    fail = false;
+    await h.store.jobs.upsert({ taskId: t.id, state: 'PR_OPEN', step: 'poll', status: 'queued', attempt: 0, notBefore: h.clock.now() });
+    await h.runner.runUntilIdle();
+    now = await h.get(t.id);
+    expect(now.state).toBe('PR_OPEN');
+    expect(now.progress.pollProblem).toBeUndefined();
+  });
+
   it('renames an open PR that still has an old-style title to the plain task name', async () => {
     const h = harness();
     const t = await h.approveAll((await h.start()).id);

@@ -30,6 +30,7 @@ import {
   STATE_TONE,
   relativeTime,
   stepLabel,
+  plainReason,
 } from "../lib/format";
 import { Link } from "../lib/router";
 import type { RepoDiff, TaskDetail } from "../lib/types";
@@ -1042,7 +1043,7 @@ function StatusBanner({
             </>
           }
         >
-          {t.blockedMessage}
+          {t.blockedMessage ? plainReason(t.blockedMessage) : null}
         </Callout>
         <Dialog
           open={override}
@@ -1124,7 +1125,7 @@ function StatusBanner({
           )
         }
       >
-        {t.blockedMessage}
+        {t.blockedMessage ? plainReason(t.blockedMessage) : null}
         {t.blockedReason === "readiness-missing" &&
           "\n\nEdit the requirement in the Overview, then check readiness again."}
       </Callout>
