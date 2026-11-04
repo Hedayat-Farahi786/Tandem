@@ -7,6 +7,7 @@ import type { Settings } from '@tandem/shared';
 import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
+import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
 import type { AuditVerification } from '../lib/types';
 
@@ -278,7 +279,10 @@ export function SettingsScreen() {
                   <span className="text-[11px] font-medium tabular-nums">{Math.round((used / of) * 100)}%</span>
                 </Ring>
                 <div>
-                  <p className="text-[13px] text-muted">{label}</p>
+                  <p className="flex items-center gap-1 text-[13px] text-muted">
+                    {label}
+                    {label === 'AI credits today' && <CreditsInfo />}
+                  </p>
                   <p className="text-[15px] font-medium tabular-nums">
                     {shown} <span className="text-muted">of {of}</span>
                   </p>
@@ -298,10 +302,10 @@ export function SettingsScreen() {
             </div>
           </div>
         )}
-        <Row label="AI credits per task" htmlFor="set-ctask" description={note('budget.perTaskCredits', 'The model menu warns when a model is likely to need more.')}>
+        <Row label="AI credits per task" htmlFor="set-ctask" description={note('budget.perTaskCredits', `About ${creditsToUsd(s.budget.perTaskCredits)} per task. A task that reaches it stops and waits for you; the model menu warns when a model is likely to need more.`)}>
           <Num id="set-ctask" disabled={Boolean(lock('budget.perTaskCredits'))} value={s.budget.perTaskCredits} onChange={(n) => set('budget', { ...s.budget, perTaskCredits: n })} />
         </Row>
-        <Row label="AI credits per day" htmlFor="set-cday" description={note('budget.perDayCredits', 'For all of Tandem together.')}>
+        <Row label="AI credits per day" htmlFor="set-cday" description={note('budget.perDayCredits', `About ${creditsToUsd(s.budget.perDayCredits)} a day, for all of Tandem together.`)}>
           <Num id="set-cday" disabled={Boolean(lock('budget.perDayCredits'))} value={s.budget.perDayCredits} onChange={(n) => set('budget', { ...s.budget, perDayCredits: n })} />
         </Row>
         <Row label="Prompts per task" htmlFor="set-ptask" description={note('budget.perTaskPrompts')}>

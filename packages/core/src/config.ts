@@ -28,10 +28,6 @@ export const SETTING_ENV: Readonly<Record<string, string>> = {
   'aws.region': 'TANDEM_AWS_REGION',
   'limits.maxConcurrentBuilds': 'TANDEM_MAX_CONCURRENT_BUILDS',
   'limits.buildTimeoutMin': 'TANDEM_BUILD_TIMEOUT_MIN',
-  'budget.perTaskPrompts': 'TANDEM_BUDGET_PER_TASK',
-  'budget.perDayPrompts': 'TANDEM_BUDGET_PER_DAY',
-  'budget.perTaskCredits': 'TANDEM_CREDITS_PER_TASK',
-  'budget.perDayCredits': 'TANDEM_CREDITS_PER_DAY',
 };
 
 /** The value at an "a.b" path of a settings object. */
@@ -56,10 +52,15 @@ export function loadConfig(env: Record<string, string | undefined>, homedir: str
   set('aws.region', str(env.TANDEM_AWS_REGION));
   set('limits.maxConcurrentBuilds', int(env.TANDEM_MAX_CONCURRENT_BUILDS, 'TANDEM_MAX_CONCURRENT_BUILDS'));
   set('limits.buildTimeoutMin', int(env.TANDEM_BUILD_TIMEOUT_MIN, 'TANDEM_BUILD_TIMEOUT_MIN'));
-  set('budget.perTaskPrompts', int(env.TANDEM_BUDGET_PER_TASK, 'TANDEM_BUDGET_PER_TASK'));
-  set('budget.perDayPrompts', int(env.TANDEM_BUDGET_PER_DAY, 'TANDEM_BUDGET_PER_DAY'));
-  set('budget.perTaskCredits', num(env.TANDEM_CREDITS_PER_TASK, 'TANDEM_CREDITS_PER_TASK'));
-  set('budget.perDayCredits', num(env.TANDEM_CREDITS_PER_DAY, 'TANDEM_CREDITS_PER_DAY'));
+  // The Copilot budget is the owner's to change in Settings: these only seed a new install.
+  const seeds: Record<string, unknown> = {};
+  const seed = (path: string, value: unknown) => {
+    if (value !== undefined) seeds[path] = value;
+  };
+  seed('budget.perTaskPrompts', int(env.TANDEM_BUDGET_PER_TASK, 'TANDEM_BUDGET_PER_TASK'));
+  seed('budget.perDayPrompts', int(env.TANDEM_BUDGET_PER_DAY, 'TANDEM_BUDGET_PER_DAY'));
+  seed('budget.perTaskCredits', num(env.TANDEM_CREDITS_PER_TASK, 'TANDEM_CREDITS_PER_TASK'));
+  seed('budget.perDayCredits', num(env.TANDEM_CREDITS_PER_DAY, 'TANDEM_CREDITS_PER_DAY'));
   const agent = str(env.TANDEM_AGENT) ?? 'copilot';
   const parsed = RuntimeConfig.safeParse({
     home: str(env.TANDEM_HOME) ?? joinPath(homedir, '.tandem'),
@@ -68,6 +69,7 @@ export function loadConfig(env: Record<string, string | undefined>, homedir: str
     logLevel: str(env.TANDEM_LOG_LEVEL) ?? 'info',
     agent,
     overrides,
+    seeds,
   });
   if (!parsed.success) throw new ConfigError(`Invalid configuration: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
   return parsed.data;
@@ -86,4 +88,14 @@ export function effectiveSettings(stored: Settings | undefined, overrides: Recor
     node[keys[keys.length - 1]!] = value;
   }
   return Settings.parse(base);
+}
+
+/**
+ * Saves starting values (from the environment) when Tandem has no saved settings yet. Afterwards the
+ * saved settings decide, so a limit changed in Settings stays changed. Returns whether it saved.
+ */
+export async function seedSettings(settings: { saved(): Promise<boolean>; get(): Promise<Settings>; set(s: Settings): Promise<void> }, seeds: Record<string, unknown>): Promise<boolean> {
+  if (!Object.keys(seeds).length || (await settings.saved())) return false;
+  await settings.set(effectiveSettings(await settings.get(), seeds));
+  return true;
 }

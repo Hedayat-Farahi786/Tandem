@@ -56,6 +56,7 @@ import {
   cx,
   useToast,
 } from "../ui/kit";
+import { CreditsInfo } from "../ui/credits-info";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
 import { TaskChatView, type PanelTab } from "./TaskChat";
@@ -253,7 +254,9 @@ function CopilotCard({ d }: { d: TaskDetail }) {
         </div>
         <div>
           <div className="flex items-baseline justify-between">
-            <p className="text-[12px] text-muted">AI credits</p>
+            <p className="flex items-center gap-1 text-[12px] text-muted">
+              AI credits <CreditsInfo />
+            </p>
             <p className="tabular-nums">
               <span className="text-[15px] font-medium">
                 {credits < 10 ? credits.toFixed(2) : credits.toFixed(1)}
@@ -1110,6 +1113,7 @@ function StatusBanner({
                   Open Settings
                 </LinkButton>
               )}
+              {t.blockedReason === "budget-reached" && <CreditsInfo label="About AI credits and limits" />}
               <Button
                 size="sm"
                 variant="primary"
@@ -1165,6 +1169,28 @@ function StatusBanner({
       >
         Nothing runs until you start it. Edit the requirement in Overview first if
         you like; starting checks it is ready, then Copilot drafts the spec.
+      </Callout>
+    );
+  }
+  if (t.state === "SPEC_REVIEW" && d.approvalState?.owner && !d.approvalState.pm) {
+    // You approved already (for example by creating the task from its chat): only the PM is left.
+    return (
+      <Callout
+        tone="neutral"
+        title="Waiting for the PM's approval"
+        actions={
+          <Button
+            size="sm"
+            icon={FileCheck2}
+            onClick={onOpenSpec}
+          >
+            Open the spec
+          </Button>
+        }
+      >
+        {d.project.pmGate === "jira"
+          ? `You approved spec v${d.approvalState.owner.specVersion}. Tandem sent it to the PM in Jira and starts building as soon as they reply "approve".`
+          : `You approved spec v${d.approvalState.owner.specVersion}. Record the PM's approval in the Spec tab; Copilot starts building as soon as it is in.`}
       </Callout>
     );
   }

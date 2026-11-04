@@ -37,8 +37,18 @@ describe('Task detail', () => {
   });
 
   it('a task stopped at its credit limit links to Settings and resumes', async () => {
-    const { api, user } = setup(detail({}, { state: 'BLOCKED', blockedReason: 'budget-reached', blockedMessage: 'Stopped: this task reached its Copilot credit limit (25.3 of 25). Raise the limit in Settings, then resume.', resumeTo: { state: 'BUILDING' } }));
+    const { api, user } = setup(detail({}, { state: 'BLOCKED', blockedReason: 'budget-reached', blockedMessage: 'Stopped: this task reached its Copilot credit limit (25.3 of 25). Raise the limit in Settings, then resume.', resumeTo: { state: 'BUILDING' } }), {
+      'GET /api/usage': { today: 3, perDay: 40, credits: { today: 4.2, perDay: 15, perTask: 12 } },
+    });
     expect(await screen.findByText('Copilot limit reached')).toBeTruthy();
+    // What a credit is, its price and your limits, one click away.
+    await user.click(screen.getByRole('button', { name: 'About AI credits and limits' }));
+    const info = await screen.findByRole('dialog', { name: 'AI credits' });
+    expect(within(info).getByText('$0.01')).toBeTruthy();
+    expect(await within(info).findByText('4.2 of 15 · 4.2¢')).toBeTruthy();
+    expect(within(info).getByText(/A task may use up to/).textContent).toContain('12 (12¢)');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AI credits' })).toBeNull());
     expect(screen.getByRole('link', { name: 'Open Settings' }).getAttribute('href')).toBe('/settings');
     await user.click(screen.getByRole('button', { name: 'Resume' }));
     await waitFor(() => expect(posted(api, '/api/tasks/task1/resume')).toHaveLength(1));

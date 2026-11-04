@@ -8,6 +8,7 @@ import { BrandLogo, providerOf } from '../ui/brands';
 import { Collapse, StepTimeline, describe } from '../ui/agent-steps';
 import { ProjectAvatar } from '../ui/visual';
 import { EmptyState, ErrorState, Loading, Markdown, Spinner, cx } from '../ui/kit';
+import { CreditsInfo } from '../ui/credits-info';
 
 export type RunActivity = AgentRun & { model?: string; prompts: number; modelCalls: number; aiCredits: number; steps: AgentStep[] };
 
@@ -317,8 +318,8 @@ export function TaskActivity({ taskId }: { taskId: string }) {
         <p className="text-[13px] text-muted">
           Everything Copilot did on this task, in order. Open a step to see its instructions, thinking, the files it read and changed, and the commands it ran.
         </p>
-        <p className="text-[12px] text-faint tabular-nums">
-          {runs.length} step{runs.length === 1 ? '' : 's'} · {credits} AI credits · started {relativeTime(runs[0]!.startedAt)}
+        <p className="flex items-center gap-1 text-[12px] text-faint tabular-nums">
+          {runs.length} step{runs.length === 1 ? '' : 's'} · {credits} AI credits <CreditsInfo /> · started {relativeTime(runs[0]!.startedAt)}
         </p>
       </div>
       <ol aria-label="Copilot activity" className="flex flex-col gap-2.5">

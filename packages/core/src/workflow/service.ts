@@ -281,6 +281,8 @@ export class TaskService {
     const check = validateSpec(latest.markdown, { template: await currentSpecTemplate(this.deps, project), multiRepo: repos.length > 1 });
     if (check.openQuestions.length) throw new ActionError(`Answer the open questions in the spec first: ${check.openQuestions.join('; ')}`);
     if (!check.valid) throw new ActionError(`Fix the spec first: ${check.problems.join(' ')}`);
+    // Approving a version you already approved changes nothing (and isn't recorded twice).
+    if ((await this.deps.store.approvals.list(taskId)).some((x) => x.role === a.role && x.specVersion === latest.version)) return task;
     const approval: Approval = { id: this.deps.ids(), taskId, specVersion: latest.version, role: a.role, name: a.name.trim(), date: a.date, evidence: a.evidence.trim(), method: 'tandem', createdAt: this.deps.clock.iso() };
     await this.deps.store.approvals.upsert(approval);
     await this.deps.store.audit.append({ at: approval.createdAt, actor: a.role === 'pm' ? 'pm' : 'owner', actorName: approval.name, action: 'spec.approved', summary: `${task.key}: ${a.role === 'pm' ? 'PM approval' : 'approval'} of spec version ${latest.version} by ${approval.name}${a.role === 'pm' ? ', recorded in Tandem' : ''}.`, taskId, projectId: task.projectId, detail: { role: a.role, specVersion: latest.version, method: 'tandem', evidence: approval.evidence, date: approval.date } });

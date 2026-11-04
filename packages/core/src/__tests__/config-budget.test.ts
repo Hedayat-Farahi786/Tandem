@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@tandem/shared';
-import { ConfigError, effectiveSettings, loadConfig } from '../config.js';
+import { ConfigError, effectiveSettings, loadConfig, seedSettings } from '../config.js';
 import { Budget, BudgetError } from '../budget.js';
 import { FakeClock, MemoryStore } from '../testing/index.js';
 
@@ -21,6 +21,19 @@ describe('config', () => {
     expect(s.aws.profile).toBe('work');
     expect(s.limits.maxConcurrentBuilds).toBe(2);
     expect(s.limits.maxConcurrentReadOnly).toBe(2);
+  });
+
+  it('takes the Copilot budget from the environment only as a starting value: Settings decides after that', async () => {
+    const c = loadConfig({ TANDEM_CREDITS_PER_TASK: '12', TANDEM_CREDITS_PER_DAY: '15', TANDEM_BUDGET_PER_DAY: '50' }, '/h', join);
+    expect(c.overrides).toEqual({});
+    expect(c.seeds).toEqual({ 'budget.perTaskCredits': 12, 'budget.perDayCredits': 15, 'budget.perDayPrompts': 50 });
+    const store = new MemoryStore();
+    expect(await seedSettings(store.settings, c.seeds)).toBe(true);
+    expect((await store.settings.get()).budget).toMatchObject({ perTaskCredits: 12, perDayCredits: 15, perDayPrompts: 50 });
+    // Changed in Settings: a restart with the same environment keeps the change.
+    await store.settings.set({ ...(await store.settings.get()), budget: { ...(await store.settings.get()).budget, perTaskCredits: 20 } });
+    expect(await seedSettings(store.settings, c.seeds)).toBe(false);
+    expect((await store.settings.get()).budget.perTaskCredits).toBe(20);
   });
 
   it('refuses non-loopback hosts and bad numbers', () => {

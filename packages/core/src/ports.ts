@@ -99,7 +99,7 @@ export interface Store {
     delete(taskId: string): Promise<void>;
     list(): Promise<Job[]>;
   };
-  settings: { get(): Promise<Settings>; set(s: Settings): Promise<void> };
+  settings: { get(): Promise<Settings>; set(s: Settings): Promise<void>; /** Whether settings were ever saved (else get() returns the defaults). */ saved(): Promise<boolean> };
   /** Comments for tracker-local, keyed by task key. */
   trackerComments: { add(c: TrackerComment): Promise<void>; list(key: string): Promise<TrackerComment[]> };
   /**

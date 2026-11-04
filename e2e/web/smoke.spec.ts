@@ -92,21 +92,23 @@ test('chat: a request becomes a ready task', async () => {
   await expect(card.getByRole('checkbox', { name: /Metrics/ })).toBeChecked();
   await card.getByRole('button', { name: 'Send answers' }).click();
   await expect(page.getByText('meets the Definition of Ready')).toBeVisible({ timeout: 60_000 });
-  await expect(draft.getByText('Ready', { exact: true })).toBeVisible();
+  // Nothing left to ask: Copilot writes the full spec, and only then can the task be created.
+  await expect(draft.getByText('Ready to create', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(draft.getByRole('heading', { name: 'Tests to add' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Conversations' }).getByText('Add a GET /health endpoint')).toBeVisible();
   await checkScreen(page, '07-chat-ready');
   await draft.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/tasks\/[\w-]+$/);
 });
 
-test('task: the spec waits for both approvals', async () => {
-  await expect(page.getByText('Your review is needed')).toBeVisible({ timeout: 90_000 });
+test('task: the spec from the chat is approved by you; it waits only for the PM', async () => {
+  // Creating the task from its chat approved the spec, so it isn't drafted again.
+  await expect(page.getByText("Waiting for the PM's approval")).toBeVisible({ timeout: 90_000 });
   await checkScreen(page, '08-task-review');
-  await page.getByRole('button', { name: 'Read the spec' }).click();
+  await page.getByRole('button', { name: 'Open the spec' }).click();
   await expect(page.getByRole('heading', { name: 'Problem and goal' })).toBeVisible();
+  await expect(page.getByText(/Approved by creating and starting the task from the request chat/).first()).toBeVisible();
   await checkScreen(page, '09-task-spec');
-  await page.getByRole('button', { name: 'Approve spec' }).click();
-  await expect(page.getByText('Approved.')).toBeVisible();
   await page.getByRole('button', { name: 'Record PM approval' }).click();
   const dialog = page.getByRole('dialog', { name: 'Record PM approval' });
   await expect(dialog).toBeVisible();

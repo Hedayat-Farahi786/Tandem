@@ -354,7 +354,8 @@ export const defaultScript: Script = (call) => {
       },
     };
   }
-  if (p.startsWith('Write the implementation spec')) return { intent: 'Writing the spec', reasoning: 'The request is clear and small: one endpoint and one status line. I will describe the API contract first, then the UI states, then how each criterion is tested.', text: specFrom(p) };
+  // The request chat writes the full spec once the request is complete (same prompt, after a lead-in).
+  if (p.startsWith('Write the implementation spec') || p.startsWith('The request is complete')) return { intent: 'Writing the spec', reasoning: 'The request is clear and small: one endpoint and one status line. I will describe the API contract first, then the UI states, then how each criterion is tested.', text: specFrom(p) };
   if (p.startsWith('Review this change')) return { intent: 'Reviewing the change against the spec', reasoning: 'I compared the diff with the spec, each acceptance criterion and the security checklist. Every criterion has a passing test and nothing outside the scope changed.', value: { findings: [] } };
   if (p.startsWith('Implement the approved spec')) return implement(call);
   if (p.startsWith('Verification failed')) return { text: 'Looked at the failures; no change.' };

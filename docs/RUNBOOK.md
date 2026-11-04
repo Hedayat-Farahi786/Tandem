@@ -79,8 +79,8 @@ override them; `.env.example` lists every one. The most useful:
 | `TANDEM_LOG_LEVEL` | `info` | `debug` for more detail |
 | `COPILOT_GH_HOST` | empty (github.com) | GitHub Enterprise host that provides Copilot |
 | `TANDEM_AWS_PROFILE`, `TANDEM_AWS_REGION` | default chain | CodeCommit access |
-| `TANDEM_CREDITS_PER_TASK`, `TANDEM_CREDITS_PER_DAY` | 25, 75 | Copilot AI credit limits |
-| `TANDEM_BUDGET_PER_TASK`, `TANDEM_BUDGET_PER_DAY` | 15, 40 | Copilot prompt limits |
+| `TANDEM_CREDITS_PER_TASK`, `TANDEM_CREDITS_PER_DAY` | 25, 75 | Copilot AI credit limits for a **new install**; then set in Settings |
+| `TANDEM_BUDGET_PER_TASK`, `TANDEM_BUDGET_PER_DAY` | 15, 40 | Copilot prompt limits for a **new install**; then set in Settings |
 | `TANDEM_MAX_CONCURRENT_BUILDS` | 1 | builds at a time |
 
 ## Fixing common problems

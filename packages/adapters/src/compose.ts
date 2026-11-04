@@ -4,6 +4,7 @@ import {
   TaskService,
   SETTING_ENV,
   effectiveSettings,
+  seedSettings,
   workflowHandlers,
   type AgentRuntime,
   type Clock,
@@ -31,6 +32,8 @@ export interface TandemOptions {
   home: string;
   /** Settings overrides from the environment (RuntimeConfig.overrides). */
   overrides?: Record<string, unknown>;
+  /** Starting values for a new install (RuntimeConfig.seeds): saved once, never locked. */
+  seeds?: Record<string, unknown>;
   agent?: AgentRuntime;
   /**
    * With a test agent: list the real Copilot models in the model picker (a free call, no prompts).
@@ -71,6 +74,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   const clock = o.clock ?? systemClock;
   const ids = () => randomUUID();
   const secrets = o.secrets ?? new KeychainSecrets();
+  await seedSettings(store.settings, o.seeds ?? {});
   const settings = async () => effectiveSettings(await store.settings.get(), o.overrides ?? {});
 
   // The git ops need the hosts' mirror paths and the hosts need the git ops: resolve lazily.

@@ -460,6 +460,9 @@ describe('chat: the request chat writes the spec once', () => {
     await h.runner.runUntilIdle();
     expect((await h.get(task.id)).state).toBe('SPEC_REVIEW');
     expect(h.agent.calls.some((x) => x.prompt.startsWith('Write the implementation spec'))).toBe(false);
+    // Approving again (from the Spec tab, say) doesn't record a second approval.
+    await h.service.approve(task.id, 'Sam');
+    expect((await h.store.approvals.list(task.id)).filter((x) => x.role === 'owner')).toHaveLength(1);
     await h.service.recordPmApproval(task.id, { name: 'Pat', date: h.clock.iso(), evidence: 'Approved in the team channel' });
     expect((await h.get(task.id)).state).toBe('BUILDING');
   });

@@ -181,6 +181,7 @@ class SqliteRepos implements RawRepos {
   settings: Store['settings'] = {
     get: () => this.op(() => Settings.parse(this.one("SELECT doc FROM settings WHERE id = 'settings'") ?? DEFAULT_SETTINGS)),
     set: (s) => this.op(() => void this.db.prepare("INSERT INTO settings (id, doc) VALUES ('settings', ?) ON CONFLICT(id) DO UPDATE SET doc = excluded.doc").run(JSON.stringify(Settings.parse(s)))),
+    saved: () => this.op(() => this.one("SELECT doc FROM settings WHERE id = 'settings'") !== undefined),
   };
 
   trackerComments: Store['trackerComments'] = {

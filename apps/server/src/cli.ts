@@ -24,7 +24,7 @@ function printCheck(c: DoctorCheck): void {
 
 async function doctor(json: boolean): Promise<number> {
   const config = readConfig();
-  const t = await createTandem({ home: config.home, overrides: config.overrides, ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript) } : {}) });
+  const t = await createTandem({ home: config.home, overrides: config.overrides, seeds: config.seeds, ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript) } : {}) });
   try {
     if (!json) console.log(`Tandem ${VERSION} doctor (${config.home})\n`);
     const report = await runDoctor(t, t.agent, json ? {} : { onCheck: printCheck });

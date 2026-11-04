@@ -28,7 +28,7 @@ async function fromChat(projectId: string, request = REQUEST): Promise<{ id: str
   const asked = (await h.api<Asked>('GET', `/api/threads/${first.threadId}`)).thread.pendingQuestions?.questions ?? [];
   expect(asked.length).toBeGreaterThan(0);
   expect(asked.every((q) => q.options.length >= 2 && q.question.endsWith('?'))).toBe(true);
-  await expect(h.api('POST', `/api/threads/${first.threadId}/create-task`)).rejects.toThrow(/Not ready yet/);
+  await expect(h.api('POST', `/api/threads/${first.threadId}/create-task`)).rejects.toThrow(/Answer its questions first|Not ready yet/);
   const answers = asked.map((q) => ({ questionId: q.id, header: q.header, question: q.question, answers: [q.options[0]!.label] }));
   const text = `${answers.map((a) => `${a.header}: ${a.answers.join(', ')}`).join('\n')}\n${ANSWER}`;
   const second = await h.api<{ readiness?: { ready: boolean } }>('POST', `/api/threads/${first.threadId}/messages`, { text, answers });
@@ -122,7 +122,9 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     expect(await h.api('GET', '/api/audit/verify')).toMatchObject({ ok: true });
     // Activity: every Copilot run, step by step; the build shows its reasoning and the files it edited.
     const activity = await h.api<Array<{ kind: string; status: string; steps: Array<{ kind: string; tool?: string; files?: Array<{ path: string }> }> }>>('GET', `/api/tasks/${task.id}/activity`);
-    expect(activity.map((r) => r.kind)).toEqual(expect.arrayContaining(['spec', 'build', 'review']));
+    // The spec was written in the request chat: the task runs no second spec draft.
+    expect(activity.map((r) => r.kind)).toEqual(expect.arrayContaining(['build', 'review']));
+    expect(activity.some((r) => r.kind === 'spec')).toBe(false);
     const buildRun = activity.find((r) => r.kind === 'build')!;
     expect(buildRun.status).toBe('succeeded');
     expect(buildRun.steps.map((x) => x.kind)).toEqual(expect.arrayContaining(['prompt', 'intent', 'reasoning', 'tool', 'message']));
@@ -180,7 +182,8 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     await h.api('POST', `/api/threads/${thread.id}/spec-change/apply`);
     d = await h.waitFor(task.id, 'spec version 2', (x) => x.task.state === 'SPEC_REVIEW' && x.spec?.version === 2);
     expect(d.spec!.markdown).toContain('Can the endpoint also return the app version?');
-    expect(d.specs.map((s) => s.source)).toEqual(['draft', 'redraft']);
+    // Version 1 was written in the request chat; the change redrafted it.
+    expect(d.specs.map((s) => s.source)).toEqual(['chat', 'redraft']);
 
     await h.api('POST', `/api/tasks/${task.id}/approve`, {});
     d = await h.detail(task.id);

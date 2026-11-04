@@ -8,6 +8,14 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Copilot limits are yours to change in Settings.** The AI credit and
+  prompt limits are no longer locked by `TANDEM_CREDITS_*` /
+  `TANDEM_BUDGET_*`: those only seed a new install, and Settings decides from
+  then on (a restart keeps your change). Settings shows each limit in
+  dollars, and an ⓘ next to AI credits (Settings, a task's credit meter, the
+  "Copilot limit reached" banner, the trace and the activity) explains what
+  a credit is, its price (1 credit = $0.01), what uses credits and what is
+  free, with today's use, your limits and a link to change them.
 - **A request is created once, from a finished spec.** "Create and start"
   waits until Copilot has nothing left to ask and has written the full spec
   in the request chat (in the same session, from the code it already read).

@@ -286,7 +286,18 @@ branch, where every later build and review reads them.
 ## Copilot limits
 
 Copilot plans are often shared, so Tandem limits its own use. The limits are
-set in Settings › Copilot budget, which also shows today's use:
+set in Settings › Copilot budget, which also shows today's use and what each
+limit is in dollars. (The `TANDEM_CREDITS_*` and `TANDEM_BUDGET_*`
+environment variables only give a new install its starting values; they
+never lock these fields.)
+
+**AI credits** are how GitHub Copilot measures and bills its use: every model
+call costs credits, more for larger models and for more text read and
+written. Copilot reports the exact cost of each call and Tandem adds them up.
+1 AI credit = $0.01, so 100 credits = $1. Copilot's runs (specs, builds,
+fixes, reviews, chat answers) use credits; Tandem's own checks, git, pushes
+and pull requests don't. Wherever credits are shown, the **ⓘ** next to them
+explains this with your live limits and a link to change them.
 
 | Limit | Default |
 | --- | --- |

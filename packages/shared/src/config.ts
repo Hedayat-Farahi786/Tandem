@@ -80,7 +80,12 @@ export const RuntimeConfig = z.object({
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']),
   /** Which AgentRuntime to use. "scripted" exists for tests only. */
   agent: z.enum(['copilot', 'scripted']),
-  /** Settings overrides from the environment, applied on top of the stored settings. */
+  /** Settings overrides from the environment, applied on top of the stored settings (and locked in Settings). */
   overrides: z.record(z.string(), z.unknown()),
+  /**
+   * Starting values from the environment for a new install (the Copilot budget): saved once when no
+   * settings exist yet, then Settings decides. Never locks anything.
+   */
+  seeds: z.record(z.string(), z.unknown()).default({}),
 });
 export type RuntimeConfig = z.infer<typeof RuntimeConfig>;

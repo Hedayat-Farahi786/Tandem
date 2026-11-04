@@ -153,6 +153,7 @@ class MemoryRepos implements RawRepos {
   settings: Store['settings'] = {
     get: async () => clone(this.data.settings ?? DEFAULT_SETTINGS),
     set: async (s) => void (this.data.settings = clone(s)),
+    saved: async () => this.data.settings !== undefined,
   };
   trackerComments: Store['trackerComments'] = {
     add: async (c) => void this.data.trackerComments.push(clone(c)),

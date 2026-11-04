@@ -4,6 +4,7 @@ import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronRight, Circle, Cir
 import { api } from '../lib/api';
 import type { Trace } from '../lib/types';
 import { CopyButton, ErrorState, LinkButton, Loading, cx } from '../ui/kit';
+import { CreditsInfo } from '../ui/credits-info';
 import { BrandLogo, providerOf, type Brand } from '../ui/brands';
 
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -110,7 +111,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
           {[
             { icon: UserCheck, text: t.request.by ? `Requested by ${t.request.by}` : 'Request recorded' },
             { icon: BadgeCheck, text: approved ? `Spec v${approved.version} approved` : 'Spec not approved yet' },
-            { icon: History, text: `${t.runs.length} Copilot run${t.runs.length === 1 ? '' : 's'} · ${t.usage.aiCredits} credits` },
+            { icon: History, text: `${t.runs.length} Copilot run${t.runs.length === 1 ? '' : 's'} · ${t.usage.aiCredits} credits`, info: true },
             { icon: GitCommitHorizontal, text: `${t.changes.length} commit${t.changes.length === 1 ? '' : 's'}` },
             { icon: UserCheck, text: `${t.decisions.length} decision${t.decisions.length === 1 ? '' : 's'} by people` },
             { icon: t.exceptions.length ? AlertTriangle : CheckCircle2, text: t.exceptions.length ? `${t.exceptions.length} exception${t.exceptions.length === 1 ? '' : 's'}` : 'No exceptions' },
@@ -118,6 +119,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
             <li key={i} className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-[12px] text-muted">
               <x.icon aria-hidden className="size-3.5" />
               {x.text}
+              {'info' in x && x.info && <CreditsInfo className="-mr-1" />}
             </li>
           ))}
         </ul>
