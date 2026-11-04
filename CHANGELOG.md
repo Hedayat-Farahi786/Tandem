@@ -8,6 +8,14 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A request is created once, from a finished spec.** "Create and start"
+  waits until Copilot has nothing left to ask and has written the full spec
+  in the request chat (in the same session, from the code it already read).
+  Creating the task adopts that spec as version 1 and approves it, so the
+  task no longer drafts the spec a second time: no extra Copilot run and no
+  empty Spec tab. Copilot's run cards in a task show the project's avatar,
+  a status mark, a present-tense title and a ticking timer while working,
+  and one flat list of steps.
 - **Rename, pin and delete chats.** Every conversation in Recents, and the
   open chat's title, has a menu: Pin to top, Rename (or double-click the
   name), Open the task, and Delete. Delete asks first, says the task made

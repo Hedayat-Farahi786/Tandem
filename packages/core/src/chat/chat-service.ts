@@ -1,13 +1,15 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, RenameTaskArgs, Requirement, type OwnerAnswer, type SkippableCheck, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
+import { AskOwnerArgs, type Approval, ContinueArgs, DraftUpdateArgs, RenameTaskArgs, Requirement, type OwnerAnswer, type SkippableCheck, STATE_LABELS, SpecChangeArgs, type ChatMessage, type ChatMode, type ChatThread, type Repo, type Task } from '@tandem/shared';
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
-import { requirementMarkdown } from '../spec/template.js';
+import { finalizeSpec, requirementMarkdown, validateSpec } from '../spec/template.js';
+import { redactor } from '../policies/redact.js';
+import { currentSpecTemplate, unwrapMarkdown } from '../workflow/steps.js';
 import { ownerOf } from '../audit.js';
 import { ActionError, checkModel, type TaskService } from '../workflow/service.js';
 import { NotFoundError, affectedRepos, loadProject, openSession, refreshReferences, type WorkflowDeps } from '../workflow/context.js';
-import { READ_ONLY_RULES } from '../workflow/prompts.js';
+import { READ_ONLY_RULES, specPrompt } from '../workflow/prompts.js';
 import { failuresOf } from '../workflow/verify.js';
 
 export interface ChatReply {
@@ -227,16 +229,20 @@ export class ChatService {
         ...(onEvent ? { onEvent } : {}),
       });
       let answer: string;
+      let reply: ChatMessage;
       try {
         // The run is known now: a page opened from here on follows its steps live.
         await this.deps.store.threads.upsert({ ...(await this.thread(threadId)), sessionId: session.id, busy: { since: thread.busy!.since, runId: session.runId } });
         this.deps.events?.emit({ type: 'thread.updated', threadId });
         answer = await session.send(await this.prompt(thread, content, task, repos));
+        reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos), session.runId);
+        // The answer shows now; the spec (if the request is complete) follows in the same session.
+        this.deps.events?.emit({ type: 'chat.done', threadId, messageId: reply.id });
+        if (thread.mode === 'request') await this.writeSpec(threadId, session, repos, project);
       } finally {
         await session.stop();
       }
       thread = await this.thread(threadId);
-      const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos), session.runId);
       const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
       const { busy: _done, ...settled } = thread;
       thread = { ...settled, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
@@ -257,6 +263,38 @@ export class ChatService {
       }
       this.deps.events?.emit({ type: 'chat.done', threadId, messageId: '' });
     }
+  }
+
+  /**
+   * Request chat: once the request meets the Definition of Ready and nothing is left to ask, Copilot
+   * writes the full implementation spec in the same session (it has read the code already). The task
+   * created from the chat starts from this spec instead of drafting it again.
+   */
+  private async writeSpec(threadId: string, session: { send(prompt: string): Promise<string> }, repos: readonly Repo[], project: { id: string }): Promise<void> {
+    const t = await this.thread(threadId);
+    if (t.draftSpec || t.pendingQuestions?.questions.length || !checkReadiness(t.draft ?? Requirement.parse({})).ready) return;
+    await this.deps.store.threads.upsert({ ...t, busy: { ...(t.busy ?? { since: this.deps.clock.iso() }), phase: 'spec' } });
+    this.deps.events?.emit({ type: 'thread.updated', threadId });
+    try {
+      const fullProject = await loadProject(this.deps, project.id);
+      const template = await currentSpecTemplate(this.deps, fullProject);
+      const mine = t.draftRepoIds?.length ? repos.filter((r) => t.draftRepoIds!.includes(r.id)) : repos;
+      const multiRepo = mine.length > 1;
+      const asTask = { title: t.draftTitle || t.title, requirement: t.draft } as Task;
+      const ask = (extra: Parameters<typeof specPrompt>[1]) => session.send(`The request is complete. Do not call any tools now.\n\n${specPrompt(asTask, extra)}`);
+      let markdown = unwrapMarkdown(await ask({ template, repos: mine }));
+      let check = validateSpec(markdown, { template, multiRepo });
+      if (!check.valid) {
+        markdown = unwrapMarkdown(await ask({ template, repos: mine, previous: markdown, problems: check.problems }));
+        check = validateSpec(markdown, { template, multiRepo });
+      }
+      const now = await this.thread(threadId);
+      await this.deps.store.threads.upsert({ ...now, draftSpec: { markdown: redactor.redact(markdown), problems: check.problems, openQuestions: check.openQuestions, at: this.deps.clock.iso() } });
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      await this.say(threadId, 'system', `Copilot couldn't write the full spec: ${why.split('\n')[0]!.slice(0, 200)} You can still create the task; it writes the spec first.`);
+    }
+    this.deps.events?.emit({ type: 'thread.updated', threadId });
   }
 
   /** A busy mark that outlived its run (Tandem stopped mid-answer, or the run ended without clearing it). */
@@ -329,7 +367,9 @@ export class ChatService {
           ...(a.openQuestions !== undefined ? { openQuestions: a.openQuestions } : {}),
         });
         const ids = a.affectedRepos ? repos.filter((r) => a.affectedRepos!.includes(r.name)).map((r) => r.id) : undefined;
-        await this.deps.store.threads.upsert({ ...t, draft, ...(a.title ? { draftTitle: a.title } : {}), ...(ids?.length ? { draftRepoIds: ids } : {}), ...(a.size ? { draftSize: a.size } : {}), updatedAt: this.deps.clock.iso() });
+        // The requirement changed, so a spec written from it is out of date: it is rewritten after this turn.
+        const { draftSpec: _stale, ...rest } = t;
+        await this.deps.store.threads.upsert({ ...rest, draft, ...(a.title ? { draftTitle: a.title } : {}), ...(ids?.length ? { draftRepoIds: ids } : {}), ...(a.size ? { draftSize: a.size } : {}), updatedAt: this.deps.clock.iso() });
         this.deps.events?.emit({ type: 'thread.updated', threadId });
         const r = checkReadiness(draft);
         return r.ready ? 'Draft updated. It now meets the Definition of Ready.' : `Draft updated. Still missing: ${r.missing.map((m) => m.label).join('; ')}.`;
@@ -490,6 +530,7 @@ export class ChatService {
     if (t.busy && !(await this.staleBusy(t))) throw new ActionError('Copilot is still writing the spec. Create the task as soon as it finishes.');
     const draft = t.draft ?? Requirement.parse({});
     const r = checkReadiness(draft);
+    if (start && t.pendingQuestions?.questions.length) throw new ActionError("Copilot asked you something. Answer its questions first, so the spec is complete.");
     if (start && !r.ready) throw new ActionError(`Not ready yet. Missing: ${r.missing.map((m) => m.label).join('; ')}.`);
     if (!start && !(t.draftTitle || draft.goal.trim())) throw new ActionError('Describe the change first, so the task has a name and a goal.');
     const task = await this.tasks.create({
@@ -502,12 +543,26 @@ export class ChatService {
       ...(t.model ? { model: t.model } : {}),
     });
     if (t.draftSize) await this.deps.store.tasks.upsert({ ...task, sizeEstimate: t.draftSize });
-    await this.deps.store.threads.upsert({ ...t, createdTaskId: task.id, updatedAt: this.deps.clock.iso() });
+    // The spec written in this chat becomes version 1; creating and starting approves it as the owner.
+    const spec = t.draftSpec && !t.draftSpec.problems.length && !t.draftSpec.openQuestions.length ? t.draftSpec : undefined;
+    if (spec) {
+      const approvals: Approval[] = [];
+      if (start) {
+        const settings = await this.deps.settings();
+        const now = this.deps.clock.iso();
+        const approval: Approval = { id: this.deps.ids(), taskId: task.id, specVersion: 1, role: 'owner', name: settings.ownerName.trim() || 'Owner', date: now, evidence: 'Approved by creating and starting the task from the request chat', method: 'tandem', createdAt: now };
+        await this.deps.store.approvals.upsert(approval);
+        await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(settings), action: 'spec.approved', summary: `${task.key}: approval of spec version 1 by ${approval.name}, by creating the task from the request chat.`, taskId: task.id, projectId: task.projectId, detail: { role: 'owner', specVersion: 1, method: 'tandem', evidence: approval.evidence, date: approval.date } });
+        approvals.push(approval);
+      }
+      await this.deps.store.specs.add({ taskId: task.id, version: 1, markdown: finalizeSpec(spec.markdown, task, 1, approvals.length && (await loadProject(this.deps, task.projectId)).pmGate === 'off' ? 'Approved' : 'In review', approvals), source: 'chat', createdAt: this.deps.clock.iso() });
+    }
+    await this.deps.store.threads.upsert({ ...(await this.thread(threadId)), createdTaskId: task.id, updatedAt: this.deps.clock.iso() });
     if (!start) {
-      await this.say(threadId, 'system', `Saved as ${task.key}. It starts when you choose Start task on its page.`);
+      await this.say(threadId, 'system', `Saved as ${task.key}${spec ? ' with its spec' : ''}. It starts when you choose Start task on its page.`);
       return task;
     }
-    await this.say(threadId, 'system', `Created ${task.key}. Tandem is checking readiness and size, then drafts the spec.`);
+    await this.say(threadId, 'system', spec ? `Created ${task.key} with the spec above, approved by you. Copilot starts building it now.` : `Created ${task.key}. Tandem is checking readiness and size, then drafts the spec.`);
     return this.tasks.submit(task.id);
   }
 

@@ -158,7 +158,8 @@ export type TaskTransition = z.infer<typeof TaskTransition>;
 
 /* ------------------------------------------------------------------ specs and approvals */
 
-export const SpecSource = z.enum(['draft', 'redraft', 'edit']);
+/** `chat`: written in the request chat before the task existed (no second draft needed). */
+export const SpecSource = z.enum(['draft', 'redraft', 'edit', 'chat']);
 export const SpecVersion = z.object({
   taskId: Id,
   version: z.number().int().positive(),
@@ -344,7 +345,13 @@ export const ChatThread = z.object({
    * Copilot is answering a message right now (kept in the store, so a reloaded page shows it live).
    * `runId` is the agent run, once it started.
    */
-  busy: z.object({ since: Iso, runId: Id.optional() }).optional(),
+  busy: z.object({ since: Iso, runId: Id.optional(), phase: z.enum(['answer', 'spec']).optional() }).optional(),
+  /**
+   * Request chat: the full implementation spec, written once the request met the Definition of Ready
+   * and nothing was left to ask. The task starts from it instead of drafting it again.
+   * Cleared when the requirement changes.
+   */
+  draftSpec: z.object({ markdown: z.string(), problems: z.array(z.string()), openQuestions: z.array(z.string()), at: Iso }).optional(),
   /** Pinned to the top of Recents (when). */
   pinnedAt: Iso.optional(),
   /** Request chat: questions the agent asked, waiting for the owner's answers. */

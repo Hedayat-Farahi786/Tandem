@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, catalog } from './fixtures';
 import { mockApi, renderApp } from './helpers';
@@ -39,7 +39,7 @@ describe('Chat', () => {
     expect((within(draft).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(true);
     await user.type(screen.getByLabelText('Message'), 'Show a spinner{Enter}');
     await waitFor(() => expect((within(draft).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(false));
-    expect(within(draft).getByText('Ready')).toBeTruthy();
+    expect(within(draft).getByText('Requirement complete')).toBeTruthy();
     await user.click(within(draft).getByRole('button', { name: 'Create and start' }));
     expect(api.calls.find((c) => c.path === '/api/threads/t1/create-task')?.body).toEqual({ start: true });
     await waitFor(() => expect(window.location.pathname).toBe('/tasks/task1'));
@@ -63,6 +63,30 @@ describe('Chat', () => {
     expect((within(doc).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(within(doc).getByRole('button', { name: 'Save for later' }));
     await waitFor(() => expect(api.calls.find((c) => c.path === '/api/threads/t1/create-task')?.body).toEqual({ start: false }));
+  });
+
+  it("shows the finished spec only when nothing is left to ask, and won't start while Copilot's questions wait", async () => {
+    const draft = { goal: 'Show the service status', userStory: '', criteria: [{ given: 'a', when: 'b', then: 'c' }, { given: 'd', when: 'e', then: 'f' }], exampleData: 'x', affectedAreas: 'y', outOfScope: 'z', openQuestions: [] };
+    const question = { header: 'Status', question: 'Which text when down?', options: [{ label: 'Unavailable', description: 'Say Status unavailable' }, { label: 'Hide', description: 'Hide the line' }], multiSelect: false };
+    let current: Record<string, unknown> = { ...thread, draftTitle: 'Show service status', draft, pendingQuestions: { questions: [question], askedAt: '2026-11-04T00:00:00Z' } };
+    mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/projects/p1/threads': () => [current],
+      'GET /api/threads/t1': () => ({ thread: current, model: '', messages: [], readiness: readiness(true) }),
+    });
+    renderApp('/chat?project=p1&thread=t1');
+    const panel = await screen.findByRole('complementary', { name: 'Task draft' });
+    expect(within(panel).getByText('Your answer needed')).toBeTruthy();
+    expect((within(panel).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(panel).getByText("Answer Copilot's question to finish the spec.")).toBeTruthy();
+    cleanup();
+    current = { ...thread, draftTitle: 'Show service status', draft, draftSpec: { markdown: '# Show service status\n\n## Problem and goal\n\nShow it.\n\n## Tests to add\n\n- status.test.ts covers 1 and 2', problems: [], openQuestions: [], at: '2026-11-04T00:00:00Z' } };
+    renderApp('/chat?project=p1&thread=t1');
+    const ready = await screen.findByRole('complementary', { name: 'Task draft' });
+    expect(within(ready).getByText('Ready to create')).toBeTruthy();
+    expect(within(ready).getByRole('heading', { name: 'Tests to add' })).toBeTruthy();
+    expect((within(ready).getByRole('button', { name: 'Create and start' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(ready).getByText(/Creating approves this spec as yours/)).toBeTruthy();
   });
 
   it('a chat opened while Copilot is answering shows it working, and the answer when it lands', async () => {

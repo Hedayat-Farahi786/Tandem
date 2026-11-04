@@ -5,7 +5,8 @@ import { Brain, CheckCircle2, ChevronRight, CircleAlert, FileText, FlaskConical,
 import { api } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import { BrandLogo, providerOf } from '../ui/brands';
-import { Collapse, LiveActivity, StepTimeline } from '../ui/agent-steps';
+import { Collapse, StepTimeline, describe } from '../ui/agent-steps';
+import { ProjectAvatar } from '../ui/visual';
 import { EmptyState, ErrorState, Loading, Markdown, Spinner, cx } from '../ui/kit';
 
 export type RunActivity = AgentRun & { model?: string; prompts: number; modelCalls: number; aiCredits: number; steps: AgentStep[] };
@@ -161,35 +162,94 @@ export function Step({ s }: { s: AgentStep }) {
   }
 }
 
-export function RunCard({ run, open, onToggle, dense }: { run: RunActivity; open: boolean; onToggle: () => void; /** Tighter, for the task conversation. */ dense?: boolean }) {
+/** While a run works: what it is doing now, in the present tense. */
+const RUN_LIVE: Record<string, string> = {
+  extract: 'Reading the request',
+  size: 'Estimating the size',
+  spec: 'Writing the spec',
+  build: 'Building the change',
+  fix: 'Fixing failing checks',
+  review: 'Reviewing its own work',
+  conflict: 'Resolving merge conflicts',
+  'task-chat': 'Replying in the task chat',
+  request: 'Shaping the request',
+  ask: 'Answering a question',
+};
+
+/** A clock that ticks while something runs. */
+function useTick(on: boolean) {
+  const [, setN] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const t = setInterval(() => setN((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [on]);
+}
+
+/** The run's status, as a small mark on the corner of its avatar. */
+function StatusMark({ status }: { status: RunActivity['status'] }) {
+  const look =
+    status === 'running'
+      ? { cls: 'bg-accent', label: 'working', icon: null }
+      : status === 'succeeded'
+        ? { cls: 'bg-ok', label: 'done', icon: <svg viewBox="0 0 10 10" className="size-2 text-white" aria-hidden><path d="M2.5 5.2 4.3 7l3.2-3.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg> }
+        : status === 'failed'
+          ? { cls: 'bg-danger', label: 'failed', icon: <svg viewBox="0 0 10 10" className="size-2 text-white" aria-hidden><path d="m3 3 4 4M7 3 3 7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg> }
+          : { cls: 'bg-faint', label: 'stopped', icon: null };
+  return (
+    <span role="img" aria-label={look.label} className={cx('absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full ring-2 ring-surface', look.cls)}>
+      {status === 'running' && <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-accent opacity-40 motion-reduce:hidden" />}
+      {look.icon}
+    </span>
+  );
+}
+
+/**
+ * One Copilot run: who it worked for (the project), what it did or is doing, and, opened, its steps
+ * as one flat list (the current one live at the bottom), its final message and Tandem's instructions.
+ */
+export function RunCard({ run, open, onToggle, dense, project }: { run: RunActivity; open: boolean; onToggle: () => void; /** Tighter, for the task conversation. */ dense?: boolean; project?: { id: string; name: string } }) {
   const running = run.status === 'running';
+  useTick(running);
+  const [all, setAll] = useState(false);
+  const shown = run.steps.filter((s) => s.kind !== 'prompt' && s.kind !== 'message' && s.kind !== 'intent');
   const lastIntent = [...run.steps].reverse().find((s) => s.kind === 'intent')?.text;
-  const tools = run.steps.filter((s) => s.kind === 'tool');
-  const edited = new Set(tools.flatMap((t) => t.files?.map((f) => f.path) ?? []));
+  const current = [...shown].reverse()[0];
+  const edited = new Set(shown.filter((s) => s.kind === 'tool').flatMap((t) => t.files?.map((f) => f.path) ?? []));
+  const actions = shown.filter((s) => s.kind === 'tool').length;
   const summary = running
-    ? (lastIntent ?? 'Working…')
-    : [tools.length ? `${tools.length} action${tools.length === 1 ? '' : 's'}` : null, edited.size ? `${edited.size} file${edited.size === 1 ? '' : 's'} changed` : null, run.error ? run.error.split('\n')[0] : null].filter(Boolean).join(' · ') || 'No actions';
+    ? (current ? describe(current, true) : (lastIntent ?? 'Getting started'))
+    : [actions ? `${actions} action${actions === 1 ? '' : 's'}` : null, edited.size ? `${edited.size} file${edited.size === 1 ? '' : 's'} changed` : null, run.error ? run.error.split('\n')[0] : null].filter(Boolean).join(' · ') || 'No actions';
   const brand = run.model ? providerOf(run.model) : undefined;
   // Old runs (before steps were recorded) have nothing to open.
   const empty = run.steps.length === 0;
+  const LIMIT = 6;
+  const visible = all || shown.length <= LIMIT ? shown : shown.slice(-LIMIT);
+  const hidden = shown.length - visible.length;
+  const size = dense ? 28 : 32;
   return (
-    <li className={cx("overflow-hidden bg-surface shadow-panel", dense ? "rounded-xl" : "rounded-2xl")}>
-      <button type="button" aria-expanded={open} disabled={empty} onClick={onToggle} className={cx("flex w-full items-center text-left transition-colors enabled:hover:bg-surface-2/50 disabled:cursor-default", dense ? "gap-3 px-3 py-2.5" : "gap-3.5 px-4 py-3.5")}>
-        <span className={cx("grid shrink-0 place-items-center bg-surface text-fg shadow-[0_0_0_1px_var(--border)]", dense ? "size-7 rounded-lg" : "size-8 rounded-[10px]")}>
-          {running ? <Spinner className="size-3.5" /> : <BrandLogo brand="copilot" size={16} />}
+    <li className={cx('overflow-hidden bg-surface shadow-panel', dense ? 'rounded-xl' : 'rounded-2xl')}>
+      <button type="button" aria-expanded={open} disabled={empty} onClick={onToggle} className={cx('flex w-full items-center text-left transition-colors enabled:hover:bg-surface-2/50 disabled:cursor-default', dense ? 'gap-3 px-3 py-2.5' : 'gap-3.5 px-4 py-3.5')}>
+        <span className="relative shrink-0">
+          {project ? (
+            <ProjectAvatar name={project.name} projectId={project.id} size={size} />
+          ) : (
+            <span className="grid place-items-center rounded-lg bg-surface text-fg shadow-[0_0_0_1px_var(--border)]" style={{ width: size, height: size }}>
+              <BrandLogo brand="copilot" size={16} />
+            </span>
+          )}
+          <StatusMark status={run.status} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className={cx("truncate font-medium", dense ? "text-[13.5px]" : "text-[14px]")}>{RUN_TITLE[run.kind] ?? run.kind}</span>
-            {run.status === 'succeeded' && <CheckCircle2 aria-label="done" className="size-3.5 shrink-0 text-ok" />}
-            {run.status === 'failed' && <XCircle aria-label="failed" className="size-3.5 shrink-0 text-danger" />}
-            {run.status === 'aborted' && <span className="shrink-0 text-[12px] text-faint">stopped</span>}
+          <span className={cx('block truncate font-medium', dense ? 'text-[13.5px]' : 'text-[14px]')}>{running ? (RUN_LIVE[run.kind] ?? run.kind) : (RUN_TITLE[run.kind] ?? run.kind)}</span>
+          <span key={running ? summary : undefined} className={cx('mt-0.5 block truncate text-[12.5px]', running ? 'shimmer-text animate-in' : run.status === 'failed' ? 'text-danger' : 'text-muted')}>
+            {summary}
+            {running && '…'}
           </span>
-          <span className={cx('mt-0.5 block truncate text-[13px]', run.status === 'failed' ? 'text-danger' : 'text-muted')}>{summary}</span>
         </span>
-        <span className="hidden shrink-0 items-center gap-3 text-[12px] text-faint sm:flex">
+        <span className="hidden shrink-0 items-center gap-2.5 text-[12px] text-faint sm:flex">
           {run.model && (
-            <span className="inline-flex max-w-40 items-center gap-1.5 truncate">
+            <span className="inline-flex max-w-36 items-center gap-1.5 truncate">
               {brand && <BrandLogo brand={brand} size={12} />}
               {run.model}
             </span>
@@ -202,20 +262,35 @@ export function RunCard({ run, open, onToggle, dense }: { run: RunActivity; open
         {!empty && <ChevronRight aria-hidden className={cx('size-4 shrink-0 text-faint transition-transform duration-200', open && 'rotate-90')} />}
       </button>
       <Collapse open={open && !empty}>
-        <div className="border-t border-line px-4 py-3">
-          {run.steps
-            .filter((s) => s.kind === 'prompt')
-            .map((s) => (
-              <Step key={s.id} s={s} />
-            ))}
-          <div className="py-1.5">
-            {running ? <LiveActivity steps={run.steps} since={Date.parse(run.startedAt)} answering={false} /> : <StepTimeline steps={run.steps.filter((s) => s.kind !== 'prompt' && s.kind !== 'message' && s.kind !== 'intent')} />}
-          </div>
+        <div className={cx('border-t border-line', dense ? 'px-3 pt-2 pb-2.5' : 'px-4 pt-2.5 pb-3')}>
+          {hidden > 0 && (
+            <button type="button" onClick={() => setAll(true)} className="mb-1 ml-[3px] rounded-md px-1.5 py-0.5 text-[12px] text-faint transition-colors hover:bg-surface-2 hover:text-muted">
+              Show {hidden} earlier step{hidden === 1 ? '' : 's'}
+            </button>
+          )}
+          {visible.length > 0 && <StepTimeline steps={visible} />}
+          {running && (
+            <p role="status" aria-live="polite" className="mt-1 flex items-center gap-2.5 pl-[7px] text-[13px]">
+              <span aria-hidden className="relative grid size-2 place-items-center">
+                <span className="absolute size-2 animate-ping rounded-full bg-accent/50 motion-reduce:hidden" />
+                <span className="size-1.5 rounded-full bg-accent" />
+              </span>
+              <span className="shimmer-text">{lastIntent ?? 'Working'}…</span>
+            </p>
+          )}
           {run.steps
             .filter((s) => s.kind === 'message')
             .map((s) => (
               <Step key={s.id} s={s} />
             ))}
+          {/* What Tandem told Copilot: kept for the record, out of the way. */}
+          <div className="mt-1.5 border-t border-line/70 pt-1.5">
+            {run.steps
+              .filter((s) => s.kind === 'prompt')
+              .map((s) => (
+                <Step key={s.id} s={s} />
+              ))}
+          </div>
         </div>
       </Collapse>
     </li>

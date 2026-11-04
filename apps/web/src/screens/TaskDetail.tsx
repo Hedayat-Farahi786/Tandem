@@ -473,7 +473,7 @@ function SpecTab({ d }: { d: TaskDetail }) {
                 .map((s) => ({
                   value: String(s.version),
                   label: `Version ${s.version}${s.version === latest ? " (current)" : ""}`,
-                  description: `${s.source === "edit" ? "Edited" : s.source === "redraft" ? "Redrafted" : "Drafted"} ${relativeTime(s.createdAt)}`,
+                  description: `${s.source === "edit" ? "Edited" : s.source === "redraft" ? "Redrafted" : s.source === "chat" ? "Written in the request chat" : "Drafted"} ${relativeTime(s.createdAt)}`,
                 }))}
             />
           </div>

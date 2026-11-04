@@ -18,7 +18,7 @@ export type PanelTab = 'overview' | 'spec' | 'changes' | 'checks' | 'prs' | 'tra
 
 /** Runs that already show as chat answers (or belong to the request chat) are not repeated. */
 const CHAT_RUNS = new Set(['task-chat', 'ask', 'request']);
-const SPEC_SOURCE: Record<string, string> = { draft: 'Drafted by Copilot', redraft: 'Redrafted with your feedback', edit: 'Edited by you' };
+const SPEC_SOURCE: Record<string, string> = { draft: 'Drafted by Copilot', redraft: 'Redrafted with your feedback', edit: 'Edited by you', chat: 'Written in your request chat' };
 const PR_STATUS: Record<string, { label: string; tone: 'ok' | 'neutral' | 'accent' | 'warn' }> = {
   open: { label: 'Open', tone: 'accent' },
   merged: { label: 'Merged', tone: 'ok' },
@@ -133,11 +133,11 @@ function TandemWorking({ taskId, state, since, repos }: { taskId: string; state:
   );
 }
 
-function RunItem({ run }: { run: RunActivity }) {
+function RunItem({ run, project }: { run: RunActivity; project: { id: string; name: string } }) {
   const [open, setOpen] = useState(run.status === 'running');
   return (
     <ol className="list-none">
-      <RunCard dense run={run} open={open} onToggle={() => setOpen(!open)} />
+      <RunCard dense run={run} project={project} open={open} onToggle={() => setOpen(!open)} />
     </ol>
   );
 }
@@ -162,7 +162,7 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
       if ((x.to === 'SPEC_REVIEW' && d.specs.length) || (x.to === 'PR_OPEN' && d.prs.length)) continue;
       items.push({ at: x.at, key: `tr-${i}`, node: <Milestone icon={<StatusIcon state={x.to as TaskState} className="size-3.5" />} title={STATE_LABEL[x.to]} body={plainReason(x.reason)} at={x.at} /> });
     }
-    for (const r of activity.data ?? []) if (!CHAT_RUNS.has(r.kind)) items.push({ at: r.startedAt, key: `run-${r.id}`, node: <RunItem run={r} /> });
+    for (const r of activity.data ?? []) if (!CHAT_RUNS.has(r.kind)) items.push({ at: r.startedAt, key: `run-${r.id}`, node: <RunItem run={r} project={d.project} /> });
     for (const s of d.specs)
       items.push({
         at: s.createdAt,

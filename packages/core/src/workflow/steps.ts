@@ -225,6 +225,15 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const template = await currentSpecTemplate(deps, project);
       const latest = await deps.store.specs.latest(task.id);
       const feedback = task.specFeedback?.trim() || undefined;
+      // Written in the request chat, with the code already read: no second draft.
+      if (latest?.source === 'chat' && latest.version === 1 && !feedback) {
+        if (project.pmGate === 'jira') {
+          const tracker = await deps.tracker();
+          const posted = await tracker.comment(task.externalKey ?? task.key, `Spec version 1 for ${task.key} is ready for PM approval.\n\nReply "approve" to approve it, or "changes: <what to change>".\n\n${latest.markdown}`);
+          return { kind: 'goto', state: 'SPEC_REVIEW', reason: 'Spec version 1 was written in the request chat; sent to the PM in Jira.', patch: { pmRequestedAt: posted.createdAt } };
+        }
+        return { kind: 'goto', state: 'SPEC_REVIEW', reason: 'Spec version 1 was written in the request chat.' };
+      }
       const s = await readOnlySession(deps, ctx, 'spec', deps.paths.referenceRoot(project.id));
       let markdown: string;
       let check: ReturnType<typeof validateSpec>;
@@ -269,6 +278,15 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
     'SPEC_REVIEW:await-pm': async (ctx): Promise<StepOutcome> => {
       const task = ctx.task;
       const project = await loadProject(deps, task.projectId);
+      {
+        // Approved already (the owner approved the chat's spec by creating the task): build.
+        const latest = await deps.store.specs.latest(task.id);
+        const st = latest ? approvalState(project, latest.version, await deps.store.approvals.list(task.id)) : undefined;
+        if (latest && st?.complete) {
+          const who = [st.owner?.name, st.pm ? `${st.pm.name} (PM)` : undefined].filter(Boolean).join(' and ');
+          return { kind: 'goto', state: 'BUILDING', reason: `Spec version ${latest.version} approved by ${who}.` };
+        }
+      }
       if (project.pmGate !== 'jira' || !task.pmRequestedAt) return { kind: 'idle' };
       const latest = await deps.store.specs.latest(task.id);
       if (!latest) return { kind: 'idle' };

@@ -197,7 +197,7 @@ export function TraceTab({ taskId }: { taskId: string }) {
                     <div className="w-36 shrink-0">
                       <p className="text-[13px] font-medium">Version {s.version}</p>
                       <p className="text-[12px] text-faint">
-                        {s.source === 'edit' ? 'Edited' : s.source === 'redraft' ? 'Redrafted' : 'Drafted'} {when(s.createdAt)}
+                        {s.source === 'edit' ? 'Edited' : s.source === 'redraft' ? 'Redrafted' : s.source === 'chat' ? 'Written in the request chat' : 'Drafted'} {when(s.createdAt)}
                       </p>
                     </div>
                     <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">

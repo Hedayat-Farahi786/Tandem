@@ -87,13 +87,22 @@ A new chat starts in one of two modes:
   - what is out of scope
   - no open questions
 
+  Once every item is met and Copilot has nothing left to ask, it writes the
+  **full spec** (files to change, states, edge cases, tests) in the same
+  conversation, from the code it already read, and the panel shows it with
+  **Ready to create**. While Copilot asks you something, or is still
+  writing, the task can't be started yet.
+
   At the bottom:
-  - **Create and start** (once the spec is ready) creates the task and moves
-    straight into its live run. Copilot writes the full spec next, and no
-    code is written before you approve it.
+  - **Create and start** creates the task with that spec as version 1 and
+    counts as your approval of it (the trace records this), then moves
+    straight into the live run. The task doesn't draft the spec again: it
+    starts building at once, or waits for the PM if your project needs a
+    PM's approval too. If the full spec couldn't be written, the task
+    writes it first and asks you to approve it.
   - **Save for later** keeps it as a draft task that doesn't run, even if
-    the spec isn't finished. Its page says **Saved, not started yet**;
-    choose **Start task** when you're ready.
+    the spec isn't finished; a finished spec goes with it. Its page says
+    **Saved, not started yet**; choose **Start task** when you're ready.
 - **Ask**: questions about the code. Answers are read-only and cite files
   and lines.
 

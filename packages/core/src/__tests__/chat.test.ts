@@ -412,3 +412,75 @@ describe('chat: rename, pin and delete', () => {
     await expect(c.renameThread(tc.id, 'x')).rejects.toThrow(/Rename the task/);
   });
 });
+
+describe('chat: the request chat writes the spec once', () => {
+  const finish = (h: ReturnType<typeof harness>) => {
+    h.overrides.chat = (call) => {
+      if (call.prompt.startsWith('The request is complete')) return { text: SINGLE_SPEC };
+      return { text: 'Thanks, that covers it.', tools: [{ name: 'tandem_update_draft', args: { ...GOOD_REQUIREMENT, title: 'Health endpoint', affectedRepos: ['app'], size: { estimatedLines: 50, perRepo: [], features: ['health'], proposedSplit: [], rationale: 'small' } } }] };
+    };
+  };
+
+  it('writes the full spec in the same session once nothing is left to ask; the task starts from it, approved, without a second draft', async () => {
+    const h = harness({ pmGate: 'off' });
+    await h.ready;
+    const c = chat(h);
+    finish(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await c.send(t.id, 'Add a GET /health endpoint and show the status on the main page.');
+    const th = await c.thread(t.id);
+    expect(th.draftSpec?.problems).toEqual([]);
+    expect(th.draftSpec?.markdown).toContain('## Acceptance criteria');
+    expect(th.busy).toBeUndefined();
+    const specCalls = h.agent.calls.filter((x) => x.prompt.startsWith('The request is complete'));
+    expect(specCalls).toHaveLength(1);
+
+    const task = await c.createTask(t.id);
+    const v1 = await h.store.specs.latest(task.id);
+    expect(v1).toMatchObject({ version: 1, source: 'chat' });
+    expect((await h.store.approvals.list(task.id)).map((a) => [a.role, a.specVersion])).toEqual([['owner', 1]]);
+    expect((await c.messages(t.id)).at(-1)!.content).toMatch(/with the spec above, approved by you/);
+    const before = h.agent.calls.length;
+    await h.runner.runUntilIdle();
+    const after = h.agent.calls.slice(before);
+    expect(after.some((x) => x.prompt.startsWith('Write the implementation spec'))).toBe(false);
+    const states = (await h.store.transitions.list(task.id)).map((x) => x.to);
+    expect(states.slice(0, 5)).toEqual(['DRAFT', 'READINESS', 'SPEC_DRAFTING', 'SPEC_REVIEW', 'BUILDING']);
+    expect((await h.store.specs.list(task.id)).length).toBe(1);
+  });
+
+  it('with a PM gate, the owner approval from creating the task counts, and the task waits only for the PM', async () => {
+    const h = harness({ pmGate: 'tandem' });
+    await h.ready;
+    const c = chat(h);
+    finish(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await c.send(t.id, 'Add a GET /health endpoint.');
+    const task = await c.createTask(t.id);
+    await h.runner.runUntilIdle();
+    expect((await h.get(task.id)).state).toBe('SPEC_REVIEW');
+    expect(h.agent.calls.some((x) => x.prompt.startsWith('Write the implementation spec'))).toBe(false);
+    await h.service.recordPmApproval(task.id, { name: 'Pat', date: h.clock.iso(), evidence: 'Approved in the team channel' });
+    expect((await h.get(task.id)).state).toBe('BUILDING');
+  });
+
+  it("can't create and start while Copilot's questions wait for an answer; a requirement change rewrites the spec", async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    finish(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await c.send(t.id, 'Add a GET /health endpoint.');
+    const th = await c.thread(t.id);
+    await h.store.threads.upsert({ ...th, pendingQuestions: { questions: [{ header: 'Status', question: 'Which status?', options: [{ label: 'ok', description: 'x' }, { label: 'up', description: 'y' }], multiSelect: false }], askedAt: th.updatedAt } });
+    await expect(c.createTask(t.id)).rejects.toThrow(/Answer its questions first/);
+    // Answering changes the requirement: the old spec goes, and a new one is written.
+    const firstAt = th.draftSpec!.at;
+    await c.send(t.id, 'ok');
+    const again = await c.thread(t.id);
+    expect(again.pendingQuestions).toBeUndefined();
+    expect(again.draftSpec).toBeTruthy();
+    expect(h.agent.calls.filter((x) => x.prompt.startsWith('The request is complete'))).toHaveLength(2);
+    void firstAt;
+  });
+});
