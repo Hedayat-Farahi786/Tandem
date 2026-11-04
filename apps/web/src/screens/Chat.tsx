@@ -11,7 +11,6 @@ import { useRouter } from '../lib/router';
 import { useChatProject } from '../lib/project';
 import type { Bootstrap, ThreadView } from '../lib/types';
 import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Select, Spinner, cx, useToast } from '../ui/kit';
-import { TandemMark } from '../ui/brand';
 import { ModelPicker, useModels } from '../ui/model-picker';
 import { RequestDraft } from './RequestDraft';
 import { AnswersBubble, QuestionCard } from '../ui/questions';
@@ -471,7 +470,6 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
   };
   return (
     <div className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-2rem)]">
-      <TandemMark size={44} enter className="mb-5 text-accent" />
       <h1 className="animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
       <p className="mt-2 animate-rise text-[15px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form
