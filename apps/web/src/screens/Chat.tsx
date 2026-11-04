@@ -11,6 +11,7 @@ import { useRouter } from '../lib/router';
 import { useChatProject } from '../lib/project';
 import type { Bootstrap, ThreadView } from '../lib/types';
 import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Select, Spinner, cx, useToast } from '../ui/kit';
+import { TandemMark } from '../ui/brand';
 import { ModelPicker, useModels } from '../ui/model-picker';
 import { RequestDraft } from './RequestDraft';
 import { AnswersBubble, QuestionCard } from '../ui/questions';
@@ -96,8 +97,26 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const working = Boolean(task && WORKING.has(task.state));
   const qc = useQueryClient();
   const toast = useToast();
-  const view = useQuery({ queryKey: ['thread', threadId], queryFn: () => api<ThreadView>(`/api/threads/${threadId}`) });
-  const [text, setText] = useState('');
+  // While Copilot answers, check now and then too, in case the live connection dropped.
+  const view = useQuery({ queryKey: ['thread', threadId], queryFn: () => api<ThreadView>(`/api/threads/${threadId}`), refetchInterval: (q) => (q.state.data?.thread.busy ? 3_000 : false) });
+  // The unsent message survives a reload or a trip to another page (per chat, in this browser).
+  const draftKey = `tandem.draft.${threadId}`;
+  const [text, setTextState] = useState(() => {
+    try {
+      return localStorage.getItem(draftKey) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const setText = (v: string) => {
+    setTextState(v);
+    try {
+      if (v) localStorage.setItem(draftKey, v);
+      else localStorage.removeItem(draftKey);
+    } catch {
+      /* the draft just isn't kept */
+    }
+  };
   const [stream, setStream] = useState('');
   const [pending, setPending] = useState<{ content: string; answers?: OwnerAnswer[] } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -220,9 +239,30 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   const repoName = (id?: string) => repos.find((r) => r.id === id)?.name ?? 'repo';
   const thread = view.data?.thread;
   const done = Boolean(thread?.createdTaskId);
+  // Copilot is answering a message this page didn't send (it was reloaded, or opened again): show it live.
+  const remoteBusy = Boolean(thread?.busy) && !send.isPending;
+  const answering = send.isPending || remoteBusy;
+  const remoteRun = remoteBusy ? thread?.busy?.runId : undefined;
+  useEffect(() => {
+    if (!remoteRun) return;
+    void api<AgentStep[]>(`/api/agent-runs/${remoteRun}/steps`)
+      .then(setLiveSteps)
+      .catch(() => undefined);
+  }, [remoteRun]);
+  // When that answer arrives, its live view gives way to the message.
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const b = Boolean(thread?.busy);
+    if (wasBusy.current && !b && !send.isPending) {
+      setStream('');
+      setLiveSteps([]);
+    }
+    wasBusy.current = b;
+  }, [thread?.busy, send.isPending]);
+  const liveSince = remoteBusy && thread?.busy ? Date.parse(thread.busy.since) : since;
   const submit = () => {
     const t = text.trim();
-    if (!t || send.isPending) return;
+    if (!t || answering) return;
     setText('');
     send.mutate({ content: t });
   };
@@ -234,12 +274,12 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
   // The chat reloads live while Copilot works, so the message being sent may already be saved.
   const lastMine = messages.filter((m) => m.role === 'user').at(-1);
   const showPending = pending && !(lastMine && lastMine.content === pending.content && Date.parse(lastMine.createdAt) >= since - 5_000);
-  const questions = thread?.pendingQuestions && !send.isPending ? thread.pendingQuestions.questions : null;
+  const questions = thread?.pendingQuestions && !answering ? thread.pendingQuestions.questions : null;
   const entries: TimelineItem[] = [...(timeline ?? []), ...messages.map((m) => ({ at: m.createdAt, key: m.id, message: m }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <div className={cx('grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6', thread?.mode === 'request' && !compact && 'lg:grid-cols-[minmax(0,1fr)_320px]')}>
       <div className="flex min-h-[420px] flex-col">
-        <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={send.isPending}>
+        <div className="flex flex-1 flex-col gap-5 pb-4" aria-live="polite" aria-busy={answering}>
           {entries.length === 0 && !showPending && (
             <div className="py-10 text-center text-[13.5px] text-muted">
               {thread?.mode === 'request' ? 'Describe what you want. Tandem asks until the request is clear and testable, then creates the task.' : thread?.mode === 'task' ? 'Ask about the spec, the build, the diff or failing checks. Ask for a spec change and Tandem proposes it for you to confirm.' : 'Ask anything about the code. Answers cite files and lines.'}
@@ -253,17 +293,18 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
             ),
           )}
           {showPending && <Message enter m={{ id: 'pending', threadId, role: 'user', content: pending.content, refs: [], ...(pending.answers ? { answers: pending.answers } : {}), createdAt: '' }} repoName={repoName} />}
-          {send.isPending && (
+          {answering && (
             <div className="flex flex-col">
-              <LiveActivity steps={liveSteps} since={since} answering={Boolean(stream)} />
-              {stream && (
+              <LiveActivity steps={liveSteps} since={liveSince} answering={Boolean(stream)} />
+              {/* After a reload the stream would start mid-sentence: the full answer appears when it's done. */}
+              {stream && !remoteBusy && (
                 <div className="animate-in px-1">
                   <Markdown source={stream} className="stream-caret" />
                 </div>
               )}
             </div>
           )}
-          {send.isError && <ErrorState title="The message was not answered" error={send.error} />}
+          {send.isError && !messages.at(-1)?.content.startsWith("Copilot couldn't answer") && <ErrorState title="The message was not answered" error={send.error} />}
           {questions && (
             <QuestionCard
               key={thread?.pendingQuestions?.askedAt}
@@ -340,7 +381,7 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
               rows={1}
               value={text}
               disabled={done}
-              placeholder={done ? 'This request became a task. Continue in the task chat.' : questions ? 'Or write your own answer…' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
+              placeholder={done ? 'This request became a task. Continue in the task chat.' : remoteBusy ? 'Copilot is answering… write your next message meanwhile' : questions ? 'Or write your own answer…' : stuck ? 'Tell Copilot how to continue, or ask what went wrong…' : working ? 'Ask a question, or tell Copilot something for its next step…' : placeholder}
               onChange={(e) => {
                 setText(e.target.value);
                 e.target.style.height = 'auto';
@@ -372,8 +413,8 @@ export function ThreadPanel({ threadId, placeholder, repos, onTaskCreated, compa
                   {stuck ? 'Continue with this' : 'Tell Copilot'}
                 </Button>
               )}
-              <Button type="submit" variant="primary" aria-label="Send" className="disabled:bg-surface-3 disabled:text-faint disabled:opacity-100 size-8 rounded-[10px] !px-0 transition-[background-color,opacity,transform] duration-150 active:scale-[0.92]" disabled={!text.trim() || send.isPending || done}>
-                {send.isPending ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
+              <Button type="submit" variant="primary" aria-label="Send" className="disabled:bg-surface-3 disabled:text-faint disabled:opacity-100 size-8 rounded-[10px] !px-0 transition-[background-color,opacity,transform] duration-150 active:scale-[0.92]" disabled={!text.trim() || answering || done}>
+                {answering ? <Spinner /> : <ArrowUp aria-hidden className="size-4" strokeWidth={2.5} />}
               </Button>
             </div>
           </div>
@@ -430,6 +471,7 @@ function StartComposer({ projectName, busy, error, onStart }: { projectName: str
   };
   return (
     <div className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-2xl flex-col items-center justify-center pb-[6vh] text-center md:min-h-[calc(100vh-2rem)]">
+      <TandemMark size={44} enter className="mb-5 text-accent" />
       <h1 className="animate-rise font-display text-[34px] leading-tight">{mode === 'request' ? 'What should we build?' : 'What would you like to know?'}</h1>
       <p className="mt-2 animate-rise text-[15px] text-muted [animation-delay:40ms]">{mode === 'request' ? `Describe a change to ${projectName}. Tandem asks until it is clear, then turns it into a reviewed pull request.` : `Ask anything about ${projectName}. Answers are read-only and cite files and lines.`}</p>
       <form

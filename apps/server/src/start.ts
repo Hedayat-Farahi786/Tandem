@@ -76,6 +76,8 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
     if (stuck) void chat.notifyStuck(e.taskId).catch((err: unknown) => logger.warn('could not post to the task chat', { taskId: e.taskId, error: String(err) }));
     if (e.type === 'task.transition' && (e.to === 'PR_OPEN' || e.to === 'DONE')) void chat.notifyResolved(e.taskId).catch((err: unknown) => logger.warn('could not post to the task chat', { taskId: e.taskId, error: String(err) }));
   });
+  // Chats can't still be answering after a restart: clear their busy marks and say so in each.
+  await chat.clearStaleBusy().catch((err: unknown) => logger.warn('could not clear busy chats', { error: String(err) }));
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
   const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };

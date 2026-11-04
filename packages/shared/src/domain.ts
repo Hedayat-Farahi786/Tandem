@@ -338,6 +338,11 @@ export const ChatThread = z.object({
   pendingSpecChange: z.object({ kind: z.enum(['redraft', 'edit']), feedback: z.string().optional(), markdown: z.string().optional(), summary: z.string() }).optional(),
   /** Task chat: how the agent proposes to continue a stuck task, waiting for the owner to confirm. */
   pendingContinue: z.object({ summary: z.string(), guidance: z.string(), skipChecks: z.array(z.object({ repoId: Id.optional(), kind: SkippableCheck })).optional() }).optional(),
+  /**
+   * Copilot is answering a message right now (kept in the store, so a reloaded page shows it live).
+   * `runId` is the agent run, once it started.
+   */
+  busy: z.object({ since: Iso, runId: Id.optional() }).optional(),
   /** Request chat: questions the agent asked, waiting for the owner's answers. */
   pendingQuestions: z.object({ questions: z.array(OwnerQuestion), askedAt: Iso }).optional(),
   createdAt: Iso,

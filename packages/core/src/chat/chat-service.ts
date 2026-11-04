@@ -145,49 +145,92 @@ export class ChatService {
     if (!content) throw new ActionError('Write a message first.');
     let thread = await this.thread(threadId);
     if (thread.mode === 'request' && thread.createdTaskId) throw new ActionError('This request already became a task. Use the task chat for changes.');
-    if (thread.pendingQuestions) {
-      const { pendingQuestions: _answered, ...rest } = thread;
-      thread = rest;
-      await this.deps.store.threads.upsert(thread);
-    }
-    await this.say(threadId, 'user', content, [], undefined, answers);
-    const project = await loadProject(this.deps, thread.projectId);
-    const task = thread.taskId ? await this.deps.store.tasks.get(thread.taskId) : undefined;
-    const repos = await affectedRepos(this.deps, task ?? ({ affectedRepoIds: [] } as unknown as Task), project);
-
-    // Read-only workspace: the task folder once it exists, else fresh reference checkouts.
-    const taskDir = task ? this.deps.paths.taskDir(task.id) : undefined;
-    const root = taskDir && existsSync(taskDir) ? taskDir : await refreshReferences(this.deps, project, repos);
-
-    const tools: AgentTool<never>[] = [];
-    if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>, this.askTool(threadId) as AgentTool<never>);
-    if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId, repos) as AgentTool<never>, this.renameTool(threadId) as AgentTool<never>);
-    const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
-    const session = await openSession(this.deps, {
-      ...(task ? { taskId: task.id } : {}),
-      threadId,
-      kind: thread.mode === 'ask' ? 'ask' : thread.mode === 'request' ? 'request' : 'task-chat',
-      mode: 'read-only',
-      workspace: root,
-      instructions,
-      tools,
-      ...(thread.sessionId ? { resumeId: thread.sessionId } : {}),
-      ...(onEvent ? { onEvent } : {}),
-    });
-    let answer: string;
-    try {
-      if (session.id !== thread.sessionId) await this.deps.store.threads.upsert({ ...(await this.thread(threadId)), sessionId: session.id });
-      answer = await session.send(await this.prompt(thread, content, task, repos));
-    } finally {
-      await session.stop();
-    }
-    thread = await this.thread(threadId);
-    const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos), session.runId);
-    const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
-    thread = { ...thread, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
+    // One answer at a time per chat: a second message would compete for the same Copilot session.
+    if (thread.busy && !(await this.staleBusy(thread))) throw new ActionError('Copilot is still answering your last message. Your next message can go as soon as it finishes.');
+    const { pendingQuestions: _answered, busy: _stale, ...rest } = thread;
+    thread = { ...rest, busy: { since: this.deps.clock.iso() } };
     await this.deps.store.threads.upsert(thread);
-    this.deps.events?.emit({ type: 'chat.done', threadId, messageId: reply.id });
-    return { message: reply, thread, ...(thread.mode === 'request' ? { readiness: checkReadiness(thread.draft ?? Requirement.parse({})) } : {}) };
+    this.deps.events?.emit({ type: 'thread.updated', threadId });
+    try {
+      await this.say(threadId, 'user', content, [], undefined, answers);
+      const project = await loadProject(this.deps, thread.projectId);
+      const task = thread.taskId ? await this.deps.store.tasks.get(thread.taskId) : undefined;
+      const repos = await affectedRepos(this.deps, task ?? ({ affectedRepoIds: [] } as unknown as Task), project);
+
+      // Read-only workspace: the task folder once it exists, else fresh reference checkouts.
+      const taskDir = task ? this.deps.paths.taskDir(task.id) : undefined;
+      const root = taskDir && existsSync(taskDir) ? taskDir : await refreshReferences(this.deps, project, repos);
+
+      const tools: AgentTool<never>[] = [];
+      if (thread.mode === 'request') tools.push(this.draftTool(threadId, repos) as AgentTool<never>, this.askTool(threadId) as AgentTool<never>);
+      if (thread.mode === 'task') tools.push(this.specChangeTool(threadId) as AgentTool<never>, this.continueTool(threadId, repos) as AgentTool<never>, this.renameTool(threadId) as AgentTool<never>);
+      const instructions = thread.mode === 'ask' ? ASK_RULES : thread.mode === 'request' ? REQUEST_RULES : TASK_RULES;
+      const session = await openSession(this.deps, {
+        ...(task ? { taskId: task.id } : {}),
+        threadId,
+        kind: thread.mode === 'ask' ? 'ask' : thread.mode === 'request' ? 'request' : 'task-chat',
+        mode: 'read-only',
+        workspace: root,
+        instructions,
+        tools,
+        ...(thread.sessionId ? { resumeId: thread.sessionId } : {}),
+        ...(onEvent ? { onEvent } : {}),
+      });
+      let answer: string;
+      try {
+        // The run is known now: a page opened from here on follows its steps live.
+        await this.deps.store.threads.upsert({ ...(await this.thread(threadId)), sessionId: session.id, busy: { since: thread.busy!.since, runId: session.runId } });
+        this.deps.events?.emit({ type: 'thread.updated', threadId });
+        answer = await session.send(await this.prompt(thread, content, task, repos));
+      } finally {
+        await session.stop();
+      }
+      thread = await this.thread(threadId);
+      const reply = await this.say(threadId, 'assistant', answer, extractRefs(answer, root, repos), session.runId);
+      const title = thread.mode === 'request' && thread.title === 'New request' ? thread.draftTitle : thread.mode === 'ask' && thread.title === 'Question' ? shortTitle(content) : undefined;
+      const { busy: _done, ...settled } = thread;
+      thread = { ...settled, updatedAt: this.deps.clock.iso(), ...(title ? { title } : {}) };
+      await this.deps.store.threads.upsert(thread);
+      this.deps.events?.emit({ type: 'chat.done', threadId, messageId: reply.id });
+      return { message: reply, thread, ...(thread.mode === 'request' ? { readiness: checkReadiness(thread.draft ?? Requirement.parse({})) } : {}) };
+    } catch (err) {
+      // Say it in the chat too: whoever opens it later (after a reload, say) sees what happened.
+      const why = err instanceof Error ? err.message : String(err);
+      const note = await this.say(threadId, 'system', `Copilot couldn't answer: ${why.split('\n')[0]!.slice(0, 300)} Send your message again when you're ready.`).catch(() => undefined);
+      void note;
+      throw err;
+    } finally {
+      const now = await this.deps.store.threads.get(threadId);
+      if (now?.busy) {
+        const { busy: _gone, ...free } = now;
+        await this.deps.store.threads.upsert({ ...free, updatedAt: this.deps.clock.iso() });
+      }
+      this.deps.events?.emit({ type: 'chat.done', threadId, messageId: '' });
+    }
+  }
+
+  /** A busy mark that outlived its run (Tandem stopped mid-answer, or the run ended without clearing it). */
+  private async staleBusy(thread: ChatThread): Promise<boolean> {
+    if (!thread.busy) return false;
+    const limitMs = ((await this.deps.settings()).limits.chatTimeoutMin + 2) * 60_000;
+    if (this.deps.clock.now() - Date.parse(thread.busy.since) > limitMs) return true;
+    const run = thread.busy.runId ? await this.deps.store.runs.get(thread.busy.runId) : undefined;
+    return Boolean(run && run.status !== 'running');
+  }
+
+  /** On start: no chat can still be answering (its run ended with the old process). */
+  async clearStaleBusy(): Promise<number> {
+    let n = 0;
+    for (const p of await this.deps.store.projects.list()) {
+      for (const t of await this.deps.store.threads.listFor({ projectId: p.id })) {
+        if (!t.busy) continue;
+        const { busy: _gone, ...free } = t;
+        await this.deps.store.threads.upsert(free);
+        await this.say(t.id, 'system', 'Tandem restarted while Copilot was answering, so that answer was lost. Send your message again.');
+        n++;
+      }
+    }
+    return n;
   }
 
   private async prompt(thread: ChatThread, text: string, task: Task | undefined, repos: readonly Repo[]): Promise<string> {

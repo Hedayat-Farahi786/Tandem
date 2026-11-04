@@ -44,6 +44,36 @@ describe('Chat', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/tasks/task1'));
   });
 
+  it('a chat opened while Copilot is answering shows it working, and the answer when it lands', async () => {
+    let calls = 0;
+    const q = { id: 'u1', threadId: 't1', role: 'user', content: 'Where is the health route?', refs: [], createdAt: '2026-11-03T10:00:00Z' };
+    mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/projects/p1/threads': [thread],
+      'GET /api/agent-runs/run1/steps': [{ id: 's1', runId: 'run1', seq: 0, at: '2026-11-03T10:00:01Z', kind: 'tool', tool: 'view', input: 'src/app.ts', ok: true }],
+      'GET /api/threads/t1': () =>
+        ++calls < 2
+          ? { thread: { ...thread, mode: 'ask', busy: { since: new Date().toISOString(), runId: 'run1' } }, model: '', messages: [q], readiness: null }
+          : { thread: { ...thread, mode: 'ask' }, model: '', messages: [q, { id: 'a1', threadId: 't1', role: 'assistant', content: 'In src/app.ts.', refs: [], createdAt: '2026-11-03T10:00:09Z' }], readiness: null },
+    });
+    renderApp('/chat?project=p1&thread=t1');
+    const box = (await screen.findByLabelText('Message')) as HTMLTextAreaElement;
+    expect(box.placeholder).toMatch(/Copilot is answering/);
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByText('In src/app.ts.', {}, { timeout: 6000 })).toBeTruthy();
+    expect(box.placeholder).not.toMatch(/Copilot is answering/);
+  });
+
+  it('keeps an unsent message when you leave the chat and come back', async () => {
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/projects/p1/threads': [thread], 'GET /api/threads/t1': { thread: { ...thread, mode: 'ask' }, model: '', messages: [], readiness: null } });
+    const user = userEvent.setup();
+    const first = renderApp('/chat?project=p1&thread=t1');
+    await user.type(await screen.findByLabelText('Message'), 'Half a thought');
+    first.unmount();
+    renderApp('/chat?project=p1&thread=t1');
+    expect(((await screen.findByLabelText('Message')) as HTMLTextAreaElement).value).toBe('Half a thought');
+  });
+
   it("asks Copilot's questions as choices, one at a time, with room for your own answer", async () => {
     const pendingQuestions = {
       askedAt: '2026-11-03T10:00:00Z',

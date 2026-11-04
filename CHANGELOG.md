@@ -38,6 +38,12 @@ All notable changes to Tandem. The format follows
   to "submit a handoff", and says plainly when a message has no step left
   to act on. When a problem it asked for help with resolves itself, the
   chat says so instead of leaving the alarm as the last word.
+- Leaving or reloading the page while Copilot answers no longer loses track
+  of it: the chat opens straight into the live view and the answer appears
+  when it's done. A second message waits until the first is answered (it's
+  refused with a plain note instead of competing for the session). A failed
+  answer leaves a note in the chat, a restart clears any chat left
+  answering, and an unsent message is kept per chat in this browser.
 - Saying the same thing twice in the task chat no longer repeats it in every
   later Copilot prompt.
 - The task chat no longer answers "this session can't create a PR": it says

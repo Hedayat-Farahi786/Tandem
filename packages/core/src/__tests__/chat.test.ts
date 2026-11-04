@@ -44,6 +44,52 @@ describe('chat: Ask', () => {
   });
 });
 
+describe('chat: answering survives reloads and navigation', () => {
+  it('marks the chat busy while Copilot answers, refuses a second message meanwhile, and clears it after', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    let release!: () => void;
+    h.overrides.chat = () => new Promise((r) => (release = () => r({ text: 'Done.' })));
+    const t = await c.createThread({ projectId: 'p1', mode: 'ask' });
+    const first = c.send(t.id, 'Where is the health route?');
+    for (let i = 0; i < 50 && !(await c.thread(t.id)).busy?.runId; i++) await new Promise((r) => setTimeout(r, 5));
+    const busy = (await c.thread(t.id)).busy!;
+    expect(busy.runId).toBeTruthy(); // a reloaded page can follow this run's steps
+    expect((await c.messages(t.id)).map((m) => m.role)).toEqual(['user']); // the question is saved at once
+    await expect(c.send(t.id, 'And the tests?')).rejects.toThrow(/still answering/);
+    release();
+    await first;
+    expect((await c.thread(t.id)).busy).toBeUndefined();
+    expect((await c.messages(t.id)).map((m) => m.role)).toEqual(['user', 'assistant']);
+  });
+
+  it('a failed answer leaves a note in the chat and frees it', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    h.overrides.chat = () => {
+      throw new Error('Copilot is unavailable right now.');
+    };
+    const t = await c.createThread({ projectId: 'p1', mode: 'ask' });
+    await expect(c.send(t.id, 'Hello?')).rejects.toThrow(/unavailable/);
+    expect((await c.thread(t.id)).busy).toBeUndefined();
+    expect((await c.messages(t.id)).at(-1)).toMatchObject({ role: 'system', content: expect.stringContaining("Copilot couldn't answer: Copilot is unavailable right now.") });
+  });
+
+  it('after a restart, no chat is left answering forever', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'ask' });
+    await h.store.threads.upsert({ ...(await c.thread(t.id)), busy: { since: h.clock.iso() } });
+    expect(await c.clearStaleBusy()).toBe(1);
+    expect((await c.thread(t.id)).busy).toBeUndefined();
+    expect((await c.messages(t.id)).at(-1)!.content).toMatch(/Tandem restarted while Copilot was answering/);
+    await c.send(t.id, 'Again, please.');
+  });
+});
+
 describe('shortTitle', () => {
   it('keeps short first lines and cuts long ones at a word boundary', () => {
     expect(shortTitle('  Where is X?\nmore detail')).toBe('Where is X?');
