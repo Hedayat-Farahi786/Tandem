@@ -158,7 +158,7 @@ async function wakePoll(t: Tandem, taskId: string) {
 }
 
 describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted agent)', () => {
-  it('one full-stack repo: request to merged PR, with the spec committed and the default branch untouched', async () => {
+  it('one full-stack repo: request to merged PR, only the change committed (the spec stays in Tandem), the default branch untouched', async () => {
     const { t, remotes } = await setup({ shape: 'single' });
     const mainBefore = await git(['rev-parse', 'refs/heads/main'], { gitDir: remotes.app!.bare });
     const task = await toPrOpen(t);
@@ -168,7 +168,7 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     // The branch exists on the remote with the work and the spec; main did not move.
     expect(await git(['rev-parse', 'refs/heads/main'], { gitDir: remotes.app!.bare })).toBe(mainBefore);
     const files = await git(['ls-tree', '-r', '--name-only', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
-    expect(files.split('\n').sort()).toEqual(['README.md', 'specs/TND-1-add-a-get-health-endpoint.md', 'src/health.js', 'test/health.test.js']);
+    expect(files.split('\n').sort()).toEqual(['README.md', 'src/health.js', 'test/health.test.js']);
     const log = await git(['log', '--format=%s', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
     expect(log.split('\n')[0]).toBe('feat(TND-1): Add a GET /health endpoint');
 
@@ -191,7 +191,7 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     expect((await t.store.transitions.list(task.id)).map((x) => x.to)).toEqual(['DRAFT', 'READINESS', 'SPEC_DRAFTING', 'SPEC_REVIEW', 'BUILDING', 'VERIFYING', 'SELF_REVIEW', 'PR_OPEN', 'DONE']);
   });
 
-  it('separate backend and frontend repos: contract order, two PRs, spec in the backend', async () => {
+  it('separate backend and frontend repos: contract order, two PRs, no spec file in either', async () => {
     const { t, remotes, agent } = await setup({ shape: 'split' });
     const task = await toPrOpen(t);
     expect(task.state).toBe('PR_OPEN');
@@ -199,7 +199,7 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     expect(order).toEqual(['backend', 'frontend']);
     for (const n of ['backend', 'frontend']) {
       const files = await git(['ls-tree', '-r', '--name-only', `refs/heads/${task.branch}`], { gitDir: remotes[n]!.bare });
-      expect(files.includes('specs/TND-1-add-a-get-health-endpoint.md')).toBe(n === 'backend');
+      expect(files).not.toMatch(/^specs\//m);
       expect(files).toContain('src/health.js');
     }
     const prs = await t.store.prs.list(task.id);
@@ -236,15 +236,17 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     expect(await git(['status', '--porcelain'], { cwd: join(s.t.paths.taskDir(task.id), 'app') })).toBe('');
   });
 
-  it('continues with "needs attention" when the repo tests keep failing', async () => {
-    const { t, agent } = await setup({ shape: 'single', testCommand: 'test -f src/never.js' });
+  it('continues with "needs attention" when the change keeps the tests failing', async () => {
+    // Passes on the base branch, fails once the change adds src/health.js: the change's own failure.
+    const { t, agent } = await setup({ shape: 'single', testCommand: 'test ! -f src/health.js' });
     const task = await toPrOpen(t);
     expect(task.state).toBe('PR_OPEN');
     expect(task.needsAttention).toBe(true);
-    expect(task.attentionNotes).toEqual(['app: test failed (`test -f src/never.js`, exit 1)']);
+    expect(task.attentionNotes).toEqual(['app: test failed (`test ! -f src/health.js`, exit 1)']);
     expect(agent.calls.filter((c) => c.prompt.startsWith('Verification failed'))).toHaveLength(2);
     const pr = (await t.store.prs.list(task.id))[0]!;
-    expect(pr.title).toMatch(/^\[needs attention\]/);
+    expect(pr.title).toBe(task.title);
+    expect(pr.description).toContain('**Needs attention.**');
     const logs = (await t.store.verifyRuns.list(task.id)).flatMap((v) => v.results.map((r) => r.logPath!));
     expect(logs.every((p) => existsSync(p))).toBe(true);
   });

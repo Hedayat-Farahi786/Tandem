@@ -79,15 +79,4 @@ describe('Task as a conversation', () => {
     const line = await within(convo).findByText('Running the checks');
     expect(line.closest('[role="status"]')).toBeTruthy();
   });
-
-  it('switches to Details (the tabs) and remembers the choice', async () => {
-    const { user } = setup(detail({}, { state: 'BUILDING' }));
-    await screen.findByRole('region', { name: 'Conversation' });
-    await user.click(screen.getByRole('button', { name: 'Details' }));
-    expect(screen.getByRole('tab', { name: 'Activity' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Conversation' })).toBeNull();
-    expect(localStorage.getItem('tandem.taskView')).toBe('details');
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
-    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeTruthy();
-  });
 });

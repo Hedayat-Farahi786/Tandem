@@ -8,6 +8,17 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **One view for a task, and a fuller trace.** The task page is the
+  conversation with the details beside it; the separate Details view is
+  gone. The Checks tab opens with criteria proven, checks passing and
+  findings open, and shows criteria as cards with their tests, each check
+  with its own icon, and findings by severity. The trace now covers who
+  asked and whether it was ready, every Copilot run on its own (role, mode,
+  model, time, actions, files changed, refused actions, credits, an
+  instructions fingerprint), every commit with its files, SHA-256
+  fingerprints of each spec version, decisions by people, exceptions and
+  the full lifecycle, in the screen and the Markdown report. Tandem now
+  records every commit it makes in the audit log.
 - **A task page that fits one screen.** On wide screens the task opens as
   an app-style page: a compact one-line bar (back, key, title, status,
   view, details toggle, cancel) with a slim stage strip, then the

@@ -131,6 +131,11 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
   await expect(panel.getByText('All checks pass')).toBeVisible();
   await expect(panel.getByRole('cell', { name: 'Pass' })).toHaveCount(2);
   await checkScreen(page, '12-task-checks', { fullPage: true });
+  // The trace: request to PR, every Copilot run, decisions, exceptions and the verified audit log.
+  await panel.getByRole('tab', { name: 'Trace' }).click();
+  await expect(panel.getByRole('heading', { name: 'Copilot runs' })).toBeVisible();
+  await expect(panel.getByText('Definition of Ready met')).toBeVisible();
+  await checkScreen(page, '12b-task-trace');
   await panel.getByRole('tab', { name: 'Changes' }).click();
   await expect(panel.getByText(/\d+ files changed/)).toBeVisible({ timeout: 30_000 });
   await checkScreen(page, '13-task-changes');
@@ -144,13 +149,6 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
   await expect(convo.getByRole('button', { name: 'View checks' }).first()).toBeVisible();
   await expect(convo.getByLabel('Message')).toBeVisible();
   await checkScreen(page, '15-task-chat');
-  // Details: the same task as tabs; the choice is remembered, so switch back after.
-  await page.getByRole('group', { name: 'Task view' }).getByRole('button', { name: 'Details' }).click();
-  await page.getByRole('tab', { name: 'Activity' }).click();
-  await expect(page.getByRole('list', { name: 'Copilot activity' })).toBeVisible();
-  await checkScreen(page, '15b-task-details');
-  await page.getByRole('group', { name: 'Task view' }).getByRole('button', { name: 'Chat' }).click();
-  await expect(convo).toBeVisible();
 });
 
 test('task: paste the PR link, then mark it merged', async () => {

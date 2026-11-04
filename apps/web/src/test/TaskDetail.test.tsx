@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SPEC_MD, boot, catalog, detail } from './fixtures';
-import { mockApi, renderApp } from './helpers';
+import { mockApi, renderApp, wideScreen } from './helpers';
 import type { TaskDetail } from '../lib/types';
 
 function setup(d: TaskDetail, extra: Parameters<typeof mockApi>[0] = {}) {
@@ -24,14 +24,14 @@ function setup(d: TaskDetail, extra: Parameters<typeof mockApi>[0] = {}) {
 const posted = (api: ReturnType<typeof mockApi>, path: string) => api.calls.filter((c) => c.method !== 'GET' && c.path === path);
 
 describe('Task detail', () => {
-  // These cover the Details view (the tabs); the Chat view has its own tests.
-  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
+  // On a wide screen the task's sections open beside the conversation.
+  beforeEach(() => wideScreen());
   it('shows credits against the task limit and changes the task model', async () => {
     const { api, user } = setup(detail(), { 'GET /api/copilot/models': catalog });
     await user.click(await screen.findByRole('tab', { name: /Overview/ }));
     expect(screen.getByRole('meter', { name: 'AI credits used by this task' }).getAttribute('aria-valuenow')).toBe('0.5');
     expect(screen.getByText('of 25')).toBeTruthy();
-    await user.click(screen.getByRole('combobox', { name: 'Model: Auto' }));
+    await user.click(within(screen.getByRole('complementary', { name: 'Task details' })).getByRole('combobox', { name: 'Model: Auto' }));
     await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /GPT-6 Luna/ }));
     await waitFor(() => expect(posted(api, '/api/tasks/task1/model')[0]?.body).toEqual({ model: 'gpt-6-luna' }));
   });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -10,26 +10,17 @@ import {
   ExternalLink,
   FileCheck2,
   GitMerge,
-  MessageSquareText,
   GitPullRequest,
   Pencil,
   RotateCcw,
   Scissors,
-  ShieldAlert,
   Sparkles,
   PanelRight,
-  SkipForward,
-  LayoutList,
-  MessagesSquare,
   ThumbsUp,
   Undo2,
-  XCircle,
 } from "lucide-react";
 import type {
-  CommandResult,
   PullRequest,
-  ReviewFinding,
-  Task,
 } from "@tandem/shared";
 import { api, fetchText, patch, post, put } from "../lib/api";
 import { ModelPicker } from "../ui/model-picker";
@@ -56,26 +47,20 @@ import {
   Input,
   Loading,
   Markdown,
-  PageHeader,
   Pill,
   Section,
   Select,
-  TabPanel,
-  Tabs,
   Textarea,
   cx,
   useToast,
 } from "../ui/kit";
-import { ThreadPanel } from "./Chat";
 import { CriteriaEditor, ReadinessChecklist } from "./Tasks";
 import { TraceTab } from "./Trace";
-import { TaskActivity } from "./TaskActivity";
 import { TaskChatView, type PanelTab } from "./TaskChat";
-import { SkipCheckButton } from "./SkipCheck";
+import { ChecksTab } from "./ChecksPanel";
 import { StatusIcon } from "../ui/visual";
 import { BrandLogo, hostBrand } from "../ui/brands";
 
-type Tab = "overview" | "activity" | "spec" | "changes" | "checks" | "prs" | "trace" | "chat";
 const RUNNING = new Set([
   "READINESS",
   "SPEC_DRAFTING",
@@ -125,150 +110,9 @@ function useAct(taskId: string) {
 
 /* ------------------------------------------------------------------ progress rail */
 
-function ProgressRail({ task }: { task: Task }) {
-  const resumeState = task.resumeTo?.state ?? task.state;
-  const at = FLOW.indexOf(
-    (task.state === "BLOCKED" || task.state === "FAILED"
-      ? resumeState
-      : task.state) as (typeof FLOW)[number],
-  );
-  const cancelled = task.state === "CANCELLED";
-  return (
-    <ol
-      aria-label="Workflow progress"
-      className="mb-8 grid grid-cols-8 rounded-2xl bg-surface px-3 pt-4 pb-3 shadow-panel"
-    >
-      {FLOW.map((s, i) => {
-        const done = at > i || task.state === "DONE";
-        const current = at === i && task.state !== "DONE";
-        const stuck =
-          current && (task.state === "BLOCKED" || task.state === "FAILED");
-        const failed = stuck && task.state === "FAILED";
-        return (
-          <li
-            key={s}
-            className="relative flex flex-col items-center gap-2 text-center"
-            aria-current={current ? "step" : undefined}
-          >
-            {i > 0 && (
-              <span
-                aria-hidden
-                className={cx(
-                  "absolute top-[11px] right-1/2 left-[-50%] h-[2px] rounded-full",
-                  done || current ? "bg-ok/70" : "bg-surface-3",
-                )}
-              />
-            )}
-            <span
-              aria-hidden
-              className={cx(
-                "relative z-[1] grid size-6 place-items-center rounded-full transition-colors",
-                done
-                  ? "bg-ok text-white"
-                  : failed
-                    ? "bg-danger text-white"
-                    : stuck
-                      ? "bg-warn text-white"
-                      : current
-                        ? "bg-surface shadow-[0_0_0_2px_var(--accent)]"
-                        : cancelled
-                          ? "bg-surface-2 shadow-[0_0_0_1px_var(--border-strong)]"
-                          : "bg-surface shadow-[0_0_0_1.5px_var(--border-strong)]",
-              )}
-            >
-              {done ? (
-                <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 8.4 6.8 11 12 5.5" />
-                </svg>
-              ) : stuck ? (
-                <span className="text-[12px] leading-none font-bold">!</span>
-              ) : current ? (
-                <span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-40" />
-                  <span className="relative inline-flex size-2 rounded-full bg-accent" />
-                </span>
-              ) : (
-                <span className="text-[11px] font-medium text-faint tabular-nums">{i + 1}</span>
-              )}
-            </span>
-            <span
-              className={cx(
-                "hidden px-1 text-[12px] leading-tight sm:block",
-                current
-                  ? "font-semibold text-fg"
-                  : done
-                    ? "text-muted"
-                    : "text-faint",
-              )}
-            >
-              {STATE_LABEL[s]}
-            </span>
-            {current && <span className="text-[12px] font-semibold sm:hidden">{STATE_LABEL[s]}</span>}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
 
 /* ------------------------------------------------------------------ overview */
 
-function Timeline({ d }: { d: TaskDetail }) {
-  const items = useMemo(
-    () =>
-      [
-        ...d.transitions.map((t) => ({
-          at: t.at,
-          kind: "transition" as const,
-          state: t.to as string,
-          title:
-            t.from === t.to
-              ? STATE_LABEL[t.to]
-              : `${STATE_LABEL[t.from]} → ${STATE_LABEL[t.to]}`,
-          body: t.reason,
-          actor: t.actor === "system" ? "Tandem" : t.actor === "agent" ? "Copilot" : t.actor === "pm" ? "PM" : "You",
-        })),
-        ...d.comments.map((c) => ({
-          at: c.createdAt,
-          kind: "comment" as const,
-          state: "",
-          title: c.authorName,
-          body: c.body,
-          actor: c.authorName,
-        })),
-      ].sort((a, b) => b.at.localeCompare(a.at)),
-    [d],
-  );
-  return (
-    <ol className="relative flex flex-col gap-1 before:absolute before:top-3 before:bottom-3 before:left-[13.5px] before:w-px before:bg-line">
-      {items.map((it, i) => {
-        const tone =
-          it.kind === "comment"
-            ? "bg-accent text-accent-fg"
-            : "bg-surface shadow-[0_0_0_1px_var(--border)]";
-        return (
-          <li key={i} className="relative grid grid-cols-[28px_1fr] gap-x-3 py-1.5">
-            <span aria-hidden className={cx("relative z-[1] mt-px grid size-7 place-items-center rounded-lg ring-4 ring-surface", tone)}>
-              {it.kind === "comment" ? <MessageSquareText className="size-3.5" strokeWidth={2} /> : <StatusIcon state={it.state as Task["state"]} className="size-3.5" />}
-            </span>
-            <div className="min-w-0">
-              <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-                <span className="font-medium">{it.title}</span>
-                <span className="text-[12px] text-faint">
-                  {it.kind === "transition" ? `${it.actor} · ` : ""}
-                  <time dateTime={it.at} title={new Date(it.at).toLocaleString()}>{relativeTime(it.at)}</time>
-                </span>
-              </p>
-              <p className="mt-0.5 text-[13px] leading-relaxed break-words whitespace-pre-line text-muted">
-                {it.body}
-              </p>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
 
 function RequirementDialog({
   d,
@@ -454,7 +298,7 @@ function CopilotCard({ d }: { d: TaskDetail }) {
   );
 }
 
-function Overview({ d, inChat }: { d: TaskDetail; /** Beside the conversation, which already tells the history. */ inChat?: boolean }) {
+function Overview({ d }: { d: TaskDetail }) {
   const [editing, setEditing] = useState(false);
   const r = d.task.requirement;
   const canEdit =
@@ -546,11 +390,6 @@ function Overview({ d, inChat }: { d: TaskDetail; /** Beside the conversation, w
             </dl>
           </div>
         </Card>
-        {!inChat && (
-          <Card title="Timeline">
-            <Timeline d={d} />
-          </Card>
-        )}
       </div>
       <div className="flex flex-col gap-6">
         <Card title="Definition of Ready">
@@ -932,272 +771,7 @@ function ChangesTab({ d }: { d: TaskDetail }) {
 
 /* ------------------------------------------------------------------ checks */
 
-function CommandRow({ r, taskId, repoName, canSkip }: { r: CommandResult; taskId: string; repoName?: string | undefined; canSkip: boolean }) {
-  const ok = r.skipped === true || r.preexisting !== undefined || (r.exitCode === 0 && !r.timedOut);
-  const [open, setOpen] = useState(!ok);
-  return (
-    <li className="py-2.5">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 text-left text-[13px]"
-      >
-        {r.preexisting ? (
-          <AlertTriangle aria-hidden className="size-4 shrink-0 text-warn" />
-        ) : r.skipped ? (
-          <SkipForward aria-hidden className="size-4 shrink-0 text-faint" />
-        ) : ok ? (
-          <CheckCircle2 aria-hidden className="size-4 shrink-0 text-ok" />
-        ) : (
-          <XCircle aria-hidden className="size-4 shrink-0 text-danger" />
-        )}
-        <span className="w-24 shrink-0 font-medium">{r.kind}</span>
-        <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">
-          {r.command}
-        </code>
-        <span className="text-[12px] text-faint tabular-nums">
-          {r.preexisting ? `fails on ${r.preexisting.base} too` : r.skipped ? "skipped by you" : r.timedOut ? "timed out" : `${(r.durationMs / 1000).toFixed(1)} s`}
-        </span>
-      </button>
-      {!ok && canSkip && (
-        <div className="mt-1.5 flex justify-end">
-          <SkipCheckButton taskId={taskId} repoId={r.repoId} repoName={repoName} kind={r.kind} />
-        </div>
-      )}
-      {open && r.outputTail.trim() && (
-        <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
-          {r.outputTail.trim()}
-        </pre>
-      )}
-    </li>
-  );
-}
 
-function ChecksTab({ d }: { d: TaskDetail }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const last = d.verifyRuns.at(-1);
-  const verified = d.verifyRuns.length > 0;
-  const repoName = (id?: string) =>
-    d.repos.find((r) => r.id === id)?.name ?? "project";
-  const toRule = useMutation({
-    mutationFn: (f: ReviewFinding) =>
-      post("/api/rules", {
-        repoId: f.repoId ?? d.repos[0]?.id,
-        text: `${f.title}: ${f.detail.split("\n")[0]}`,
-        source: `Self-review finding on ${d.task.key}`,
-      }),
-    onSuccess: () => {
-      toast("Saved as a rule for the next task branch.", "ok");
-      void qc.invalidateQueries({ queryKey: ["rules"] });
-    },
-  });
-  return (
-    <div className="flex flex-col gap-6">
-      <Card title="Acceptance criteria and tests" padded={false}>
-        {d.task.requirement.criteria.length === 0 ? (
-          <p className="p-5 text-[13px] text-muted">No criteria.</p>
-        ) : (
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-line text-left text-[12px] text-muted">
-                <th className="px-5 py-2.5 font-medium">Criterion</th>
-                <th className="px-5 py-2.5 font-medium">Test</th>
-                <th className="w-28 px-5 py-2.5 font-medium">Result</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {d.task.requirement.criteria.map((c, i) => {
-                const tests = d.tests.filter((t) => t.criterion === i + 1);
-                const result =
-                  tests.length === 0
-                    ? verified
-                      ? "none"
-                      : "not-run"
-                    : tests.some((t) => t.result === "fail")
-                      ? "fail"
-                      : tests.every((t) => t.result === "pass")
-                        ? "pass"
-                        : "not-run";
-                return (
-                  <tr key={i} className="align-top">
-                    <td className="px-5 py-3">
-                      <span className="mr-2 font-mono text-[12px] text-faint">
-                        {i + 1}
-                      </span>
-                      <CriterionText c={c} keywordClass="" />
-                    </td>
-                    <td className="px-5 py-3">
-                      {tests.length ? (
-                        tests.map((t) => (
-                          <p
-                            key={`${t.repoId}${t.file}${t.name}`}
-                            className="font-mono text-[12px]"
-                          >
-                            <span className="text-muted">
-                              {repoName(t.repoId)}/
-                            </span>
-                            {t.file}{" "}
-                            <span className="text-muted">› {t.name}</span>
-                            {t.scope === "suite" && (
-                              <span className="text-faint"> (suite)</span>
-                            )}
-                          </p>
-                        ))
-                      ) : (
-                        <span className="text-faint">
-                          {verified
-                            ? "No test recorded"
-                            : "Recorded during the build"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      <Pill
-                        tone={
-                          result === "pass"
-                            ? "ok"
-                            : result === "fail"
-                              ? "danger"
-                              : result === "none"
-                                ? "warn"
-                                : "neutral"
-                        }
-                      >
-                        {result === "pass"
-                          ? "Pass"
-                          : result === "fail"
-                            ? "Fail"
-                            : result === "none"
-                              ? "Missing"
-                              : "Pending"}
-                      </Pill>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
-      <Card
-        title="Verification"
-        description={
-          last
-            ? `Run ${d.verifyRuns.length} · ${relativeTime(last.createdAt)} · run by Tandem, not the agent`
-            : undefined
-        }
-        actions={
-          last && (
-            <Pill tone={last.passed ? "ok" : "danger"} dot>
-              {last.passed ? "All checks pass" : "Failing"}
-            </Pill>
-          )
-        }
-      >
-        {!last ? (
-          <p className="text-[13px] text-muted">
-            Tandem runs each repo's install, lint, type-check, build and test
-            commands after the build.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-5">
-            {[...new Set(last.results.map((r) => r.repoId ?? ""))].map(
-              (repoId) => (
-                <div key={repoId}>
-                  {d.repos.length > 1 && (
-                    <p className="mb-1 text-[12px] font-semibold tracking-wide text-faint uppercase">
-                      {repoName(repoId)}
-                    </p>
-                  )}
-                  <ul className="-my-2.5 divide-y divide-line">
-                    {last.results
-                      .filter((r) => (r.repoId ?? "") === repoId)
-                      .map((r, i) => (
-                        <CommandRow key={i} r={r} taskId={d.task.id} repoName={d.repos.length > 1 ? repoName(repoId) : undefined} canSkip={d.task.state !== "DONE" && d.task.state !== "CANCELLED"} />
-                      ))}
-                  </ul>
-                </div>
-              ),
-            )}
-          </div>
-        )}
-      </Card>
-      <Card
-        title="Self-review"
-        description="A separate read-only review against the spec, the criteria, your repo rules and a security checklist."
-      >
-        {d.findings.length === 0 ? (
-          <p className="text-[13px] text-muted">
-            {d.task.progress.reviewed
-              ? "No findings."
-              : "Runs after verification."}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {d.findings.map((f) => (
-              <li key={f.id} className="rounded-xl border border-line p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Pill
-                    tone={
-                      f.severity === "high"
-                        ? "danger"
-                        : f.severity === "medium"
-                          ? "warn"
-                          : "neutral"
-                    }
-                  >
-                    {f.severity}
-                  </Pill>
-                  <Pill>{f.category}</Pill>
-                  <span className="text-[13.5px] font-medium">{f.title}</span>
-                  <span className="ml-auto">
-                    <Pill
-                      tone={
-                        f.status === "fixed"
-                          ? "ok"
-                          : f.status === "dismissed"
-                            ? "neutral"
-                            : "accent"
-                      }
-                    >
-                      {f.status === "open"
-                        ? "Open"
-                        : f.status === "fixed"
-                          ? "Fixed"
-                          : "Dismissed"}
-                    </Pill>
-                  </span>
-                </div>
-                {f.file && (
-                  <p className="mt-1 font-mono text-[12px] text-muted">
-                    {repoName(f.repoId)}/{f.file}
-                    {f.line ? `:${f.line}` : ""}
-                  </p>
-                )}
-                <p className="mt-1 text-[13px] whitespace-pre-line text-muted">
-                  {f.detail}
-                </p>
-                <div className="mt-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={ShieldAlert}
-                    busy={toRule.isPending && toRule.variables?.id === f.id}
-                    onClick={() => toRule.mutate(f)}
-                  >
-                    Turn into a rule
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ pull requests */
 
@@ -1425,79 +999,16 @@ function PrsTab({ d }: { d: TaskDetail }) {
 
 /* ------------------------------------------------------------------ chat */
 
-function ChatTab({ d }: { d: TaskDetail }) {
-  const thread = useQuery({
-    queryKey: ["task-thread", d.task.id],
-    queryFn: () => api<{ id: string }>(`/api/tasks/${d.task.id}/thread`),
-  });
-  if (thread.isLoading) return <Loading />;
-  if (thread.isError || !thread.data)
-    return <ErrorState error={thread.error} />;
-  return (
-    <ThreadPanel
-      threadId={thread.data.id}
-      repos={d.repos}
-      placeholder="Why did the test fail? Can the endpoint also return the version?"
-      compact
-      task={{ id: d.task.id, state: d.task.state, needsAttention: d.task.needsAttention }}
-    />
-  );
-}
 
 /* ------------------------------------------------------------------ status banner and screen */
 
-/** Under a stuck task's message: tell Copilot how to go on, or talk it through in the chat first. */
-function HelpCopilot({ taskId, fixing, onOpenChat }: { taskId: string; fixing?: boolean; onOpenChat: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [text, setText] = useState("");
-  const go = useMutation({
-    mutationFn: () => post<{ action: string }>(`/api/tasks/${taskId}/continue`, { text }),
-    onSuccess: (r) => {
-      setText("");
-      toast(r.action === "fixing" ? "Copilot is fixing the checks with your guidance." : "Continuing with your guidance.", "ok");
-      void qc.invalidateQueries({ queryKey: ["task", taskId] });
-      void qc.invalidateQueries({ queryKey: ["tasks"] });
-      void qc.invalidateQueries({ queryKey: ["thread"] });
-    },
-    onError: (err) => toast(err instanceof Error ? err.message : String(err), "danger"),
-  });
-  return (
-    <div className="mt-3 rounded-xl bg-surface p-2 whitespace-normal shadow-[0_0_0_1px_var(--border)]">
-      <label htmlFor={`help-${taskId}`} className="sr-only">
-        Tell Copilot how to continue
-      </label>
-      <textarea
-        id={`help-${taskId}`}
-        rows={2}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={fixing ? "Tell Copilot how to fix it. For example: the test expects UTC dates, so use UTC everywhere." : "Tell Copilot how to continue. For example: keep our version of the header and add theirs below it."}
-        className="block w-full resize-none bg-transparent px-2 py-1.5 text-[13.5px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <Button size="sm" variant="ghost" icon={MessageSquareText} onClick={onOpenChat}>
-          Ask Copilot first
-        </Button>
-        <Button size="sm" variant="primary" disabled={!text.trim()} busy={go.isPending} onClick={() => go.mutate()}>
-          Continue with this
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 function StatusBanner({
   d,
   onOpenSpec,
-  onOpenChat,
-  inChat,
 }: {
   d: TaskDetail;
   onOpenSpec: () => void;
-  onOpenChat: () => void;
-  /** The chat tab is open: its composer is where to answer, so the banner doesn't repeat it. */
-  inChat: boolean;
 }) {
   const act = useAct(d.task.id);
   const [override, setOverride] = useState(false);
@@ -1616,9 +1127,6 @@ function StatusBanner({
         {t.blockedMessage}
         {t.blockedReason === "readiness-missing" &&
           "\n\nEdit the requirement in the Overview, then check readiness again."}
-        {!inChat && t.blockedReason !== "readiness-missing" && t.blockedReason !== "budget-reached" && t.blockedReason !== "disk-low" && (
-          <HelpCopilot taskId={t.id} onOpenChat={onOpenChat} />
-        )}
       </Callout>
     );
   }
@@ -1626,7 +1134,6 @@ function StatusBanner({
     return (
       <Callout tone="warn" title="Needs attention">
         {t.attentionNotes.map((n) => `• ${n}`).join("\n")}
-        {!inChat && t.state === "PR_OPEN" && <HelpCopilot taskId={t.id} fixing onOpenChat={onOpenChat} />}
       </Callout>
     );
   }
@@ -1681,44 +1188,6 @@ function StatusBanner({
   return null;
 }
 
-type View = "chat" | "details";
-const VIEW_KEY = "tandem.taskView";
-const readView = (): View => {
-  try {
-    return localStorage.getItem(VIEW_KEY) === "details" ? "details" : "chat";
-  } catch {
-    return "chat";
-  }
-};
-
-/** Chat (the task as a conversation) or Details (the tabs). */
-function ViewSwitch({ value, onChange }: { value: View; onChange: (v: View) => void }) {
-  return (
-    <div role="group" aria-label="Task view" className="flex items-center gap-0.5 rounded-[10px] bg-surface-2 p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
-      {(
-        [
-          ["chat", "Chat", MessagesSquare],
-          ["details", "Details", LayoutList],
-        ] as const
-      ).map(([id, label, Icon]) => (
-        <button
-          key={id}
-          type="button"
-          aria-pressed={value === id}
-          onClick={() => onChange(id)}
-          className={cx(
-            "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] transition-[background-color,color,box-shadow] duration-150",
-            value === id ? "bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.06)]" : "text-muted hover:text-fg",
-          )}
-        >
-          <Icon aria-hidden className="size-3.5" strokeWidth={2} />
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** What to show beside the conversation when a task opens: whatever needs looking at now. */
 function defaultPanel(d: TaskDetail): PanelTab | null {
   const t = d.task;
@@ -1731,18 +1200,8 @@ function defaultPanel(d: TaskDetail): PanelTab | null {
 }
 
 export function TaskDetailScreen({ id }: { id: string }) {
-  const [view, setViewState] = useState<View>(readView);
-  const setView = (v: View) => {
-    setViewState(v);
-    try {
-      localStorage.setItem(VIEW_KEY, v);
-    } catch {
-      /* the choice just isn't remembered */
-    }
-  };
   const [panel, setPanel] = useState<PanelTab | null>(null);
   const act = useAct(id);
-  const [tab, setTab] = useState<Tab>("overview");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const q = useQuery({
     queryKey: ["task", id],
@@ -1757,7 +1216,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
   useEffect(() => {
     if (!q.data || openedOn.current === q.data.task.id) return;
     openedOn.current = q.data.task.id;
-    if (q.data.task.state === "SPEC_REVIEW") setTab("spec");
     setPanel(defaultPanel(q.data));
   }, [q.data]);
   // When the task reaches a point that needs you, show that part beside the conversation (unless the
@@ -1781,9 +1239,8 @@ export function TaskDetailScreen({ id }: { id: string }) {
   const finished = t.state === "DONE" || t.state === "CANCELLED";
   const openFindings = d.findings.filter((f) => f.status === "open").length;
   const lastVerify = d.verifyRuns.at(-1);
-  const tabDefs: Array<{ id: Tab; label: string; badge?: ReactNode }> = [
+  const tabDefs: Array<{ id: PanelTab; label: string; badge?: ReactNode }> = [
           { id: "overview", label: "Overview" },
-          { id: "activity", label: "Activity", ...(d.running ? { badge: <span aria-label="Copilot is working" className="size-1.5 animate-pulse rounded-full bg-ok" /> } : {}) },
           {
             id: "spec",
             label: "Spec",
@@ -1839,19 +1296,15 @@ export function TaskDetailScreen({ id }: { id: string }) {
               : {}),
           },
           { id: "trace", label: "Trace" },
-          { id: "chat", label: "Chat" },
         ];
-  const panelTabs = tabDefs.filter((x): x is { id: PanelTab; label: string; badge?: ReactNode } => x.id !== "activity" && x.id !== "chat");
-  const renderTab = (id: Tab) => (
+  const renderTab = (id: PanelTab) => (
     <>
       {id === "overview" && <Overview d={d} />}
-      {id === "activity" && <TaskActivity taskId={d.task.id} />}
       {id === "spec" && <SpecTab d={d} />}
       {id === "changes" && <ChangesTab d={d} />}
       {id === "checks" && <ChecksTab d={d} />}
       {id === "prs" && <PrsTab d={d} />}
       {id === "trace" && <TraceTab taskId={d.task.id} />}
-      {id === "chat" && <ChatTab d={d} />}
     </>
   );
   const statusPill = (
@@ -1870,9 +1323,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
   return (
     // Chat view: an app-style page on wide screens. One compact bar, then the conversation and the
     // details side by side, each scrolling on its own, so nothing needs the whole page to scroll.
-    <div data-layout={view === "chat" ? "app" : undefined} className={cx(view === "chat" && "flex flex-col lg:h-[calc(100dvh-16px)]")}>
-      {view === "chat" ? (
-        <>
+    <div data-layout="app" className="flex flex-col lg:h-[calc(100dvh-16px)]">
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 pb-3 lg:h-14 lg:flex-nowrap lg:border-b lg:border-line lg:px-4 lg:pb-0">
             <Link to="/tasks" aria-label="Back to Tasks" className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg">
               <ArrowLeft aria-hidden className="size-4" />
@@ -1894,7 +1345,6 @@ export function TaskDetailScreen({ id }: { id: string }) {
                   Start task
                 </Button>
               )}
-              <ViewSwitch value={view} onChange={setView} />
               <IconButton icon={PanelRight} label={panel ? "Hide details" : "Show details"} aria-pressed={Boolean(panel)} onClick={() => setPanel(panel ? null : (defaultPanel(d) ?? "overview"))} />
               {!finished && <IconButton icon={Ban} label="Cancel task" className="text-danger hover:bg-danger-soft" onClick={() => setConfirmCancel(true)} />}
             </div>
@@ -1905,101 +1355,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
               <span key={st} title={STATE_LABEL[st]} className={cx("h-1 flex-1 rounded-full transition-colors duration-500", t.state === "DONE" || i < flowAt ? "bg-ok" : i === flowAt ? (t.state === "FAILED" ? "bg-danger" : t.state === "BLOCKED" || t.needsAttention ? "bg-warn" : "bg-accent") : "bg-surface-3")} />
             ))}
           </div>
-        </>
-      ) : (
-        <>
-      <Link
-          to="/tasks"
-          className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg"
-        >
-          <ArrowLeft aria-hidden className="size-3.5" /> Tasks
-        </Link>
-        <PageHeader
-          eyebrow={
-            <>
-              <span className="font-mono">{t.key}</span>
-              <span aria-hidden>·</span>
-              <span>{d.project.name}</span>
-              <span aria-hidden>·</span>
-              <span>
-                {t.source === "chat"
-                  ? "From chat"
-                  : t.source === "jira"
-                    ? "From Jira"
-                    : t.source === "split"
-                      ? "Split task"
-                      : "Created in Tandem"}
-              </span>
-            </>
-          }
-          title={t.title}
-          actions={
-            <>
-              <ViewSwitch value={view} onChange={setView} />
-              <Pill tone={STATE_TONE[t.state]}>
-                <StatusIcon state={t.state} className="size-3.5" />
-                {STATE_LABEL[t.state]}
-                {RUNNING.has(t.state) && t.step ? ` · ${stepLabel(t.step)}` : ""}
-              </Pill>
-              {t.state === "DRAFT" && (
-                <Button
-                  variant="primary"
-                  icon={Sparkles}
-                  busy={act.isPending}
-                  onClick={() =>
-                    act.mutate({
-                      path: `/api/tasks/${t.id}/submit`,
-                      done: "Started: checking readiness, then drafting the spec.",
-                    })
-                  }
-                >
-                  Start task
-                </Button>
-              )}
-              {!finished && (
-                <Button
-                  variant="danger"
-                  icon={Ban}
-                  onClick={() => setConfirmCancel(true)}
-                >
-                  Cancel task
-                </Button>
-              )}
-            </>
-          }
-        />
-        </>
-      )}
-      {view === "details" ? (
-        <>
-          <ProgressRail task={t} />
-          <div className="mb-6 empty:hidden">
-            <StatusBanner d={d} onOpenSpec={() => setTab("spec")} onOpenChat={() => setTab("chat")} inChat={tab === "chat"} />
-          </div>
-          <Tabs
-            label="Task sections"
-            value={tab}
-            onChange={setTab}
-            tabs={tabDefs}
-          />
-          <TabPanel id={tab}>
-            <div className="@container">{renderTab(tab)}</div>
-          </TabPanel>
-        </>
-      ) : (
-        <TaskChatView
-          d={d}
-          panel={panel}
-          setPanel={setPanel}
-          tabs={panelTabs}
-          renderPanel={(id) => (
-            <>
-              {id === "overview" ? <Overview d={d} inChat /> : renderTab(id)}
-            </>
-          )}
-          banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} onOpenChat={() => undefined} inChat />}
-        />
-      )}
+      <TaskChatView d={d} panel={panel} setPanel={setPanel} tabs={tabDefs} renderPanel={renderTab} banner={<StatusBanner d={d} onOpenSpec={() => setPanel("spec")} />} />
       <Dialog
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}

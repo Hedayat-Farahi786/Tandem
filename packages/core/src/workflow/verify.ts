@@ -141,8 +141,11 @@ export async function verifyAll(deps: WorkflowDeps, taskAtStart: Task, project: 
     }
     // A repo's own checks may change files (lint --fix, a formatter): keep that like a developer
     // would, or the uncommitted changes block the next rebase.
-    if (await deps.git.commitTracked(cwd, `style(${task.key}): keep what ${repo.name}'s checks changed`).catch(() => undefined))
+    const kept = await deps.git.commitTracked(cwd, `style(${task.key}): keep what ${repo.name}'s checks changed`).catch(() => undefined);
+    if (kept) {
       deps.events?.emit({ type: 'verify.output', taskId: task.id, repoId: repo.id, kind: 'lint', line: `Kept the changes ${repo.name}'s checks made to its files.` });
+      await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.committed', summary: `${task.key}: committed the changes ${repo.name}'s own checks made (lint --fix, a formatter).`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { commit: kept, message: `style(${task.key}): keep what ${repo.name}'s checks changed`, branch: task.branch, files: [] } });
+    }
   }
 
   const recorded = await deps.store.criterionTests.list(task.id);

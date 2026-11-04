@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, detail, project, settings, task } from './fixtures';
-import { mockApi, renderApp } from './helpers';
+import { mockApi, renderApp, wideScreen } from './helpers';
 import type { Trace } from '../lib/types';
 
 const now = new Date().toISOString();
@@ -23,12 +23,13 @@ describe('Audit log in Settings', () => {
 });
 
 describe('Task activity', () => {
-  // These cover the Details view (the tabs); the Chat view has its own tests.
-  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
+  // On a wide screen the task's sections open beside the conversation.
+  beforeEach(() => wideScreen());
   const run = (over: Record<string, unknown>) => ({ id: 'r', taskId: 't1', kind: 'build', mode: 'build', status: 'succeeded', attempt: 0, startedAt: now, endedAt: now, prompts: 1, modelCalls: 3, aiCredits: 0.42, model: 'claude-sonnet-5.5', steps: [], ...over });
   const step = (n: number, over: Record<string, unknown>) => ({ id: `s${n}`, runId: 'r2', taskId: 't1', seq: n, at: now, ...over });
+  const conversation = { 'GET /api/tasks/t1/thread': { id: 'th1' }, 'GET /api/threads/th1': { thread: { id: 'th1', projectId: 'p1', mode: 'task', taskId: 't1', title: 'chat', createdAt: '', updatedAt: '' }, model: '', messages: [], readiness: null } };
 
-  it('tells what Copilot did, run by run, with the details folded away', async () => {
+  it('tells what Copilot did, run by run, in the conversation, with the details folded away', async () => {
     const runs = [
       run({ id: 'r1', kind: 'spec', steps: [step(0, { runId: 'r1', kind: 'prompt', text: 'Write the implementation spec…' })] }),
       run({
@@ -44,42 +45,41 @@ describe('Task activity', () => {
         ],
       }),
     ];
-    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'PR_OPEN' }), 'GET /api/tasks/t1/activity': runs, 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
+    mockApi({ ...conversation, 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'PR_OPEN' }), 'GET /api/tasks/t1/activity': runs, 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
     const user = userEvent.setup();
     renderApp('/tasks/t1');
-    await user.click(await screen.findByRole('tab', { name: 'Activity' }));
-    const list = await screen.findByRole('list', { name: 'Copilot activity' });
-    expect(within(list).getByText('Wrote the spec')).toBeTruthy();
-    // The latest run is open, older ones are closed.
-    const build = within(list).getByRole('button', { name: /Built the change/ });
-    expect(build.getAttribute('aria-expanded')).toBe('true');
-    expect(within(list).getByRole('button', { name: /Wrote the spec/ }).getAttribute('aria-expanded')).toBe('false');
+    const convo = await screen.findByRole('region', { name: 'Conversation' });
+    expect(await within(convo).findByText('Wrote the spec')).toBeTruthy();
+    // Finished runs show as one line each; open one to see what it did.
+    const build = within(convo).getByRole('button', { name: /Built the change/ });
+    expect(build.getAttribute('aria-expanded')).toBe('false');
     expect(within(build).getByText('2 actions · 1 file changed')).toBeTruthy();
-    expect(within(list).getByText('Implemented shop: src/app.ts.')).toBeTruthy();
-    expect(within(list).getByText(/Tandem blocked: curl/)).toBeTruthy();
+    await user.click(build);
+    expect(within(convo).getByText('Implemented shop: src/app.ts.')).toBeTruthy();
+    expect(within(convo).getByText(/Tandem blocked: curl/)).toBeTruthy();
     // Instructions, thinking and tool output open on demand.
-    expect(within(list).queryByText('Implement the approved spec in shop.')).toBeNull();
-    await user.click(within(list).getByRole('button', { name: /Tandem's instructions/ }));
-    expect(within(list).getByText('Implement the approved spec in shop.')).toBeTruthy();
-    await user.click(within(list).getByRole('button', { name: /I will add the route first\./ }));
-    expect(within(list).getByText(/Then the component\./)).toBeTruthy();
-    await user.click(within(list).getByRole('button', { name: /Ran npm test/ }));
-    expect(within(list).getByText('1 failed')).toBeTruthy();
-    expect(within(list).getByText('Edited app.ts')).toBeTruthy();
+    expect(within(convo).queryByText('Implement the approved spec in shop.')).toBeNull();
+    await user.click(within(convo).getByRole('button', { name: /Tandem's instructions/ }));
+    expect(within(convo).getByText('Implement the approved spec in shop.')).toBeTruthy();
+    await user.click(within(convo).getByRole('button', { name: /I will add the route first\./ }));
+    expect(within(convo).getByText(/Then the component\./)).toBeTruthy();
+    await user.click(within(convo).getByRole('button', { name: /Ran npm test/ }));
+    expect(within(convo).getByText('1 failed')).toBeTruthy();
+    expect(within(convo).getByText('Edited app.ts')).toBeTruthy();
   });
 
-  it('explains when Copilot has not started yet', async () => {
-    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'DRAFT' }), 'GET /api/tasks/t1/activity': [], 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
-    const user = userEvent.setup();
+  it('a task saved for later says it has not started, and starts from the conversation', async () => {
+    mockApi({ ...conversation, 'GET /api/bootstrap': boot(), 'GET /api/tasks': [], 'GET /api/tasks/t1': detail({}, { id: 't1', state: 'DRAFT' }), 'GET /api/tasks/t1/activity': [], 'GET /api/copilot/models': { models: [], auto: { light: null, build: null }, credits: { today: 0, perDay: 75, perTask: 25 } } });
     renderApp('/tasks/t1');
-    await user.click(await screen.findByRole('tab', { name: 'Activity' }));
-    expect(await screen.findByText("Copilot hasn't started yet")).toBeTruthy();
+    const convo = await screen.findByRole('region', { name: 'Conversation' });
+    expect(await within(convo).findByText('Saved, not started yet')).toBeTruthy();
+    expect(within(convo).getByRole('button', { name: 'Start task' })).toBeTruthy();
   });
 });
 
 describe('Task trace', () => {
-  // These cover the Details view (the tabs); the Chat view has its own tests.
-  beforeEach(() => localStorage.setItem('tandem.taskView', 'details'));
+  // On a wide screen the task's sections open beside the conversation.
+  beforeEach(() => wideScreen());
   const trace: Trace = {
     generatedAt: now,
     task: { id: 't1', key: 'TND-1', title: 'Health endpoint', state: 'PR_OPEN', source: 'chat', branch: 'agent/TND-1-health', createdAt: now, updatedAt: now, project: 'Shop' },
@@ -88,7 +88,7 @@ describe('Task trace', () => {
       { n: 1, given: 'the API runs', when: 'GET /health', then: 'it returns 200', status: 'pass', tests: [{ repo: 'shop', file: 'test/health.test.ts', name: 'returns ok', result: 'pass', scope: 'single' }] },
       { n: 2, given: 'the page loads', when: 'the call fails', then: 'it says so', status: 'no-test', tests: [] },
     ],
-    specs: [{ version: 1, source: 'draft', createdAt: now, status: 'approved', approvals: [{ role: 'owner', name: 'Sam', date: now, method: 'tandem', evidence: 'Approved in Tandem' }, { role: 'pm', name: 'Pat Lee', date: now, method: 'jira', evidence: 'Jira comment 7' }] }],
+    specs: [{ version: 1, source: 'draft', createdAt: now, sha256: 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12', status: 'approved', approvals: [{ role: 'owner', name: 'Sam', date: now, method: 'tandem', evidence: 'Approved in Tandem' }, { role: 'pm', name: 'Pat Lee', date: now, method: 'jira', evidence: 'Jira comment 7' }] }],
     agent: [{ kind: 'build', runs: 1, succeeded: 1, failed: 0, models: ['gpt-5.4'], prompts: 2, modelCalls: 9, aiCredits: 0.42 }],
     checks: [{ attempt: 0, passed: true, at: now, results: [{ repo: 'shop', kind: 'test', command: 'npm test', exitCode: 0, durationMs: 2100, timedOut: false }] }],
     findings: [],
@@ -97,6 +97,14 @@ describe('Task trace', () => {
     usage: { prompts: 2, modelCalls: 9, aiCredits: 0.42 },
     audit: [{ seq: 4, at: now, actor: 'system', action: 'pr.opened', summary: 'TND-1: opened a pull request in shop.', hash: HEAD }],
     integrity: { ok: true, entries: 4, head: HEAD },
+    request: { by: 'Sam', at: now, text: 'Add a GET /health endpoint and show the status.', ready: true, missing: [], size: { lines: 40, rationale: 'One endpoint and one status line.' } },
+    runs: [
+      { id: 'r1', kind: 'build', mode: 'build', model: 'gpt-5.4', status: 'succeeded', startedAt: now, endedAt: now, durationMs: 78_000, prompts: 2, modelCalls: 9, aiCredits: 0.42, actions: 12, filesChanged: ['src/health.ts', 'test/health.test.ts'], blocked: [{ tool: 'bash', what: 'curl https://example.com', reason: 'Network tools are not allowed.' }], instructionsSha: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', withGuidance: true },
+    ],
+    changes: [{ repo: 'shop', commit: '1a2b3c4d5e6f', message: 'feat(TND-1): Health endpoint', files: ['src/health.ts', 'test/health.test.ts'], at: now }],
+    decisions: [{ at: now, who: 'Sam', action: 'checks.skipped', summary: 'TND-1: skipped test in shop. No Chrome here.' }],
+    exceptions: [{ at: now, kind: 'blocked-action', text: 'Guardrail refused bash curl https://example.com: Network tools are not allowed.' }],
+    lifecycle: [{ at: now, from: 'SPEC_REVIEW', to: 'BUILDING', actor: 'owner', reason: 'Spec version 1 approved by Sam.' }],
   };
 
   it('links each criterion to its tests, the spec to its approvals, and offers the report', async () => {
@@ -110,7 +118,24 @@ describe('Task trace', () => {
     expect(within(chain).getByText('No test yet')).toBeTruthy();
     expect(within(chain).getByText('Version 1 approved')).toBeTruthy();
     expect(within(chain).getByText('Pat Lee')).toBeTruthy();
-    expect(within(chain).getByText('2 prompts · 9 model calls · 0.42 AI credits')).toBeTruthy();
+    expect(within(chain).getByText('1 run · 2 prompts · 9 model calls · 0.42 AI credits')).toBeTruthy();
+    // Who asked, and whether it was ready.
+    expect(within(chain).getByText('Add a GET /health endpoint and show the status.')).toBeTruthy();
+    expect(within(chain).getByText('Definition of Ready met')).toBeTruthy();
+    // Each run: its role, what it can do, model, what it changed and what was refused, and a fingerprint.
+    expect(within(chain).getByText('Built the change')).toBeTruthy();
+    expect(within(chain).getByText('writes code')).toBeTruthy();
+    expect(within(chain).getByText('2 files changed')).toBeTruthy();
+    expect(within(chain).getByText('1 refused')).toBeTruthy();
+    expect(within(chain).getByText('with your guidance')).toBeTruthy();
+    expect(within(chain).getByTitle(/SHA-256 of Tandem's instructions/).textContent).toContain('9f86d081884c');
+    // The spec is tied to its exact text.
+    expect(within(chain).getByTitle(/SHA-256 of this version's text/).textContent).toContain('ab12cd34ef56');
+    // Commits, decisions, exceptions, lifecycle.
+    expect(within(chain).getByText('feat(TND-1): Health endpoint')).toBeTruthy();
+    expect(within(chain).getByText(/skipped test in shop/)).toBeTruthy();
+    expect(within(chain).getByText('Refused by a guardrail')).toBeTruthy();
+    expect(within(chain).getByText('Spec review → Building')).toBeTruthy();
     expect(within(chain).getByText('1a2b3c4d5e')).toBeTruthy();
     expect(within(chain).getByText('TND-1: opened a pull request in shop.')).toBeTruthy();
     expect(screen.getByRole('link', { name: /Download report/ }).getAttribute('href')).toBe('/api/tasks/t1/trace?format=md');

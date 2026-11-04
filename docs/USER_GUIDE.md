@@ -107,30 +107,25 @@ Overview tab; the change applies from the next step.
 ## Tasks
 
 **Tasks** lists everything Tandem is working on, filtered by **Needs you**,
-**In progress** and **Finished**. A task opens in one of two views; switch at the top right, and
-Tandem remembers your choice.
+**In progress** and **Finished**. A task opens as a conversation: your
+request, each step and what Copilot did, the spec, approvals, checks and
+pull requests, in the order they happened. What needs you sits at the end,
+above the message box. While Tandem itself works (installing, building,
+running the tests) a live line shows the step, how long it has run and its
+latest output.
 
-**Chat** tells the task as one conversation: your request, each step and
-what Copilot did, the spec, approvals, checks and pull requests, in the order
-they happened. What needs you sits at the end, above the message box. While
-Tandem itself works (installing, building, running the tests) a live line
-shows the step, how long it has run and its latest output. Cards such as
-**Open spec** or **View checks** open the details beside the conversation;
-a task waiting for your review opens its spec there, so you can approve
-without leaving the chat.
-
-**Details** shows the same task as a progress bar and these tabs:
+The details open beside the conversation (the panel button at the top right
+shows or hides them); cards such as **Open spec** or **View checks** open
+the right one, and a task waiting for your review opens its spec there:
 
 | Tab | What's there |
 | --- | --- |
-| Overview | requirement, timeline, Copilot model and credits used |
+| Overview | requirement, Definition of Ready, Copilot model and credits used |
 | Spec | the spec, its versions and approvals; Copy as Markdown, Export as PDF |
 | Changes | the diff per repository |
-| Checks | each criterion and its test, every check's output, review findings |
+| Checks | criteria proven, checks passing and findings open at a glance; each criterion with its tests; each check with its output; review findings by severity |
 | Pull requests | links, status, and whether each one still merges cleanly |
-| Activity | what Copilot did, run by run |
-| Trace | each criterion to its tests, the spec to its approvals |
-| Chat | questions about this task; ask for a spec change here |
+| Trace | the full chain from request to pull request (below) |
 
 You can also create a task without chat: **Tasks › New task**.
 
@@ -304,11 +299,28 @@ anything is stored, and long output is shortened.
 
 ## Traceability and audit
 
-- **Task › Trace** shows one task's chain: the request, each acceptance
-  criterion with the tests that prove it, each spec version with who
-  approved it, Copilot use per step, checks and review findings, the
-  commits pushed and the pull requests, and the task's audit entries.
-  **Download report** saves it as Markdown, ready to attach to a change
+- **Task › Trace** shows one task's full chain, in order:
+  - **Request**: who asked, their words, whether it met the Definition of
+    Ready, and the size estimate.
+  - **Acceptance criteria and tests**: each criterion with the tests that
+    prove it and their result.
+  - **Spec and approvals**: each version with who approved it, how and
+    when, and a SHA-256 fingerprint of its text, so an approval is tied to
+    exactly what was approved. The spec is kept in Tandem, not in the repo.
+  - **Copilot runs**: every run on its own, with its role, whether it could
+    write code, the model, how long it took, its actions, the files it
+    changed, anything a guardrail refused, its credits, a fingerprint of
+    Tandem's instructions and whether your guidance was included.
+  - **Code changes**: every commit Tandem made, with its message and files.
+  - **Checks and review**, **decisions by people** (approvals, guidance,
+    skipped checks, resumes, renames, cancels), and **exceptions** (failed
+    or stopped runs, refused actions, credit limits, skipped checks and
+    failures that were already on the base branch).
+  - **Pushes and pull requests**, the **lifecycle** (every state change,
+    who made it and why), and the task's **audit entries**, with the audit
+    chain's verification.
+
+  **Download report** saves it all as Markdown, ready to attach to a change
   record; **JSON** for tools.
 - **Settings › Audit log**: Tandem records every change to settings,
   tokens (never their values), repositories, projects, rules, approvals,

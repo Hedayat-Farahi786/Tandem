@@ -125,8 +125,14 @@ async function commitRepos(deps: WorkflowDeps, task: Task, repos: readonly Repo[
   let n = 0;
   for (const repo of repos) {
     const wt = worktreeOf(deps, task, repo);
-    if ((await deps.git.status(wt)).length === 0) continue;
-    if (await deps.git.commitAll(wt, message)) n++;
+    const changed = await deps.git.status(wt);
+    if (changed.length === 0) continue;
+    const sha = await deps.git.commitAll(wt, message);
+    if (!sha) continue;
+    n++;
+    // Code provenance: which files each commit on the task branch touched, and why.
+    const files = changed.map((l) => l.slice(3).trim().replace(/^"|"$/g, '')).filter(Boolean).slice(0, 200);
+    await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.committed', summary: `${task.key}: committed "${message}" in ${repo.name} (${files.length} file${files.length === 1 ? '' : 's'}).`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { commit: sha, message, branch: task.branch, files } });
   }
   return n;
 }

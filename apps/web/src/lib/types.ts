@@ -124,7 +124,7 @@ export interface Trace {
   task: { id: string; key: string; title: string; state: string; source: string; externalKey?: string; branch: string; createdAt: string; updatedAt: string; project: string };
   requirement: { goal: string; userStory: string; exampleData: string; affectedAreas: string; outOfScope: string };
   criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
-  specs: Array<{ version: number; source: string; createdAt: string; feedback?: string; status: 'approved' | 'in-review' | 'superseded'; approvals: Array<{ role: string; name: string; date: string; method: string; evidence: string }> }>;
+  specs: Array<{ version: number; source: string; createdAt: string; feedback?: string; sha256: string; status: 'approved' | 'in-review' | 'superseded'; approvals: Array<{ role: string; name: string; date: string; method: string; evidence: string }> }>;
   agent: Array<{ kind: string; runs: number; succeeded: number; failed: number; models: string[]; prompts: number; modelCalls: number; aiCredits: number; firstAt?: string; lastAt?: string }>;
   checks: Array<{ attempt: number; passed: boolean; at: string; results: Array<{ repo: string; kind: string; command: string; exitCode: number | null; durationMs: number; timedOut: boolean }> }>;
   findings: Array<{ severity: string; category: string; title: string; file?: string; line?: number; status: string }>;
@@ -133,4 +133,10 @@ export interface Trace {
   usage: { prompts: number; modelCalls: number; aiCredits: number };
   audit: Array<{ seq: number; at: string; actor: string; actorName?: string; action: string; summary: string; hash: string }>;
   integrity: { ok: boolean; entries: number; head: string; reason?: string };
+  request: { by?: string; at: string; text: string; ready: boolean; missing: string[]; size?: { lines: number; rationale: string } };
+  runs: Array<{ id: string; kind: string; mode: string; model?: string; status: string; startedAt: string; endedAt?: string; durationMs?: number; prompts: number; modelCalls: number; aiCredits: number; actions: number; filesChanged: string[]; blocked: Array<{ tool: string; what: string; reason?: string }>; error?: string; instructionsSha?: string; withGuidance: boolean }>;
+  changes: Array<{ repo: string; commit: string; message: string; files: string[]; at: string }>;
+  decisions: Array<{ at: string; who: string; action: string; summary: string }>;
+  exceptions: Array<{ at?: string; kind: 'failed-run' | 'stopped-run' | 'blocked-action' | 'limit' | 'failure' | 'skipped-check' | 'preexisting' | 'attention'; text: string }>;
+  lifecycle: Array<{ at: string; from: string; to: string; actor: string; reason: string }>;
 }

@@ -27,3 +27,8 @@ export function renderApp(path: string) {
   window.history.replaceState(null, '', path);
   return render(<App client={makeQueryClient()} initialPath={path} />);
 }
+
+/** A wide screen: the task's details open beside the conversation, as on a desktop. */
+export function wideScreen() {
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} }));
+}
