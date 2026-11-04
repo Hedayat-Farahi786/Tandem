@@ -17,6 +17,7 @@ import {
 import type { Repo, Settings } from '@tandem/shared';
 import { CopilotRuntime } from './agent-copilot/copilot-runtime.js';
 import { ScriptedAccounts, type CopilotAccounts } from './agent-copilot/accounts.js';
+import type { GitHubIdentity } from './agent-copilot/copilot-runtime.js';
 import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { AwsConnections } from './aws/aws-connection.js';
 import { codeCommitGitCredential, codeCommitRegion } from './aws/codecommit-credential.js';
@@ -52,6 +53,12 @@ export interface TandemOptions {
   bootId?: string;
   codecommit?: Partial<Pick<CodeCommitHostOptions, 'api' | 'sts' | 'accessOverride'>>;
   github?: Partial<Pick<GitHubHostOptions, 'fetch' | 'accountToken'>>;
+  /**
+   * Hosted mode: one workspace of the web app. Its secrets live in the directory (not a keychain),
+   * Copilot and GitHub use the workspace's GitHub identity, and nothing of the server's own is
+   * reachable: no AWS profiles or default credentials, no SSH keys, no folders on the server.
+   */
+  hosted?: { secrets: SecretStore; identity: () => Promise<GitHubIdentity | undefined>; accounts: CopilotAccounts };
 }
 
 export interface Tandem {
@@ -74,7 +81,7 @@ export interface Tandem {
   /** Answers git's credential requests for the remotes Tandem manages (see credential-helper.ts). */
   gitCredential(req: CredentialRequest): Promise<{ username: string; password: string } | undefined>;
   /** Once the server listens: install the helper (with its own key) and use it for HTTPS git from now on. */
-  useGitHelper(port: number, key: string): void;
+  useGitHelper(port: number, key: string, path?: string): void;
   localTracker: LocalTracker;
   hostFor(repo: Repo): CodeCommitHost | GitHubHost;
   close(): Promise<void>;
@@ -86,7 +93,8 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   const store = await SqliteStore.open(paths.db);
   const clock = o.clock ?? systemClock;
   const ids = () => randomUUID();
-  const secrets = o.secrets ?? new KeychainSecrets();
+  const secrets = o.hosted?.secrets ?? o.secrets ?? new KeychainSecrets();
+  const ambient = !o.hosted;
   await seedSettings(store.settings, o.seeds ?? {});
   const settings = async () => effectiveSettings(await store.settings.get(), o.overrides ?? {});
 
@@ -95,12 +103,12 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   const hostFor = (repo: Repo) => (repo.host.kind === 'codecommit' ? hostRef.current!.codecommit : hostRef.current!.github);
   const git = new RepoGit((repo) => hostFor(repo).mirrorPath(repo));
   // Connections made in the app: AWS (for CodeCommit) here, GitHub through the Copilot sign-in.
-  const aws = new AwsConnections({ secrets });
+  const aws = new AwsConnections({ secrets, ...(ambient ? {} : { profiles: () => [] }) });
   const helper: { path?: string } = {};
   const accountsRef: { current?: CopilotAccounts } = {};
   const hosts = {
-    codecommit: new CodeCommitHost({ home: paths.home, git, settings, aws, gitHelper: () => helper.path, ...o.codecommit }),
-    github: new GitHubHost({ home: paths.home, settings, secrets, gitHelper: () => helper.path, accountToken: async (h) => accountsRef.current?.tokenFor(h).catch(() => undefined), ...o.github }),
+    codecommit: new CodeCommitHost({ home: paths.home, git, settings, aws, ambient, gitHelper: () => helper.path, ...o.codecommit }),
+    github: new GitHubHost({ home: paths.home, settings, secrets, ambient, gitHelper: () => helper.path, accountToken: async (h) => accountsRef.current?.tokenFor(h).catch(() => undefined), ...o.github }),
   };
   hostRef.current = hosts;
 
@@ -121,13 +129,13 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     const s = await store.settings.get();
     if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
   };
-  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.logger ? { logger: o.logger } : {}) });
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();
     agent.defaultModel = (tier) => catalog.defaultModel(tier);
   }
-  const accounts: CopilotAccounts = agent instanceof CopilotRuntime ? agent.accounts : new ScriptedAccounts();
+  const accounts: CopilotAccounts = o.hosted?.accounts ?? (agent instanceof CopilotRuntime ? agent.accounts : new ScriptedAccounts());
   accountsRef.current = accounts;
   const deps: WorkflowDeps = {
     store,
@@ -176,9 +184,10 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
       if (req.protocol && req.protocol !== 'https') return undefined;
       const region = codeCommitRegion(host);
       if (region) {
-        // The AWS connection made in the app; for a setup from before it, the profile in Settings (or the default chain).
+        // The AWS connection made in the app; for a local setup from before it, the profile in Settings
+        // (or the default chain). Hosted: only the workspace's own connection, never the server's.
         const profile = (await settings()).aws.profile;
-        const keys = (await aws.credentials().catch(() => undefined)) ?? (await (profile ? fromIni({ profile }) : fromNodeProviderChain())().catch(() => undefined));
+        const keys = (await aws.credentials().catch(() => undefined)) ?? (ambient ? await (profile ? fromIni({ profile }) : fromNodeProviderChain())().catch(() => undefined) : undefined);
         return keys ? codeCommitGitCredential(keys, region, host, `/${(req.path ?? '').replace(/^\/+/, '')}`) : undefined;
       }
       if (host === 'github.com' || host.endsWith('.ghe.com')) {
@@ -187,8 +196,8 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
       }
       return undefined;
     },
-    useGitHelper: (port, key) => {
-      helper.path = installCredentialHelper(paths.home, port, key);
+    useGitHelper: (port, key, path) => {
+      helper.path = installCredentialHelper(paths.home, port, key, path);
     },
     localTracker,
     hostFor,

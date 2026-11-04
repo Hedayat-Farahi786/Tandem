@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Building2, Check, CheckCircle2, ChevronDown, KeyRound, LogOut, Plus } from 'lucide-react';
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
+import { isHosted } from './account-menu';
 import { Button, Callout, Dialog, Input, Spinner, cx, useToast } from './kit';
 
 /*
@@ -367,6 +368,68 @@ function TokenDialog({ onClose }: { onClose: () => void }) {
  * ways to connect one. Used in setup and in Settings.
  */
 export function CopilotConnect({ compact }: { compact?: boolean }) {
+  if (isHosted()) return <HostedCopilot />;
+  return <LocalCopilotConnect compact={compact} />;
+}
+
+/**
+ * The web app: Copilot runs on the plan of the member who chose it (the workspace's creator at
+ * first), through their GitHub sign-in. Any member can make it their own plan.
+ */
+function HostedCopilot() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useCopilotAccounts();
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: { id: string; name: string } }>('/api/me') });
+  const mine = useMutation({
+    mutationFn: () => post('/api/copilot/use-mine'),
+    onSuccess: () => {
+      for (const key of ['copilot-accounts', 'models', 'workspace']) void qc.invalidateQueries({ queryKey: [key] });
+      toast('Copilot here now runs on your plan.', 'ok');
+    },
+    onError: (e) => toast((e as Error).message, 'danger'),
+  });
+  if (q.isLoading || me.isLoading)
+    return (
+      <p className="flex items-center gap-2.5 py-3 text-[13px] text-muted">
+        <Spinner /> Checking Copilot for this workspace…
+      </p>
+    );
+  const a = q.data?.active;
+  const isMe = a && me.data && a.id === me.data.user.id;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3.5 rounded-xl bg-surface px-4 py-3.5 shadow-[0_0_0_1px_var(--border)]">
+        <span className="relative">
+          <Initials login={a?.login ?? '?'} size={40} />
+          {q.data?.signedIn && (
+            <span aria-hidden className="absolute -right-0.5 -bottom-0.5 grid size-4 place-items-center rounded-full bg-ok ring-2 ring-surface">
+              <Check className="size-2.5 text-white" strokeWidth={3.5} />
+            </span>
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[14.5px] font-semibold">{a ? (isMe ? 'Your Copilot plan' : `${a.login}'s Copilot plan`) : 'No Copilot plan yet'}</span>
+            {q.data?.signedIn ? <span className="shrink-0 rounded-full bg-ok-soft px-2 py-px text-[11.5px] font-medium text-ok">Connected</span> : <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">Needs sign-in</span>}
+          </p>
+          <p className="mt-0.5 truncate text-[12.5px] text-muted">
+            <BrandLogo brand="github" size={12} /> {a ? `github.com/${a.login} · used for Copilot and GitHub in this workspace` : 'Choose whose plan this workspace uses'}
+          </p>
+        </div>
+        {!isMe && (
+          <Button size="sm" busy={mine.isPending} onClick={() => mine.mutate()}>
+            Use my Copilot plan
+          </Button>
+        )}
+      </div>
+      {q.data?.error && <p className="px-1 text-[12.5px] text-warn">{q.data.error}</p>}
+      <p className="px-1 text-[12px] text-faint">Every Copilot request in this workspace counts against this plan. Any member can switch it to their own.</p>
+    </div>
+  );
+}
+
+function LocalCopilotConnect({ compact }: { compact?: boolean | undefined }) {
   const q = useCopilotAccounts();
   const toast = useToast();
   const refresh = useRefreshAfterSwitch();

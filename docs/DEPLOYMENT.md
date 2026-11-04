@@ -1,0 +1,136 @@
+# Deploying Tandem (hosted)
+
+For the team that runs Tandem as a web app. It covers the GitHub App, the container, its
+settings, data, isolation and the checklist before going live. How Tandem works inside is in
+[ARCHITECTURE.md](ARCHITECTURE.md); the plan for the web app is in [WEB_PLAN.md](WEB_PLAN.md).
+
+## What runs
+
+One container (see the [Dockerfile](../Dockerfile)) holds:
+
+- **The front.** GitHub sign-in, sessions, workspaces and members, all checked on every request.
+- **One cell per workspace.** Each cell has its own SQLite database, its own engine and its own
+  runner. Cells are opened when the server starts and keep working while nobody is signed in.
+- **The runner.** It clones the workspace's repositories, runs Copilot and the project's checks
+  (install, lint, typecheck, build, test), pushes the branch and opens the pull request.
+
+State lives in one volume, `/data`. Run **exactly one replica**: the databases are SQLite files on
+that volume, so two containers on the same data would corrupt it.
+
+## 1. Create the GitHub App
+
+This is done once, by the operator, at github.com → Settings → Developer settings → GitHub Apps → New.
+
+| Field | Value |
+| --- | --- |
+| Homepage URL | `https://app.[domain]` |
+| Callback URL | `https://app.[domain]/auth/github/callback` |
+| Expire user authorization tokens | **On** (8-hour tokens, renewed with a 6-month refresh token) |
+| Request user authorization (OAuth) during installation | On |
+| Webhook | Off (Tandem polls; webhooks are not used yet) |
+| Repository permissions | Contents: read and write · Pull requests: read and write · Metadata: read |
+| Account permissions | Copilot Requests (so Copilot runs on the member's own plan), plus Email addresses: read |
+| Where can it be installed | Any account |
+
+Before relying on the Copilot permission, check its exact name and level in GitHub's form at the
+time you create the App.
+
+Afterwards, keep:
+
+- the **Client ID** → `TANDEM_GITHUB_CLIENT_ID`;
+- a new **client secret** → `TANDEM_GITHUB_CLIENT_SECRET`;
+- the App's URL name (`github.com/apps/<slug>`) → `TANDEM_GITHUB_APP_SLUG`, for the "Give Tandem
+  access" link.
+
+Members install the App on their account or organization to choose which repositories Tandem
+may use.
+
+## 2. Settings
+
+| Variable | Required | Value |
+| --- | --- | --- |
+| `TANDEM_MODE` | yes (set in the image) | `hosted` |
+| `TANDEM_PUBLIC_URL` | yes | The app's public address, e.g. `https://app.[domain]`. Requests for any other Host are refused. |
+| `TANDEM_GITHUB_CLIENT_ID` | yes | From the GitHub App |
+| `TANDEM_GITHUB_CLIENT_SECRET` | yes | From the GitHub App. Keep it in your secret manager. |
+| `TANDEM_GITHUB_APP_SLUG` | recommended | The App's URL name |
+| `TANDEM_SECRET_KEY` | yes | 32 random bytes, base64 (`openssl rand -base64 32`). It seals stored tokens and connection secrets. Keep it in your secret manager. |
+| `TANDEM_HOME` | set in the image | `/data` |
+| `TANDEM_PORT` | set in the image | `8080` |
+| `TANDEM_LISTEN_HOST` | set in the image | `0.0.0.0` |
+| `TANDEM_LOG_LEVEL` | no | `info` (default), `warn`, `debug` |
+| `TANDEM_MODEL`, `TANDEM_LIGHT_MODEL` | no | The default Copilot models for every workspace |
+| `TANDEM_MAX_CONCURRENT_BUILDS`, `TANDEM_BUILD_TIMEOUT_MIN` | no | Runner limits for every workspace |
+| `TANDEM_BUDGET_PER_TASK`, `TANDEM_BUDGET_PER_DAY`, `TANDEM_CREDITS_PER_TASK`, `TANDEM_CREDITS_PER_DAY` | no | Starting Copilot budget of a new workspace. Its owners can change it later. |
+
+`TANDEM_AWS_PROFILE` and `TANDEM_HOST` are ignored in hosted mode, and so are the server's own
+AWS credentials. A workspace reaches AWS only through the connection its members make in the app.
+
+**`TANDEM_SECRET_KEY` cannot be rotated yet.** If it is lost, members must sign in again, and every
+workspace must reconnect AWS and Jira. Back it up with the same care as the data.
+
+## 3. Run it
+
+```sh
+docker build -t tandem .
+docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.env --restart unless-stopped tandem
+```
+
+- **TLS.** Terminate HTTPS at your load balancer and forward to port 8080 with the original
+  `Host` header. Cookies are set `Secure` when `TANDEM_PUBLIC_URL` is `https://`.
+- **Health check.** `GET /healthz` returns `{"ok":true}`. The image's `HEALTHCHECK` uses it.
+- **Stop.** On SIGTERM the server stops gracefully. Tasks that were running continue from their
+  last step after the next start.
+- **Upgrades.** Database migrations run by themselves at start. Take a backup first.
+- **Logs.** Logs go to stdout and to `/data/logs`. They hold no tokens, because secrets are
+  redacted before writing.
+- **Resources.** Builds run here, so size for them: about 2 vCPU and 4 GB of memory per concurrent
+  build, plus room on `/data` for the clones and dependencies of every workspace.
+
+## 4. Data and backups
+
+| Path in `/data` | Holds |
+| --- | --- |
+| `directory.db` | People, sessions, workspaces, members, invitations, sealed GitHub tokens and workspace secrets |
+| `workspaces/<id>/` | One workspace: its database (projects, tasks, chats, audit log), repository mirrors and worktrees |
+| `logs/` | Service logs |
+
+Back up the whole volume daily, using a snapshot while the container is stopped or a
+filesystem-consistent snapshot. Keep backups in the EU, encrypted, for as long as the privacy
+policy says. Deleting a workspace or an account removes its folder at once. Backups expire on
+their own schedule, and the privacy policy says so.
+
+## 5. Isolation of builds
+
+The runner executes code from customers' repositories: install scripts, tests and builds. Treat
+that code as untrusted.
+
+- **A host of its own.** Run Tandem on a dedicated VM or node pool, never next to other services.
+- **A sandboxed runtime.** Use gVisor (`runsc`) or Kata/Firecracker for the container.
+- **No cloud metadata endpoint.** Block `169.254.169.254` and IPv6 `fd00:ec2::254` from the
+  container. Tandem never uses the machine's own credentials, but a build could try to.
+- **Restricted egress.** Allow GitHub (`github.com`, `api.github.com`, `*.githubusercontent.com`),
+  Copilot (`*.githubcopilot.com`), AWS in the regions your workspaces use (`git-codecommit.*`,
+  `codecommit.*`, `oidc.*`, `portal.sso.*`, `sts.*`), Atlassian if Jira is used, and the package registries
+  builds need (`registry.npmjs.org`, …).
+- **Non-root.** The container already runs as the `node` user. Don't add capabilities.
+
+Each workspace's clones live in its own folder and are reached only through its own cell. When a
+company does not want its code on the hosted runner, a company runner keeps code and builds on
+the company's own machines. That runner is planned and not built yet; see
+[WEB_PLAN.md](WEB_PLAN.md).
+
+## 6. Before going live
+
+- [ ] Hosting, backups and logs are in an EU region, and the cloud provider's DPA is signed.
+- [ ] The placeholders in [docs/legal](legal/README.md) are completed and the documents are
+      reviewed by a lawyer: operator details, `[domain]`, `[privacy email]`, effective dates,
+      subprocessors. They are served at `/legal/privacy`, `/legal/terms`, `/legal/dpa` and
+      `/legal/subprocessors`.
+- [ ] The GitHub App exists with the settings above, and its secret and `TANDEM_SECRET_KEY` are in
+      the secret manager.
+- [ ] `TANDEM_PUBLIC_URL` matches the address users open, and HTTPS works end to end.
+- [ ] Build isolation is in place: sandboxed runtime, metadata endpoint blocked, egress restricted.
+- [ ] Backups are taken and a restore has been tried once.
+- [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,
+      then export and delete a test account.

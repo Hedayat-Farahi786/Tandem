@@ -6,7 +6,7 @@ import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { finalizeSpec, requirementMarkdown, validateSpec } from '../spec/template.js';
 import { redactor } from '../policies/redact.js';
 import { currentSpecTemplate, unwrapMarkdown } from '../workflow/steps.js';
-import { ownerOf } from '../audit.js';
+import { ownerNameOf, ownerOf } from '../audit.js';
 import { ActionError, checkModel, type TaskService } from '../workflow/service.js';
 import { NotFoundError, affectedRepos, loadProject, openSession, refreshReferences, type WorkflowDeps } from '../workflow/context.js';
 import { READ_ONLY_RULES, specPrompt } from '../workflow/prompts.js';
@@ -581,7 +581,7 @@ export class ChatService {
       if (start) {
         const settings = await this.deps.settings();
         const now = this.deps.clock.iso();
-        const approval: Approval = { id: this.deps.ids(), taskId: task.id, specVersion: 1, role: 'owner', name: settings.ownerName.trim() || 'Owner', date: now, evidence: 'Approved by creating and starting the task from the request chat', method: 'tandem', createdAt: now };
+        const approval: Approval = { id: this.deps.ids(), taskId: task.id, specVersion: 1, role: 'owner', name: ownerNameOf(settings) || 'Owner', date: now, evidence: 'Approved by creating and starting the task from the request chat', method: 'tandem', createdAt: now };
         await this.deps.store.approvals.upsert(approval);
         await this.deps.store.audit.append({ at: now, actor: 'owner', ...ownerOf(settings), action: 'spec.approved', summary: `${task.key}: approval of spec version 1 by ${approval.name}, by creating the task from the request chat.`, taskId: task.id, projectId: task.projectId, detail: { role: 'owner', specVersion: 1, method: 'tandem', evidence: approval.evidence, date: approval.date } });
         approvals.push(approval);

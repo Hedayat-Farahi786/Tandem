@@ -1,0 +1,18 @@
+# Only sources go into the image: no local data, secrets, test output or history.
+.git
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+coverage
+playwright-report
+test-results
+.env
+.env.*
+spikes/.env
+spikes/.work
+spikes/reports
+docs/evidence
+e2e
+**/__tests__
+**/*.test.ts
+**/*.test.tsx

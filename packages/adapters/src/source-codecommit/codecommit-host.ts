@@ -66,6 +66,8 @@ export interface CodeCommitHostOptions {
   aws?: AwsConnections;
   /** Tandem's git credential helper, once the server runs: signs HTTPS git with the AWS connection. */
   gitHelper?: () => string | undefined;
+  /** False in hosted mode: never the machine's AWS profiles, default credentials or SSH keys. */
+  ambient?: boolean;
 }
 
 const errName = (err: unknown) => (err as { name?: string })?.name ?? '';
@@ -101,9 +103,10 @@ export class CodeCommitHost implements SourceHost {
   async access(repo: Repo): Promise<RemoteAccess> {
     const override = this.o.accessOverride?.(repo);
     if (override) return override;
-    if (repo.localPath) return localAccess(repo.url);
+    const hosted = this.o.ambient === false;
+    if (repo.localPath && !hosted) return localAccess(repo.url);
     const { region, name } = this.ref(repo);
-    if (parseCodeCommitUrl(repo.url)?.transport === 'ssh') return plainAccess(repo.url);
+    if (parseCodeCommitUrl(repo.url)?.transport === 'ssh' && !hosted) return plainAccess(repo.url);
     const helper = this.o.gitHelper?.();
     if (helper) return tandemAccess(`https://git-codecommit.${region}.amazonaws.com/v1/repos/${name}`, helper);
     return codeCommitHttpsAccess(region, name, await this.profile(repo));
@@ -112,12 +115,13 @@ export class CodeCommitHost implements SourceHost {
   /** AWS credentials: the connection made in Tandem, else the repo's or Settings' profile, else the default chain. */
   private async credentials(repo: Repo) {
     if (await this.o.aws?.connection()) return this.o.aws!.provider();
+    if (this.o.ambient === false) return this.o.aws!.provider(); // says "Connect AWS"
     const profile = await this.profile(repo);
     return profile ? fromIni({ profile }) : fromNodeProviderChain();
   }
 
   mirrorPath(repo: Repo): string {
-    if (repo.localPath) return localGitDir(repo.localPath);
+    if (repo.localPath && this.o.ambient !== false) return localGitDir(repo.localPath);
     const { region, name } = this.ref(repo);
     return join(this.o.home, 'mirrors', `codecommit-${region}`, `${name}.git`);
   }

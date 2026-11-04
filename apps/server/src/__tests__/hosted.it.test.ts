@@ -53,7 +53,7 @@ async function signIn(code: string) {
 beforeAll(async () => {
   h = await startHosted(
     { home, port: 0, listenHost: '127.0.0.1', publicUrl: 'http://tandem.test', github: { clientId: 'Iv1.test', clientSecret: 'secret', webUrl: 'https://github.example', apiUrl: 'https://api.github.example' }, secretKey: randomBytes(32).toString('base64'), logLevel: 'silent', agent: 'scripted' },
-    { fetch: fakeFetch, webDir: join(__dirname, '..', '..', '..', 'web', 'dist') },
+    { fetch: fakeFetch, webDir: join(__dirname, '..', '..', '..', 'web', 'dist'), legalDir: join(__dirname, '..', '..', '..', '..', 'docs', 'legal') },
   );
 }, 60_000);
 afterAll(async () => {
@@ -74,6 +74,17 @@ describe('hosted Tandem', () => {
     const bad = await h.app.inject({ method: 'GET', url: '/auth/github/callback?code=code-mona&state=forged', headers: { cookie: 'tandem_oauth=other' } });
     expect(bad.statusCode).toBe(400);
     expect(bad.body).toContain('could not be completed');
+  });
+
+  it('shows the legal documents to everyone, as pages of the app', async () => {
+    const privacy = await h.app.inject({ method: 'GET', url: '/legal/privacy' });
+    expect(privacy.statusCode).toBe(200);
+    expect(privacy.body).toContain('<h1 id="privacy-policy">Privacy policy</h1>');
+    expect(privacy.body).toContain('<table>');
+    expect(privacy.body).toContain('href="/legal/dpa"');
+    expect(privacy.body).not.toMatch(/<script/i);
+    expect((await h.app.inject({ method: 'GET', url: '/legal/terms' })).body).toContain('Terms of service');
+    expect((await h.app.inject({ method: 'GET', url: '/legal/records-of-processing' })).statusCode).toBe(404);
   });
 
   it('signs in with GitHub, gives a first workspace, and serves its own Tandem behind the session', async () => {

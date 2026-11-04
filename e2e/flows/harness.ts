@@ -85,6 +85,11 @@ export interface HarnessOptions {
   agent?: 'scripted' | 'copilot';
   /** Extra environment for the server (limits, model defaults). */
   env?: Record<string, string>;
+  /**
+   * Run Tandem as the hosted web app (TANDEM_MODE=hosted) behind a pretend GitHub at this address,
+   * and sign in as this person (their OAuth code there).
+   */
+  hosted?: { github: string; as: string };
 }
 
 export class Harness {
@@ -102,6 +107,10 @@ export class Harness {
   readonly results: Array<{ scenario: string; task: string; state: string; prs: Array<{ repo: string; url: string; status: string }> } & Record<string, unknown>> = [];
   private proc: ChildProcess | undefined;
   private token = '';
+  /** Hosted mode: the session cookie of the person signed in. */
+  private cookie = '';
+  /** Hosted mode: seals stored tokens; the same across restarts. */
+  private readonly secretKey = Buffer.from(Array.from({ length: 32 }, () => Math.floor(Math.random() * 256))).toString('base64');
   private sse: AbortController | undefined;
   starts = 0;
 
@@ -235,13 +244,25 @@ export class Harness {
       ...this.o.env,
     };
     if (REAL) delete env.TANDEM_TEST_REMOTE_ROOT;
+    if (this.o.hosted)
+      Object.assign(env, {
+        TANDEM_MODE: 'hosted',
+        TANDEM_PUBLIC_URL: this.url,
+        TANDEM_LISTEN_HOST: '127.0.0.1',
+        TANDEM_GITHUB_CLIENT_ID: 'Iv1.e2e',
+        TANDEM_GITHUB_CLIENT_SECRET: 'e2e-secret',
+        TANDEM_GITHUB_APP_SLUG: 'tandem-e2e',
+        TANDEM_GITHUB_WEB_URL: this.o.hosted.github,
+        TANDEM_GITHUB_API_URL: this.o.hosted.github,
+        TANDEM_SECRET_KEY: this.secretKey,
+      });
     this.proc = spawn(process.execPath, [CLI, 'start', '--no-open'], { env, stdio: ['ignore', log, log], detached: process.platform !== 'win32' });
     closeSync(log);
     this.starts++;
     const end = Date.now() + 60_000;
     for (;;) {
       try {
-        if ((await fetch(`${this.url}/api/health`)).ok) break;
+        if ((await fetch(`${this.url}${this.o.hosted ? '/healthz' : '/api/health'}`)).ok) break;
       } catch {
         // not listening yet
       }
@@ -249,7 +270,11 @@ export class Harness {
       if (Date.now() > end) throw new Error(`Tandem did not start.\n${this.logTail()}`);
       await sleep(200);
     }
-    const html = await (await fetch(`${this.url}/`)).text();
+    if (this.o.hosted) {
+      const s = await this.signIn(this.o.hosted.as);
+      this.cookie = s.cookie;
+    }
+    const html = await (await fetch(`${this.url}/`, { headers: this.cookie ? { cookie: this.cookie } : {} })).text();
     this.token = /<meta name="tandem-token" content="([^"]+)">/.exec(html)?.[1] ?? '';
     if (!this.token) throw new Error('No token in the served page.');
     this.listen();
@@ -261,12 +286,35 @@ export class Harness {
     }
   }
 
+  /** Hosted mode: the whole GitHub sign-in, as a browser does it. Returns the session cookie and its token. */
+  async signIn(code: string, extraCookie = ''): Promise<{ cookie: string; token: string }> {
+    const pick = (res: Response, name: string) => res.headers.getSetCookie().find((c) => c.startsWith(`${name}=`))?.split(';')[0] ?? '';
+    const start = await fetch(`${this.url}/auth/github`, { redirect: 'manual' });
+    const authorize = new URL(start.headers.get('location') ?? '');
+    const back = await fetch(`${this.url}/auth/github/callback?code=${encodeURIComponent(code)}&state=${authorize.searchParams.get('state')}`, { redirect: 'manual', headers: { cookie: [pick(start, 'tandem_oauth'), extraCookie].filter(Boolean).join('; ') } });
+    const cookie = pick(back, 'tandem_session');
+    if (back.status !== 302 || !cookie) throw new Error(`Sign-in as ${code} failed (${back.status}): ${await back.text()}`);
+    const html = await (await fetch(`${this.url}/`, { headers: { cookie } })).text();
+    return { cookie, token: /<meta name="tandem-token" content="([^"]+)">/.exec(html)?.[1] ?? '' };
+  }
+
+  /** Hosted mode: act as another signed-in person from now on. */
+  useSession(s: { cookie: string; token: string }): void {
+    this.cookie = s.cookie;
+    this.token = s.token;
+  }
+
+  /** Hosted mode: the session in use. */
+  get session(): { cookie: string; token: string } {
+    return { cookie: this.cookie, token: this.token };
+  }
+
   private listen(): void {
     this.sse?.abort();
     const ctl = new AbortController();
     this.sse = ctl;
     void (async () => {
-      const res = await fetch(`${this.url}/api/events`, { signal: ctl.signal });
+      const res = await fetch(`${this.url}/api/events`, { signal: ctl.signal, headers: this.cookie ? { cookie: this.cookie } : {} });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -328,7 +376,7 @@ export class Harness {
   async api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${this.url}${path}`, {
       method,
-      headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' ? { 'X-Tandem-Token': this.token } : {}) },
+      headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' ? { 'X-Tandem-Token': this.token } : {}), ...(this.cookie ? { cookie: this.cookie } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     const text = await res.text();

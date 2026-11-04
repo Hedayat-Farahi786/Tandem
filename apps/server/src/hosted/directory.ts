@@ -48,6 +48,10 @@ const MIGRATIONS = [
    CREATE TABLE members (workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (workspace_id, user_id));
    CREATE INDEX members_user ON members(user_id);
    CREATE TABLE github_tokens (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, sealed TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+  // Each workspace's secrets (AWS connection, Jira and GitHub tokens), sealed; and whose Copilot plan it uses.
+  `CREATE TABLE workspace_secrets (workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, name TEXT NOT NULL, sealed TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (workspace_id, name));
+   ALTER TABLE workspaces ADD COLUMN copilot_user_id TEXT;
+   CREATE TABLE invites (token_hash TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`,
 ];
 
 const SESSION_DAYS = 14;
@@ -190,8 +194,63 @@ export class Directory {
   addMember(workspaceId: string, userId: string, role: Role = 'member') {
     this.db.prepare('INSERT OR IGNORE INTO members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)').run(workspaceId, userId, role, new Date(this.now()).toISOString());
   }
+  /* ---------------------------------------------------------------- workspace secrets and Copilot */
+
+  secretOf(workspaceId: string, name: string): string | undefined {
+    const r = this.db.prepare('SELECT sealed FROM workspace_secrets WHERE workspace_id = ? AND name = ?').get(workspaceId, name) as { sealed: string } | undefined;
+    return r ? this.unseal(r.sealed) : undefined;
+  }
+  setSecret(workspaceId: string, name: string, value: string) {
+    this.db.prepare('INSERT INTO workspace_secrets (workspace_id, name, sealed, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(workspace_id, name) DO UPDATE SET sealed = excluded.sealed, updated_at = excluded.updated_at').run(workspaceId, name, this.seal(value), new Date(this.now()).toISOString());
+  }
+  deleteSecret(workspaceId: string, name: string) {
+    this.db.prepare('DELETE FROM workspace_secrets WHERE workspace_id = ? AND name = ?').run(workspaceId, name);
+  }
+
+  /** Whose Copilot plan (and GitHub access) the workspace uses: chosen by a member, else its creator. */
+  copilotUser(workspaceId: string): string | undefined {
+    const r = this.db.prepare('SELECT copilot_user_id, created_by FROM workspaces WHERE id = ?').get(workspaceId) as { copilot_user_id: string | null; created_by: string } | undefined;
+    if (!r) return undefined;
+    const pick = r.copilot_user_id ?? r.created_by;
+    return this.roleIn(workspaceId, pick) ? pick : (this.db.prepare("SELECT user_id FROM members WHERE workspace_id = ? ORDER BY role = 'owner' DESC, created_at LIMIT 1").get(workspaceId) as { user_id: string } | undefined)?.user_id;
+  }
+  setCopilotUser(workspaceId: string, userId: string) {
+    this.db.prepare('UPDATE workspaces SET copilot_user_id = ? WHERE id = ?').run(userId, workspaceId);
+  }
+
+  /* ---------------------------------------------------------------- members and invitations */
+
+  members(workspaceId: string): Array<User & { role: Role }> {
+    return (this.db.prepare('SELECT u.*, m.role FROM members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY m.created_at').all(workspaceId) as Array<Record<string, unknown>>).map((r) => ({ ...this.toUser(r), role: r.role as Role }));
+  }
+  removeMember(workspaceId: string, userId: string) {
+    this.db.prepare('DELETE FROM members WHERE workspace_id = ? AND user_id = ?').run(workspaceId, userId);
+  }
+  setRole(workspaceId: string, userId: string, role: Role) {
+    this.db.prepare('UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?').run(role, workspaceId, userId);
+  }
+  owners(workspaceId: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").get(workspaceId) as { n: number }).n;
+  }
+  /** An invitation link's secret (only its hash is stored), valid 7 days. */
+  createInvite(workspaceId: string, createdBy: string, role: Role = 'member'): string {
+    const token = randomBytes(24).toString('base64url');
+    this.db.prepare('INSERT INTO invites (token_hash, workspace_id, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run(hash(token), workspaceId, role, createdBy, this.now(), this.now() + 7 * 86_400_000);
+    return token;
+  }
+  /** Joins the workspace of an invitation; returns it, or undefined when the link is unknown or expired. */
+  acceptInvite(token: string, userId: string): Workspace | undefined {
+    const r = this.db.prepare('SELECT * FROM invites WHERE token_hash = ?').get(hash(token)) as Record<string, unknown> | undefined;
+    if (!r || Number(r.expires_at) < this.now()) return undefined;
+    this.addMember(String(r.workspace_id), userId, r.role as Role);
+    return this.allWorkspaces().find((w) => w.id === String(r.workspace_id));
+  }
+
   allWorkspaces(): Workspace[] {
     return (this.db.prepare('SELECT * FROM workspaces ORDER BY created_at').all() as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), name: String(r.name), createdAt: String(r.created_at), createdBy: String(r.created_by) }));
+  }
+  renameWorkspace(id: string, name: string) {
+    this.db.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(name.trim().slice(0, 80), id);
   }
   deleteWorkspace(id: string) {
     this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);

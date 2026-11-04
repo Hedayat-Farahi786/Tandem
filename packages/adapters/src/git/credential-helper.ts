@@ -20,8 +20,8 @@ for (const line of readFileSync(0, 'utf8').split('\\n')) {
   if (i > 0) fields[line.slice(0, i)] = line.slice(i + 1);
 }
 try {
-  const { port, key } = JSON.parse(readFileSync(new URL('./git-credential.json', import.meta.url), 'utf8'));
-  const res = await fetch('http://127.0.0.1:' + port + '/git/credential', { method: 'POST', headers: { 'content-type': 'application/json', 'x-tandem-git-key': key }, body: JSON.stringify(fields), signal: AbortSignal.timeout(30000) });
+  const { port, key, path } = JSON.parse(readFileSync(new URL('./git-credential.json', import.meta.url), 'utf8'));
+  const res = await fetch('http://127.0.0.1:' + port + (path || '/git/credential'), { method: 'POST', headers: { 'content-type': 'application/json', 'x-tandem-git-key': key }, body: JSON.stringify(fields), signal: AbortSignal.timeout(30000) });
   if (res.ok) {
     const c = await res.json();
     if (c.username && c.password) process.stdout.write('username=' + c.username + '\\npassword=' + c.password + '\\n');
@@ -33,12 +33,12 @@ try {
  * Writes the helper and where to reach this Tandem (owner-only files); returns the script path. The
  * key is the helper's own, never given to the web page, so no page can ask Tandem for a credential.
  */
-export function installCredentialHelper(home: string, port: number, key: string): string {
+export function installCredentialHelper(home: string, port: number, key: string, path = '/git/credential'): string {
   const dir = join(home, 'bin');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const script = join(dir, 'git-credential-tandem.mjs');
   writeFileSync(script, SCRIPT, { mode: 0o700 });
-  writeFileSync(join(dir, 'git-credential.json'), JSON.stringify({ port, key }), { mode: 0o600 });
+  writeFileSync(join(dir, 'git-credential.json'), JSON.stringify({ port, key, path }), { mode: 0o600 });
   try {
     chmodSync(join(dir, 'git-credential.json'), 0o600);
   } catch {

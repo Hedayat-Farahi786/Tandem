@@ -1,6 +1,7 @@
 import { STATE_LABELS, type Actor, type BlockedReason, type Task, type TaskState } from '@tandem/shared';
 import type { Clock, EventSink, Job, Store } from '../ports.js';
 import { RUNNABLE_STATES, assertTransition, firstStep, isStep } from '../state-machine.js';
+import { ownerNameOf } from '../audit.js';
 
 export interface TransitionOptions {
   to: TaskState;
@@ -45,7 +46,7 @@ export async function applyTransition(tx: Store, clock: Clock, task: Task, o: Tr
   }
   await tx.tasks.upsert(next);
   await tx.transitions.add({ taskId: task.id, from: task.state, to: o.to, ...(step ? { step } : {}), reason: o.reason, actor: o.actor, at: now });
-  const ownerName = o.actor === 'owner' ? (await tx.settings.get()).ownerName.trim() : '';
+  const ownerName = o.actor === 'owner' ? ownerNameOf(await tx.settings.get()) : '';
   await tx.audit.append({ at: now, actor: o.actor, ...(ownerName ? { actorName: ownerName } : {}), action: 'task.state', summary: `${task.key}: ${STATE_LABELS[task.state]} → ${STATE_LABELS[o.to]}. ${o.reason}`, taskId: task.id, projectId: task.projectId, detail: { from: task.state, to: o.to, ...(step ? { step } : {}) } });
   await scheduleJob(tx, clock, next, o.notBefore);
   events?.emit({ type: 'task.transition', taskId: task.id, from: task.state, to: o.to, reason: o.reason, at: now });

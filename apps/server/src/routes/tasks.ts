@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { approvalState, checkReadiness, finalizeSpec, stepsOf, validateSpec, currentSpecTemplate, affectedRepos, Budget } from '@tandem/core';
+import { approvalState, checkReadiness, finalizeSpec, stepsOf, validateSpec, currentSpecTemplate, affectedRepos, Budget, ownerNameOf } from '@tandem/core';
 import { runGit } from '@tandem/adapters';
 import { Requirement, SkippableCheck, TaskState, type Task } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
@@ -180,7 +180,7 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
   });
   app.post('/api/tasks/:id/approve', async (req) => {
     const { name } = z.object({ name: z.string().optional() }).parse(req.body ?? {});
-    return service.approve(id(req), name?.trim() || (await tandem.settings()).ownerName || 'Owner');
+    return service.approve(id(req), name?.trim() || ownerNameOf(await tandem.settings()) || 'Owner');
   });
   app.post('/api/tasks/:id/pm-approval', async (req) => service.recordPmApproval(id(req), z.object({ name: z.string(), date: z.string(), evidence: z.string() }).parse(req.body)));
   app.put('/api/tasks/:id/spec', async (req) => service.editSpec(id(req), z.object({ markdown: z.string().min(1, 'The spec is empty') }).parse(req.body).markdown));

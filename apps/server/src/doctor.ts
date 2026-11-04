@@ -42,9 +42,14 @@ async function version(cmd: string, args: string[]): Promise<string | undefined>
 }
 
 /** Runs every check. Nothing here sends a prompt to a model. */
-export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?: (c: DoctorCheck) => void } = {}): Promise<DoctorReport> {
+export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?: (c: DoctorCheck) => void; hosted?: boolean; onServerProblem?: (c: DoctorCheck) => void } = {}): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const add = (c: DoctorCheck) => {
+    // Hosted: the server's own tools and machine are the operator's, not the workspace's to see.
+    if (opts.hosted && (c.group === 'Tools' || c.group === 'Machine')) {
+      if (c.status === 'fail' || c.status === 'warn') opts.onServerProblem?.(c);
+      return;
+    }
     checks.push(c);
     opts.onCheck?.(c);
   };
@@ -160,4 +165,9 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
     }
   }
   return { at: new Date().toISOString(), ok: !checks.some((c) => c.status === 'fail'), checks };
+}
+
+/** Doctor options for a hosted workspace: server problems go to the operator's log, not the page. */
+export function doctorHosted(ctx: { hosted?: unknown; logger?: { warn(msg: string, meta?: Record<string, unknown>): void } }): { hosted?: boolean; onServerProblem?: (c: DoctorCheck) => void } {
+  return ctx.hosted ? { hosted: true, onServerProblem: (c) => ctx.logger?.warn('server check', { check: c.id, status: c.status, message: c.message }) } : {};
 }

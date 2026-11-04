@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Building2, KeyRound, LogOut, TerminalSquare } from 'lucide-react';
+import { isHosted } from './account-menu';
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
 import { Button, Callout, CopyButton, Dialog, Input, Select, Spinner, cx, useToast } from './kit';
@@ -224,7 +225,7 @@ function KeysDialog({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title="Connect with an access key"
-      description="For an AWS account without single sign-on. Use an IAM user that may use CodeCommit; the key goes to your system keychain."
+      description={`For an AWS account without single sign-on. Use an IAM user that may use CodeCommit; the key is kept ${isHosted() ? 'encrypted, for this workspace only' : 'in your system keychain'}.`}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

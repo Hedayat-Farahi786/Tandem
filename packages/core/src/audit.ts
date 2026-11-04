@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { AuditEntry, AuditInput } from '@tandem/shared';
 
@@ -58,5 +59,17 @@ export function auditMatches(e: AuditEntry, scope: AuditScope): boolean {
   return (!scope.taskId || e.taskId === scope.taskId) && (!scope.since || e.at >= scope.since) && (!scope.until || e.at < scope.until) && (!scope.afterSeq || e.seq > scope.afterSeq);
 }
 
-/** `actorName` for an entry made by the owner, when Settings has their name. */
-export const ownerOf = (s: { ownerName: string }): { actorName?: string } => (s.ownerName.trim() ? { actorName: s.ownerName.trim() } : {});
+/**
+ * The person acting in this request, when the app knows them (a member of a hosted workspace).
+ * Entries "by the owner" name them instead of the one name in Settings.
+ */
+export const acting = new AsyncLocalStorage<{ name: string }>();
+
+/** Who "the owner" is right now: the acting member, else the name in Settings ('' when none). */
+export const ownerNameOf = (s: { ownerName: string }): string => acting.getStore()?.name.trim() || s.ownerName.trim();
+
+/** `actorName` for an entry made by the owner, when their name is known. */
+export const ownerOf = (s: { ownerName: string }): { actorName?: string } => {
+  const name = ownerNameOf(s);
+  return name ? { actorName: name } : {};
+};

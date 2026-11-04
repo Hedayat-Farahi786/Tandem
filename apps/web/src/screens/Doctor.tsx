@@ -6,6 +6,7 @@ import { api, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import type { DoctorCheck, DoctorReport } from '../lib/types';
 import { Button, ErrorState, Loading, SettingsSection, cx } from '../ui/kit';
+import { isHosted } from '../ui/account-menu';
 
 const ICON = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle, skipped: MinusCircle } as const;
 const COLOR = { pass: 'text-ok', warn: 'text-warn', fail: 'text-danger', skipped: 'text-faint' } as const;
@@ -82,7 +83,7 @@ export function DoctorSummary({ report }: { report: DoctorReport }) {
   const fails = report.checks.filter((c) => c.status === 'fail').length;
   const warns = report.checks.filter((c) => c.status === 'warn').length;
   const passed = report.checks.filter((c) => c.status === 'pass').length;
-  const title = fails ? `${fails} check${fails > 1 ? 's' : ''} need${fails > 1 ? '' : 's'} attention` : warns ? `Everything required passes, with ${warns} warning${warns > 1 ? 's' : ''}` : 'Everything passes';
+  const title = fails ? `${fails} check${fails > 1 ? 's' : ''} need${fails > 1 ? '' : 's'} attention` : warns ? `Everything required passes, with ${warns} warning${warns > 1 ? 's' : ''}` : passed ? 'Everything passes' : 'Nothing to check yet';
   const tone = fails ? 'fail' : warns ? 'warn' : 'pass';
   const Icon = ICON[tone];
   return (
@@ -155,7 +156,7 @@ export function DoctorScreen() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Doctor</h1>
-          <p className="mt-1 text-[14px] text-muted">Checks your tools, repositories, Copilot, AWS and Jira. It never sends a prompt, so it uses none of your budget.</p>
+          <p className="mt-1 text-[14px] text-muted">{isHosted() ? "Checks this workspace's repositories, Copilot, AWS and Jira." : 'Checks your tools, repositories, Copilot, AWS and Jira.'} It never sends a prompt, so it uses none of your budget.</p>
         </div>
         {report && (
           <Button icon={RefreshCw} busy={run.isPending} onClick={() => run.mutate()}>

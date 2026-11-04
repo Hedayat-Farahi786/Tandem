@@ -44,6 +44,8 @@ export interface GitHubHostOptions {
   accountToken?: (host: string) => Promise<string | undefined>;
   /** Tandem's git credential helper, once the server runs (HTTPS clone, fetch and push). */
   gitHelper?: () => string | undefined;
+  /** False in hosted mode: never the machine's SSH keys or folders; SSH URLs are reached over HTTPS. */
+  ambient?: boolean;
 }
 
 /** The REST API of a GitHub host: github.com, GitHub Enterprise Cloud (api.<tenant>.ghe.com) or a server (/api/v3). */
@@ -73,13 +75,17 @@ export class GitHubHost implements SourceHost {
 
   /** HTTPS through Tandem's helper (the connected account's token); SSH with the user's own keys. */
   access(repo: Repo): RemoteAccess {
-    if (repo.localPath) return localAccess(repo.url);
+    const hosted = this.o.ambient === false;
+    if (repo.localPath && !hosted) return localAccess(repo.url);
     const helper = this.o.gitHelper?.();
-    return parseGitHubUrl(repo.url)?.transport === 'https' && helper ? tandemAccess(repo.url, helper) : plainAccess(repo.url);
+    const p = parseGitHubUrl(repo.url);
+    // Hosted: always HTTPS with the workspace's token, even for an SSH URL.
+    if (hosted && p) return tandemAccess(`https://${p.host}/${p.owner}/${p.name}.git`, helper ?? '');
+    return p?.transport === 'https' && helper ? tandemAccess(repo.url, helper) : plainAccess(repo.url);
   }
 
   mirrorPath(repo: Repo): string {
-    if (repo.localPath) return localGitDir(repo.localPath);
+    if (repo.localPath && this.o.ambient !== false) return localGitDir(repo.localPath);
     const { owner, name, webHost } = this.ref(repo);
     return join(this.o.home, 'mirrors', webHost, owner, `${name}.git`);
   }

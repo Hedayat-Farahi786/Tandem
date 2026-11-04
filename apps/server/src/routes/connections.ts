@@ -99,8 +99,9 @@ export function registerConnectionRoutes(app: FastifyInstance, ctx: ServerContex
     const added = new Set((await store.repos.list()).map((r) => r.url.replace(/\.git$/, '')));
     try {
       const list = await tandem.github.listRepositories(host);
-      if (!list) return { connected: false, repos: [] };
-      return { connected: true, repos: list.map((r) => ({ ...r, added: added.has(r.url.replace(/\.git$/, '')) })) };
+      const installUrl = ctx.hosted?.githubInstallUrl;
+      if (!list) return { connected: false, repos: [], ...(installUrl ? { installUrl } : {}) };
+      return { connected: true, repos: list.map((r) => ({ ...r, added: added.has(r.url.replace(/\.git$/, '')) })), ...(installUrl ? { installUrl } : {}) };
     } catch (err) {
       throw new HttpError(400, plain(err));
     }

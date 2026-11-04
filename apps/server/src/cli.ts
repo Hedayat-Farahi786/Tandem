@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
 import { runDoctor, type DoctorCheck } from './doctor.js';
-import { VERSION, WEB_DIR, readConfig, startServer } from './start.js';
+import { LEGAL_DIR, VERSION, WEB_DIR, readConfig, startServer } from './start.js';
 import { readHostedConfig, startHosted } from './hosted/server.js';
 
 const ICON: Record<DoctorCheck['status'], string> = { pass: '✔', warn: '!', fail: '✖', skipped: '–' };
@@ -43,7 +43,7 @@ async function doctor(json: boolean): Promise<number> {
 
 async function startHostedMode(): Promise<void> {
   const cfg = readHostedConfig(process.env);
-  const h = await startHosted(cfg, { webDir: WEB_DIR });
+  const h = await startHosted(cfg, { webDir: WEB_DIR, legalDir: LEGAL_DIR });
   console.log(`Tandem ${VERSION} (hosted) is running on ${cfg.listenHost}:${new URL(h.url).port} for ${cfg.publicUrl}`);
   const shutdown = async () => {
     await h.stop();

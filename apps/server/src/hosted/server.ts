@@ -4,12 +4,14 @@ import { join, resolve, sep } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
-import type { Logger } from '@tandem/core';
+import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
 import { Directory, type Session } from './directory.js';
+import { legalPage } from './legal-pages.js';
 import { signInPage } from './sign-in-page.js';
+import { GitHubTokens, WorkspaceAccounts, WorkspaceSecrets } from './workspace.js';
 
 /*
  * Tandem as a hosted web app. One front server: GitHub sign-in, sessions, workspaces. Behind it,
@@ -20,7 +22,8 @@ import { signInPage } from './sign-in-page.js';
 
 export const HostedConfig = z.object({
   home: z.string().min(1),
-  port: z.number().int().min(1).max(65535),
+  /** 0 picks a free port (tests). */
+  port: z.number().int().min(0).max(65535),
   listenHost: z.string().default('0.0.0.0'),
   /** The app's public address, e.g. https://app.example.com (no trailing slash). */
   publicUrl: z.string().url().transform((u) => u.replace(/\/+$/, '')),
@@ -30,11 +33,17 @@ export const HostedConfig = z.object({
     /** Test seams: GitHub's web and API addresses. */
     webUrl: z.string().url().default('https://github.com'),
     apiUrl: z.string().url().default('https://api.github.com'),
+    /** The GitHub App's URL name (github.com/apps/<slug>), for "install on your account or organization". */
+    appSlug: z.string().optional(),
   }),
   /** 32 random bytes, base64: seals stored tokens. */
   secretKey: z.string().min(40),
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   agent: z.enum(['copilot', 'scripted']).default('copilot'),
+  /** Operator settings for every workspace (models, build limits), as "a.b" paths. */
+  overrides: z.record(z.string(), z.unknown()).default({}),
+  /** Starting values for a new workspace (its Copilot budget), which its owners can change. */
+  seeds: z.record(z.string(), z.unknown()).default({}),
 });
 export type HostedConfig = z.infer<typeof HostedConfig>;
 
@@ -50,15 +59,27 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     port: Number(env.TANDEM_PORT ?? 8080),
     listenHost: env.TANDEM_LISTEN_HOST ?? '0.0.0.0',
     publicUrl: need('TANDEM_PUBLIC_URL'),
-    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID'), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET'), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
+    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID'), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET'), ...(env.TANDEM_GITHUB_APP_SLUG ? { appSlug: env.TANDEM_GITHUB_APP_SLUG } : {}), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
     secretKey: need('TANDEM_SECRET_KEY'),
     logLevel: env.TANDEM_LOG_LEVEL ?? 'info',
     agent: env.TANDEM_AGENT ?? 'copilot',
+    ...operatorSettings(env),
   });
+}
+
+/** The same TANDEM_* settings as the local app, without the ones that would reach this server's own AWS. */
+function operatorSettings(env: NodeJS.ProcessEnv): { overrides: Record<string, unknown>; seeds: Record<string, unknown> } {
+  const rest = { ...env };
+  delete rest.TANDEM_HOST;
+  delete rest.TANDEM_AWS_PROFILE;
+  const c = loadConfig(rest, '/', join);
+  const overrides = Object.fromEntries(Object.entries(c.overrides).filter(([k]) => !k.startsWith('aws.')));
+  return { overrides, seeds: c.seeds };
 }
 
 const SESSION = 'tandem_session';
 const OAUTH = 'tandem_oauth';
+const JOIN = 'tandem_join';
 const CELL_HOST = 'cell.tandem.internal';
 
 function cookies(req: FastifyRequest): Record<string, string> {
@@ -78,11 +99,14 @@ export interface Hosted {
   stop(): Promise<void>;
 }
 
-export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch?: typeof fetch } = {}): Promise<Hosted> {
+export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch } = {}): Promise<Hosted> {
+  const cfg = HostedConfig.parse(input);
   const http = o.fetch ?? fetch;
   mkdirSync(join(cfg.home, 'workspaces'), { recursive: true, mode: 0o700 });
   const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel);
   const directory = await Directory.open(join(cfg.home, 'directory.db'), cfg.secretKey);
+  const tokens = new GitHubTokens(directory, { clientId: cfg.github.clientId, clientSecret: cfg.github.clientSecret, webUrl: cfg.github.webUrl, slug: cfg.github.appSlug }, http);
+  const installUrl = cfg.github.appSlug ? `${cfg.github.webUrl}/apps/${cfg.github.appSlug}/installations/new` : undefined;
   const secure = cfg.publicUrl.startsWith('https://');
   const cookie = (name: string, value: string, maxAgeSec: number) => `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
 
@@ -102,8 +126,10 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     if (!c) {
       const home = cellHome(id);
       mkdirSync(home, { recursive: true, mode: 0o700 });
-      const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides: {}, seeds: {} };
-      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST }).then(async (cell) => {
+      const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides: cfg.overrides, seeds: cfg.seeds };
+      const accounts = new WorkspaceAccounts(directory, id, tokens);
+      const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl };
+      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted }).then(async (cell) => {
         await cell.app.ready();
         await cell.start(listenPort, `/cells/${id}/git/credential`);
         return cell;
@@ -154,10 +180,17 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     }
     return s;
   };
+  /** The workspace the session is in; someone removed from their last one gets a new one of their own. */
   const currentWorkspace = (s: { id: string; session: Session }) => {
     const mine = directory.workspacesOf(s.session.userId);
     const w = mine.find((x) => x.id === s.session.workspaceId) ?? mine[0];
-    return w;
+    if (w) return w;
+    const user = directory.user(s.session.userId);
+    if (!user) return undefined;
+    const fresh = directory.createWorkspace(`${user.name}'s workspace`, user.id);
+    directory.useWorkspace(s.id, fresh.id);
+    void cellFor(fresh.id);
+    return directory.workspacesOf(user.id).find((x) => x.id === fresh.id);
   };
 
   app.get('/healthz', async () => ({ ok: true }));
@@ -191,12 +224,15 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     const user = directory.upsertGitHubUser({ id: gh.id, login: gh.login, name: gh.name ?? null, email: gh.email ?? null, avatarUrl: gh.avatar_url ?? null });
     const now = Date.now();
     directory.saveGitHubTokens(user.id, { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), ...(tok.refresh_token ? { refresh: tok.refresh_token } : {}), ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) });
+    // Came from an invitation link: join that workspace first.
+    const join = cookies(req)[JOIN];
+    const joined = join ? directory.acceptInvite(join, user.id) : undefined;
     const workspaces = directory.workspacesOf(user.id);
-    const workspace = workspaces[0] ?? directory.createWorkspace(`${user.name}'s workspace`, user.id);
+    const workspace = joined ?? workspaces[0] ?? directory.createWorkspace(`${user.name}'s workspace`, user.id);
     void cellFor(workspace.id);
     const { id } = directory.createSession(user.id, workspace.id);
-    logger.info('signed in', { user: user.id });
-    return reply.header('Set-Cookie', cookie(SESSION, id, 14 * 86_400)).redirect('/');
+    logger.info('signed in', { user: user.id, joined: Boolean(joined) });
+    return reply.header('Set-Cookie', [cookie(SESSION, id, 14 * 86_400), cookie(OAUTH, '', 0), ...(join ? [cookie(JOIN, '', 0)] : [])]).redirect('/');
   });
 
   app.post('/auth/sign-out', async (req, reply) => {
@@ -259,6 +295,108 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     return reply.header('Set-Cookie', cookie(SESSION, '', 0)).send({ ok: true, workspacesDeleted: orphans.length });
   });
 
+  /* ---------------------------------------------------------------- the workspace: Copilot plan, members, invitations */
+
+  /** The signed-in person and their role in the workspace they are in. */
+  const inWorkspace = (req: FastifyRequest, reply: FastifyReply) => {
+    const s = signedIn(req, reply);
+    if (!s) return undefined;
+    const w = currentWorkspace(s);
+    const role = w ? directory.roleIn(w.id, s.session.userId) : undefined;
+    if (!w || !role) {
+      void reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
+      return undefined;
+    }
+    return { s, w, role };
+  };
+  const ownerOnly = (ctx: { role: string } | undefined, reply: FastifyReply) => {
+    if (ctx && ctx.role !== 'owner') {
+      void reply.code(403).send({ error: 'Only an owner of the workspace can do that.' });
+      return false;
+    }
+    return Boolean(ctx);
+  };
+
+  /** Copilot (and GitHub) in this workspace from now on run on the signed-in person's plan. */
+  app.post('/api/copilot/use-mine', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!c) return reply;
+    if (!(await tokens.identity(c.s.session.userId))) return reply.code(409).send({ error: 'Your GitHub sign-in has expired. Sign out and in again first.' });
+    directory.setCopilotUser(c.w.id, c.s.session.userId);
+    return { ok: true };
+  });
+
+  app.get('/api/workspace', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!c) return reply;
+    const copilot = directory.copilotUser(c.w.id);
+    return { id: c.w.id, name: c.w.name, role: c.role, me: c.s.session.userId, copilotUserId: copilot ?? null, members: directory.members(c.w.id).map((m) => ({ id: m.id, login: m.login, name: m.name, avatarUrl: m.avatarUrl, role: m.role })) };
+  });
+
+  app.patch('/api/workspace', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!ownerOnly(c, reply)) return reply;
+    const { name } = z.object({ name: z.string().trim().min(1, 'Give the workspace a name.').max(80) }).parse(req.body);
+    directory.renameWorkspace(c!.w.id, name);
+    return { ok: true };
+  });
+
+  app.post('/api/workspace/invites', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!ownerOnly(c, reply)) return reply;
+    const { role } = z.object({ role: z.enum(['owner', 'member']).default('member') }).parse(req.body ?? {});
+    const token = directory.createInvite(c!.w.id, c!.s.session.userId, role);
+    return { url: `${cfg.publicUrl}/join/${token}`, expiresInDays: 7 };
+  });
+
+  app.post('/api/workspace/members/:userId/role', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!ownerOnly(c, reply)) return reply;
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
+    const { role } = z.object({ role: z.enum(['owner', 'member']) }).parse(req.body);
+    if (!directory.roleIn(c!.w.id, userId)) return reply.code(404).send({ error: 'Not a member.' });
+    if (role === 'member' && directory.roleIn(c!.w.id, userId) === 'owner' && directory.owners(c!.w.id) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner.' });
+    directory.setRole(c!.w.id, userId, role);
+    return { ok: true };
+  });
+
+  /** An owner removes a member, or a member leaves. */
+  app.delete('/api/workspace/members/:userId', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!c) return reply;
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
+    if (userId !== c.s.session.userId && c.role !== 'owner') return reply.code(403).send({ error: 'Only an owner can remove others.' });
+    if (directory.roleIn(c.w.id, userId) === 'owner' && directory.owners(c.w.id) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner. Make someone else an owner first, or delete the workspace.' });
+    directory.removeMember(c.w.id, userId);
+    return { ok: true };
+  });
+
+  /** An owner deletes the workspace with everything in it. */
+  app.delete('/api/workspace', async (req, reply) => {
+    const c = inWorkspace(req, reply);
+    if (!ownerOnly(c, reply)) return reply;
+    const id = c!.w.id;
+    const cell = cells.get(id);
+    cells.delete(id);
+    if (cell) await (await cell.catch(() => undefined))?.stop();
+    directory.deleteWorkspace(id);
+    rmSync(cellHome(id), { recursive: true, force: true });
+    logger.info('workspace deleted', { workspace: id });
+    return { ok: true };
+  });
+
+  /** An invitation link: join (signing in first if needed). */
+  app.get('/join/:token', async (req, reply) => {
+    const { token } = z.object({ token: z.string().min(10).max(100) }).parse(req.params);
+    const s = sessionOf(req);
+    if (!s) return reply.header('Set-Cookie', cookie(JOIN, token, 1800)).type('text/html').header('Cache-Control', 'no-store').send(signInPage({ note: "You've been invited to a workspace. Sign in with GitHub to join it." }));
+    const w = directory.acceptInvite(token, s.session.userId);
+    if (!w) return reply.code(410).type('text/html').send(signInPage({ error: 'This invitation has expired. Ask for a new link.', signedIn: true }));
+    directory.useWorkspace(s.id, w.id);
+    void cellFor(w.id);
+    return reply.redirect('/');
+  });
+
   /* ---------------------------------------------------------------- into the workspace */
 
   /** The git helper of a workspace's runner asks its own cell (from this machine only). */
@@ -278,9 +416,11 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     if (!w || !directory.roleIn(w.id, s.session.userId)) return reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
     const cell = await cellFor(w.id);
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !['cookie', 'origin', 'host', 'x-tandem-token', 'content-length'].includes(k)) headers[k] = v;
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !['cookie', 'origin', 'host', 'x-tandem-token', 'x-tandem-actor', 'x-tandem-git-key', 'content-length'].includes(k)) headers[k] = v;
     headers.host = CELL_HOST;
     headers['x-tandem-token'] = cell.token;
+    const person = directory.user(s.session.userId);
+    if (person) headers['x-tandem-actor'] = encodeURIComponent(person.name || person.login);
     if (!writes(req)) {
       // Reads stream straight through (server-sent events, files).
       req.raw.headers = { ...headers };
@@ -307,6 +447,13 @@ export async function startHosted(cfg: HostedConfig, o: { webDir?: string; fetch
     return reply.send(indexHtml.replace('<meta name="tandem-token" content="">', `<meta name="tandem-token" content="${s.session.csrf}"><meta name="tandem-mode" content="hosted">`));
   };
   app.get('/', page);
+  // The privacy policy, terms and DPA: public, linked from the sign-in page.
+  app.get('/legal/:doc', async (req, reply) => {
+    const { doc } = z.object({ doc: z.string().max(40) }).parse(req.params);
+    const html = legalPage(o.legalDir, doc);
+    if (!html) return reply.code(404).type('text/html').send(signInPage({ error: 'There is no such page.' }));
+    return reply.header('Content-Security-Policy', csp).header('Cache-Control', 'public, max-age=300').type('text/html').send(html);
+  });
   app.setNotFoundHandler((req, reply) => {
     if (req.method === 'GET' && !req.url.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(req.url.split('?')[0]!)) return page(req, reply);
     return reply.code(404).send({ error: 'Not found.' });

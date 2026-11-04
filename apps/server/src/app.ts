@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { ZodError } from 'zod';
-import { ActionError, NotFoundError, TransitionError, redactor, type ChatService, type Logger } from '@tandem/core';
+import { ActionError, NotFoundError, TransitionError, acting, redactor, type ChatService, type Logger } from '@tandem/core';
 import { JiraError, type Tandem } from '@tandem/adapters';
 import type { EventBus } from './events.js';
 import type { DoctorReport } from './doctor.js';
@@ -22,6 +22,8 @@ export interface ServerContext {
   bus: EventBus;
   chat: ChatService;
   logger?: Logger;
+  /** Hosted mode: a workspace of the web app (no folders, profiles or keys of the server). */
+  hosted?: { githubInstallUrl?: string | undefined };
   /** Last doctor run (shown on the Doctor screen and used for "first run"). */
   doctor: { last?: DoctorReport | undefined; running?: Promise<DoctorReport> | undefined };
 }
@@ -82,6 +84,21 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
     }
     return undefined;
   });
+  // Hosted: the front server names the member acting (only it holds this cell's token), so
+  // approvals and the audit log record who did what in a shared workspace.
+  // (preHandler: after the body is read, whose stream events would lose the context.)
+  if (ctx.hosted)
+    app.addHook('preHandler', (req, _reply, done) => {
+      const actor = req.headers['x-tandem-actor'];
+      let name: string;
+      try {
+        name = typeof actor === 'string' && req.headers['x-tandem-token'] === token ? decodeURIComponent(actor).slice(0, 120) : '';
+      } catch {
+        name = '';
+      }
+      if (name.trim()) acting.run({ name }, done);
+      else done();
+    });
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');

@@ -27,6 +27,202 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Hosted mode, working end to end.**
+  - **Teams:**
+    - Owners invite people with a link that is valid for 7 days. Joining
+      needs a GitHub sign-in first.
+    - Each person is an owner or a member. Only owners rename, invite or
+      delete the workspace, and a workspace always keeps at least one owner.
+    - People leave, or owners remove them. Someone removed from their last
+      workspace gets a new one of their own.
+  - **Copilot on a member's plan:** a workspace runs Copilot and GitHub on the
+    plan of the member who chose "Use my Copilot plan". Their GitHub token is
+    renewed before it expires.
+  - **Who did what:** approvals and the audit log name the member who acted.
+    A PM approval says who recorded it.
+  - **Only the workspace's own connections:**
+    - Hosted workspaces never use the server's AWS profiles or credentials,
+      its SSH keys or its folders.
+    - Connections and tokens are sealed per workspace.
+    - The repository importer links to installing the GitHub App.
+  - **Settings › Workspace:** name, members, roles, invitations, leaving, and
+    deleting the workspace.
+  - **Legal pages:** the privacy policy, terms, DPA and subprocessors are
+    served at `/legal/*`.
+  - **Deployment:**
+    - A `Dockerfile` with a health check, a non-root user and a data volume.
+    - `docs/DEPLOYMENT.md` for the team that hosts it: the GitHub App, the
+      settings, backups, build isolation and a go-live checklist.
+    - Operator limits and default models (`TANDEM_MODEL`,
+      `TANDEM_MAX_CONCURRENT_BUILDS`, budgets) apply to every workspace.
+  - **Tested end to end** against a pretend GitHub, with the scripted agent
+    and local copies of the CodeCommit sandbox repos.
+
+- **The plan for Tandem as a web app, legal drafts and a website.**
+  `docs/WEB_PLAN.md` sets out the agreed direction:
+  - Tandem hosted in the EU (Frankfurt), with sign-in through a GitHub App.
+    Each user's own Copilot plan is used through their token.
+  - GitHub repositories through the app installation; CodeCommit through a
+    role the customer creates in their own AWS account.
+  - Isolated hosted runners, plus a company runner so code can stay on a
+    company's own machines.
+  - Postgres with per-workspace isolation and KMS encryption.
+  - GDPR built in, and the order to build it in.
+
+  `docs/legal/` has drafts for a lawyer to review: privacy policy, terms of
+  service, data processing agreement, subprocessors and the record of
+  processing. `apps/site/` is the landing page: static and no-tracking,
+  working in light and dark mode and at phone width.
+
+- **Add repositories without the command line.** The setup wizard now
+  starts with Copilot, then shows four ways to add a repository:
+  - **GitHub:** a searchable list of the repositories your connected
+    GitHub account can work in. The Copilot sign-in also covers your
+    repositories, so there is one sign-in for both.
+  - **AWS CodeCommit:** a list per region, once AWS is connected.
+  - **On this computer:** clones Tandem finds in your usual folders, or a
+    folder you name. Tandem works in that clone with your own SSH key or
+    git sign-in, without cloning it again or changing its settings, so
+    company code stays where it already is.
+  - **Clone URL:** paste one, as before.
+
+  AWS is connected in the app (Settings › AWS or the CodeCommit tab):
+  - Your company's IAM Identity Center sign-in: enter the access portal
+    URL, approve a code in the browser, then choose the account and role.
+    The access renews itself until your company's limit.
+  - An access key (temporary `ASIA…` keys are refused).
+  - A profile already on this computer.
+
+  Tandem signs CodeCommit's git passwords itself and passes the connected
+  GitHub account's token to git through its own credential helper. The
+  AWS CLI and the GitHub CLI are no longer needed, and the helper's key is
+  never given to the web page. Secrets stay in the system keychain. Error
+  messages point to Settings instead of `aws sso login` or
+  `gh auth login`. The API address of GitHub Enterprise Cloud
+  (`api.<tenant>.ghe.com`) is now right.
+
+- **Connect any Copilot account from the browser.** The setup wizard and
+  Settings › Copilot now sign you in through Copilot's own GitHub sign-in:
+  "GitHub.com" for a personal plan (Free, Pro, Pro+) or a Business or
+  Enterprise seat on github.com, "Your company's GitHub" for GitHub
+  Enterprise Cloud on its own address (it asks for `yourcompany.ghe.com`
+  first), and Microsoft Entra where the runtime offers it. A dialog walks
+  through approving in GitHub and comes back on its own. If the browser runs
+  on another computer and can't reach the local return address, you paste
+  that address and Tandem finishes the sign-in. On a computer without a
+  browser, a fine-grained token (`github_pat_…`, Copilot Requests
+  permission) works too; classic tokens are refused with an explanation.
+  Settings shows the connected account and how it was connected (in the
+  browser or with a token). Every other signed-in account can be made active
+  with "Use this account", and you can add another account or sign out.
+  The Copilot address follows the account, so there is no host field to fill
+  in. Connecting happens only here: Tandem keeps its own sign-ins (in its
+  data folder and the keychain), never uses a Copilot CLI or GitHub CLI
+  login on the computer, and no environment variable connects an account
+  (`COPILOT_GH_HOST` is gone). The sign-in stays in the system
+  keychain: Tandem never sees a password, no route returns a token, and
+  without a keychain the sign-in isn't saved in plain text. Changing the
+  account waits until no task or chat is using Copilot. Each sign-in, switch
+  and sign-out is in the audit log, and the doctor's fixes point to this
+  screen.
+
+- **A Projects page that reads like one.** Projects are cards in a grid:
+  the name and task key, how specs get approved, three counts (in
+  progress, in review, done), the repositories with their stack, role and
+  build order, and a "New chat" shortcut. A "New project" card leads to
+  setup. "Rules for Copilot" is its own section below, with the note
+  about the repositories' own instruction files under it.
+
+- **A review of the recent tasks, and what it fixed.**
+  - *Copilot can run your tests while it builds.* In every recent task
+    Copilot tried to run the repo's tests and was blocked. The workspace
+    holds one folder per repo, and the guard refused `cd <repo>`,
+    `git -C <repo>`, `npm --prefix <repo>` and the `CHROME_BIN=…` the repo's
+    own test command sets. Copilot wrote tests blind, which cost fix rounds,
+    and one task merged tests that fail. Now commands may run in a folder
+    inside the workspace (never outside it, never with `..`), and Copilot
+    may set the same variables your repo commands set. The prompts say how
+    to run each check, and the reviewer is told where each repo's files are.
+  - *Short commit and pull request titles, without the task number.*
+    Copilot names its change when it finishes ("Bump version to 1.7.13",
+    at most 50 characters). The pushed commit and the pull request take
+    that title, with a few lines on what changed. Without a name, the task
+    title in sentence case is used.
+  - *Changes stay visible after the merge.* A merged task's Changes tab was
+    empty: once the branch is part of the default branch, comparing the two
+    shows nothing. Tandem now records where each branch starts when it
+    pushes, and finds the start of older tasks from their merge or their
+    commits.
+  - *Faster version bumps.* The project's own version number no longer
+    counts toward the dependency cache, so a version bump reuses the
+    installed dependencies.
+  - *No more failed rebases over files a formatter left behind.* Before a
+    rebase, changes to tracked files are kept first.
+  - *Tandem's instructions stay private.* The task conversation and the
+    activity API no longer include the prompt Tandem sends Copilot; the
+    Trace still shows its fingerprint.
+  - *A cleaner conversation.* Routine stage changes are left out (the bar
+    shows them); stops, resumes and the end remain. An approval appears
+    after the spec it approves.
+  - *A clearer sidebar.* "Open tasks" lists the project's tasks still in
+    progress, each with a status dot and its status in words, separate from
+    "Chats". Chat rows have no task icons, and the list scrolls without a
+    visible bar.
+  - *The model picker is always fully visible.* It opens on top of the page,
+    anchored to its button and kept inside the window, instead of being cut
+    off by the sidebar.
+  - *The page never scrolls into empty space.* Hidden screen-reader text
+    deep in a long diff or spec made the whole page taller than the window.
+    Scroll areas now hold everything they contain.
+  - "Ready, and about 1 lines" now reads "Ready: a small, reviewable change
+    (about 1 line)".
+
+- **See every stage of a task while it runs.** Under the task's title, one
+  quiet line and a thin bar show where the task is: the stage, what is
+  happening now and for how long ("Build · Copilot coding 4m 02s", "Checks ·
+  Running tests", "Approval · Waiting for you"), and "4 of 8". Click it to
+  see every stage with its time and outcome ("4 of 5 passed · 1 already
+  failing", "Approved by …"). The current stage lists its steps as done,
+  running or next. The running step says what Copilot is doing, and each
+  check is ticked off as it runs. The self-review shows its fix and
+  re-check, and a blocked or failed task shows why at the stage where it
+  stopped. In the conversation, what Copilot says between its steps now
+  appears in order with those steps, and its closing message comes last as
+  its answer. A fix run after the self-review is called "Fixed review
+  findings". The line that shows what Tandem is doing uses the same words as
+  the bar. Run cards hide the model name, then the credits, before cutting
+  their titles short, and the task composer's hints fit on one line.
+
+- **Branches and commits that look like a person's.** A task's branch is
+  now `feature/<key>-<title>` instead of `agent/…`, and before it is pushed
+  its commits (the build, each fix round, formatter passes) fold into one
+  commit, `SHOP-12: Add a health endpoint`, with the goal as a
+  short body. Later commits read plainly, for example "Merge branch
+  'development' into …". Tasks not built yet take the new branch name on
+  start; tasks already pushed keep theirs, so their pull requests keep
+  working. The push guard still allows only Tandem's own task branches:
+  `feature/<KEY>-…`, never someone's `feature/login`, and never a default
+  branch.
+
+- **A polish pass over every screen.** Chats are named from their first
+  message at once (a request still takes Copilot's short name for the change
+  unless you renamed it), so a chat whose first message went unanswered no
+  longer sits in Recents as "New request"; existing ones are named on start.
+  The task list says why a task failed in plain words ("AWS sign-in
+  expired"), lines its columns up, and no longer marks cancelled tasks as
+  needing attention. Once a request becomes a task, its spec panel says so
+  and offers Open task instead of two disabled buttons. In a task: the
+  requirement's example data, affected areas and out of scope read full
+  width; tracker comments show as one line; check cards say "All 5 commands
+  passed" or "4 of 5 passed · 1 already failing"; the pull request's status
+  sits with its repository; file paths keep their file name when space runs
+  short; review findings read "1 open" or "All resolved"; the spec toolbar
+  fits on one line, and while a spec awaits approval, Approve comes before
+  the spec on a narrow panel (with "Your approval is all it needs" when no PM
+  approval is required). Criteria in the requirement editor are one growing
+  line per Given, When and Then. Settings shows locked fields as read-only,
+  aligns every row, explains the prompt limits and adds the 30-day cost. A
+  task waiting for review no longer looks updated "just now" after a restart.
 - **The plan for Tandem as a web app, legal drafts and a website.**
   `docs/WEB_PLAN.md` sets out the agreed direction:
   - Tandem hosted in the EU (Frankfurt), with sign-in through a GitHub App.

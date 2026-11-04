@@ -6,7 +6,7 @@ import { inspectMirror } from '@tandem/adapters';
 import { findLocalClones, readLocalClone } from '../local-clones.js';
 import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate, estimateTaskCredits, type ModelOption } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
-import { runDoctor } from '../doctor.js';
+import { doctorHosted, runDoctor } from '../doctor.js';
 import { auditOwner, settingsDiff } from '../audit.js';
 
 const SecretName = z.enum(['jira-token', 'github-token']);
@@ -103,6 +103,8 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
 
   /** Clones repositories already on this computer that Tandem can work in (GitHub or CodeCommit origin). */
   app.get('/api/repos/local', async () => {
+    // Hosted: the server's folders are not anyone's to use.
+    if (ctx.hosted) return [];
     const added = new Set((await store.repos.list()).map((r) => r.localPath).filter(Boolean));
     const found = await findLocalClones();
     return found.flatMap((c) => {
@@ -117,6 +119,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     let url = body.url ?? '';
     let localPath: string | undefined;
     if (body.path) {
+      if (ctx.hosted) throw new HttpError(400, 'In the web app, add repositories from GitHub, CodeCommit or a clone URL.');
       const clone = await readLocalClone(body.path);
       url = clone.remote;
       localPath = clone.path;
@@ -260,7 +263,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   /* ------------------------------------------------------------------ doctor and usage */
   app.get('/api/doctor', async () => ctx.doctor.last ?? null);
   app.post('/api/doctor', async () => {
-    ctx.doctor.running ??= runDoctor(tandem, tandem.agent, { onCheck: (c) => ctx.bus.emit({ type: 'doctor.check', id: c.id, status: c.status, message: c.message }) }).finally(() => {
+    ctx.doctor.running ??= runDoctor(tandem, tandem.agent, { onCheck: (c) => ctx.bus.emit({ type: 'doctor.check', id: c.id, status: c.status, message: c.message }), ...doctorHosted(ctx) }).finally(() => {
       ctx.doctor.running = undefined;
     });
     ctx.doctor.last = await ctx.doctor.running;

@@ -58,7 +58,7 @@ export const SIGNIN_EXPIRED = /session has expired|reauthenticate|ExpiredToken|s
 /** "PR_OPEN / poll failed: X" reads as "Checking the pull requests failed: X". */
 export const plainReason = (text: string) =>
   SIGNIN_EXPIRED.test(text)
-    ? "Your AWS sign-in expired, so Tandem couldn't reach the repository host. Sign in again (for example with aws sso login), then choose Retry."
+    ? "Your AWS sign-in expired, so Tandem couldn't reach the repository host. Connect AWS again in Settings › AWS, then choose Retry."
     : text.replace(/^[A-Z_]+ \/ ([a-z-]+) failed: /, (_m, step: string) => `${STEP_WORDS[step] ?? stepLabel(step)} failed: `);
 
 /** A reason short enough for a list row: one plain sentence. */

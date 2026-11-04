@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Gauge, Save, ShieldAlert, ShieldCheck, UserRound, Workflow, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Gauge, Save, ShieldAlert, ShieldCheck, UserRound, Users, Workflow, type LucideIcon } from 'lucide-react';
 import { BrandLogo, BrandTile, type Brand } from '../ui/brands';
 import { IconTile, Ring } from '../ui/visual';
 import type { Settings } from '@tandem/shared';
@@ -9,6 +9,8 @@ import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
 import { CopilotConnect } from '../ui/copilot-connect';
+import { isHosted } from '../ui/account-menu';
+import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
 import type { AuditVerification } from '../lib/types';
@@ -67,7 +69,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
     mutationFn: () => put(`/api/secrets/${name}`, { value }),
     onSuccess: () => {
       setValue('');
-      toast('Saved to the OS keychain.', 'ok');
+      toast(isHosted() ? 'Saved, encrypted for this workspace.' : 'Saved to the OS keychain.', 'ok');
       void qc.invalidateQueries({ queryKey: ['secrets'] });
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
     },
@@ -75,7 +77,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
   const remove = useMutation({
     mutationFn: () => del(`/api/secrets/${name}`),
     onSuccess: () => {
-      toast('Removed from the OS keychain.', 'ok');
+      toast(isHosted() ? 'Removed.' : 'Removed from the OS keychain.', 'ok');
       void qc.invalidateQueries({ queryKey: ['secrets'] });
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
     },
@@ -92,7 +94,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
       </div>
       <p className="flex items-center gap-2 text-[13px] text-muted">
         <span className={cx('size-1.5 rounded-full', present ? 'bg-ok' : 'bg-faint')} aria-hidden />
-        {present ? 'Saved in your OS keychain' : 'Not set'}
+        {present ? (isHosted() ? 'Saved, encrypted' : 'Saved in your OS keychain') : 'Not set'}
         {present && (
           <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="ml-1 font-medium text-danger hover:underline">
             Remove
@@ -141,7 +143,8 @@ function AuditSection() {
   );
 }
 
-const NAV = [
+const NAV_ALL = [
+  ['workspace', 'Workspace', Users],
   ['general', 'General', UserRound],
   ['copilot', 'Copilot', 'copilot'],
   ['budget', 'Budget', Gauge],
@@ -151,10 +154,14 @@ const NAV = [
   ['github', 'GitHub', 'github'],
   ['audit', 'Audit log', ShieldCheck],
 ] as const satisfies ReadonlyArray<readonly [string, string, LucideIcon | Brand]>;
+/** The workspace section exists only in the web app; there, names come from GitHub (no General section). */
+const NAV = NAV_ALL.filter(([id]) => (isHosted() ? id !== 'general' : id !== 'workspace'));
+/** Where secrets are kept, in words. */
+const KEPT = isHosted() ? 'encrypted, for this workspace only' : 'in your system keychain';
 
 /** The section menu beside Settings, following the section in view. */
 function SectionNav() {
-  const [active, setActive] = useState<string>('general');
+  const [active, setActive] = useState<string>(NAV[0]?.[0] ?? 'copilot');
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver((entries) => {
@@ -244,19 +251,23 @@ export function SettingsScreen() {
     <div className="mx-auto w-full max-w-[1000px] pb-24">
       <div className="mb-10">
         <h1 className="font-display text-[26px] leading-tight">Settings</h1>
-        <p className="mt-1 text-[14px] text-muted">Stored on this machine. Tokens go only to your OS keychain.</p>
+        <p className="mt-1 text-[14px] text-muted">{isHosted() ? "This workspace's settings, shared by its members. Tokens are encrypted and used only for this workspace." : 'Stored on this machine. Tokens go only to your OS keychain.'}</p>
       </div>
       <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">
       <SectionNav />
       <div className="flex min-w-0 flex-col gap-14">
 
-      <SettingsSection id="general" icon={<IconTile icon={UserRound} />} title="General">
-        <Row label="Your name" htmlFor="set-name" description="Shown on the specs you approve.">
-          <Input id="set-name" value={s.ownerName} onChange={(e) => set('ownerName', e.target.value)} />
-        </Row>
-      </SettingsSection>
+      {isHosted() && <WorkspaceSection />}
 
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description="The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain.">
+      {!isHosted() && (
+        <SettingsSection id="general" icon={<IconTile icon={UserRound} />} title="General">
+          <Row label="Your name" htmlFor="set-name" description="Shown on the specs you approve.">
+            <Input id="set-name" value={s.ownerName} onChange={(e) => set('ownerName', e.target.value)} />
+          </Row>
+        </SettingsSection>
+      )}
+
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isHosted() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain."}>
         <div className="py-4">
           <CopilotConnect />
         </div>
@@ -358,7 +369,7 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description="For CodeCommit repositories: reading and pushing code, and opening pull requests. The connection stays in your system keychain.">
+      <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description={`For CodeCommit repositories: reading and pushing code, and opening pull requests. The connection is kept ${KEPT}.`}>
         <div className="py-4">
           <AwsConnect />
         </div>

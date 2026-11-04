@@ -6,6 +6,7 @@ import { relativeTime } from '../lib/format';
 import { AwsConnect, AWS_REGIONS, useAws } from './aws-connect';
 import { BrandLogo } from './brands';
 import { CopilotConnect, useCopilotAccounts } from './copilot-connect';
+import { isHosted } from './account-menu';
 import { Button, Callout, Input, Select, Spinner, Tabs, cx } from './kit';
 
 /*
@@ -85,7 +86,8 @@ function GitHubSource({ busyUrl, onPick }: { busyUrl: string | null; onPick: (ur
   }, [accounts.data]);
   const [host, setHost] = useState<string | null>(null);
   const h = host ?? hosts[0] ?? 'github.com';
-  const repos = useQuery({ queryKey: ['github-repos', h], queryFn: () => api<{ connected: boolean; repos: Choice[] }>(`/api/github/repos?host=${encodeURIComponent(h)}`), enabled: hosts.length > 0, retry: false, staleTime: 60_000 });
+  const repos = useQuery({ queryKey: ['github-repos', h], queryFn: () => api<{ connected: boolean; repos: Choice[]; installUrl?: string }>(`/api/github/repos?host=${encodeURIComponent(h)}`), enabled: hosts.length > 0, retry: false, staleTime: 60_000 });
+  const install = repos.data?.installUrl;
   if (accounts.isLoading) return <Loading text="Checking your GitHub account…" />;
   if (!hosts.length)
     return (
@@ -104,7 +106,16 @@ function GitHubSource({ busyUrl, onPick }: { busyUrl: string | null; onPick: (ur
           {(repos.error as Error).message}
         </Callout>
       ) : (
-        <ChoiceList items={repos.data?.repos ?? []} busyUrl={busyUrl} onPick={onPick} empty={`Your account has no repositories on ${h}.`} />
+        <ChoiceList items={repos.data?.repos ?? []} busyUrl={busyUrl} onPick={onPick} empty={install ? 'Tandem can see none of your repositories yet. Install it on your account or organization.' : `Your account has no repositories on ${h}.`} />
+      )}
+      {install && (
+        <p className="text-[12.5px] text-muted">
+          Missing a repository?{' '}
+          <a className="font-medium text-accent-text underline-offset-2 hover:underline" href={install} target="_blank" rel="noreferrer">
+            Give Tandem access to it on GitHub
+          </a>
+          , then come back.
+        </p>
       )}
     </div>
   );
@@ -213,7 +224,7 @@ export function RepoImporter({ busy, onPick, onPickLocal }: { busy: string | nul
         tabs={[
           { id: 'github', label: 'GitHub' },
           { id: 'codecommit', label: 'AWS CodeCommit' },
-          { id: 'local', label: 'On this computer' },
+          ...(isHosted() ? [] : [{ id: 'local' as const, label: 'On this computer' }]),
           { id: 'url', label: 'Clone URL' },
         ]}
       />

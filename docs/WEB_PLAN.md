@@ -93,6 +93,29 @@ are **drafts for a lawyer** and need the operator's company details.
 Each phase ends with something usable and all tests green. Local mode keeps
 working throughout.
 
+### Where it stands (2026-11-04)
+
+Built and tested end to end (`e2e/flows/hosted.e2e.test.ts`). The test signs in with GitHub,
+invites a colleague, adds a repository, turns a chat request into a task, and lets Copilot build
+it and the checks run until the pull request is open. It also checks that workspaces stay apart
+and that a member can be removed and an account deleted.
+
+Phase 1 runs on SQLite, one database per workspace, in a single container
+([DEPLOYMENT.md](DEPLOYMENT.md)), instead of Postgres. GitHub repositories are listed through
+the App installation. Hosted workspaces connect CodeCommit with IAM Identity Center or an access
+key, never with the server's own credentials. The legal drafts are served at `/legal/*`, and
+account export and deletion work.
+
+Still to come:
+
+* the job queue with one sandbox per task;
+* the company runner;
+* the CloudFormation role connection;
+* GitHub webhooks;
+* workspace data export;
+* Postgres, for more than one replica;
+* the hardening of phase 5.
+
 1. **Foundations (≈3 weeks)**
    * `TANDEM_MODE=hosted|local`; hosted listens behind a load balancer with
      https, secure cookies, CSRF protection and CSP.

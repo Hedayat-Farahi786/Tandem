@@ -41,6 +41,16 @@ export interface ClientLike {
   resumeSession(id: string, config: Record<string, unknown>): Promise<SessionLike>;
 }
 
+/** A GitHub identity for Copilot sessions (hosted mode): a user token, its host and when it expires. */
+export interface GitHubIdentity {
+  token: string;
+  /** "github.com" or a GitHub Enterprise Cloud host. */
+  host: string;
+  login?: string | undefined;
+  /** Epoch ms; undefined when the token does not expire. */
+  expiresAt?: number | undefined;
+}
+
 export interface CopilotRuntimeOptions {
   settings: () => Promise<Settings>;
   logger?: Logger;
@@ -54,6 +64,11 @@ export interface CopilotRuntimeOptions {
    * uses only accounts connected in Tandem (never a Copilot CLI or GitHub CLI login).
    */
   home?: string;
+  /**
+   * Hosted mode: every session runs as this identity (the workspace's GitHub account), passed per
+   * session and renewed on demand; the runtime never uses a sign-in of its own.
+   */
+  identity?: () => Promise<GitHubIdentity | undefined>;
 }
 
 const RETRYABLE = /(rate.?limit|\b429\b|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|\b5\d\d\b|overloaded|temporarily unavailable|stream (closed|ended))/i;
@@ -137,7 +152,7 @@ export class CopilotRuntime implements AgentRuntime {
     this.starting = (async () => {
       const c: ClientLike = this.o.createClient
         ? this.o.createClient(env, cliPath)
-        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: true, ...(home ? { baseDirectory: home.copilot } : {}), ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
+        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: !this.o.identity, ...(home ? { baseDirectory: home.copilot } : {}), ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
       await c.start();
       this.client = c;
       return c;
@@ -149,11 +164,32 @@ export class CopilotRuntime implements AgentRuntime {
     }
   }
 
+  /** Hosted: hands each session the workspace identity's token, renewed when it nears expiry. */
+  private tokenProvider() {
+    return async () => {
+      const id = await this.o.identity!();
+      if (!id) return { kind: 'cancelled' as const };
+      // The runtime refreshes an hour before expiry: report at least a little over that.
+      const left = id.expiresAt ? Math.floor((id.expiresAt - Date.now()) / 1000) : 8 * 3600;
+      return { kind: 'token' as const, accessToken: id.token, expiresIn: Math.max(left, 3700) };
+    };
+  }
+
   /** For doctor: runtime version, sign-in and model access (no model call). */
   async check(): Promise<{ version?: string; authenticated: boolean; login?: string; host?: string; authType?: string; models?: ModelLike[]; error?: string }> {
     try {
       const c = await this.ensureClient();
       const status = await c.getStatus();
+      if (this.o.identity) {
+        const id = await this.o.identity();
+        if (!id) return { version: status.version, authenticated: false, error: 'No GitHub account is set for Copilot in this workspace.' };
+        const base = { version: status.version, authenticated: true, host: id.host, authType: 'workspace', ...(id.login ? { login: id.login } : {}) };
+        try {
+          return { ...base, models: await this.listModels() };
+        } catch (err) {
+          return { ...base, error: String((err as Error).message ?? err) };
+        }
+      }
       const auth = await c.getAuthStatus();
       if (!auth.isAuthenticated) return { version: status.version, authenticated: false, ...(auth.statusMessage ? { error: auth.statusMessage } : {}) };
       const base = { version: status.version, authenticated: true, ...(auth.login ? { login: auth.login } : {}), ...(auth.host ? { host: auth.host } : {}), ...(auth.authType ? { authType: auth.authType } : {}) };
@@ -169,7 +205,15 @@ export class CopilotRuntime implements AgentRuntime {
 
   async listModels(): Promise<ModelLike[]> {
     if (this.modelCache && Date.now() - this.modelCache.at < 10 * 60_000) return this.modelCache.list;
-    const list = await (await this.ensureClient()).listModels();
+    const client = await this.ensureClient();
+    let list: ModelLike[];
+    if (this.o.identity) {
+      // Hosted: the models the workspace's account may use, asked with its token.
+      const id = await this.o.identity();
+      if (!id) throw new Error('No GitHub account is set for Copilot in this workspace.');
+      const r = (await (client.rpc as unknown as { models: { list(p: { gitHubToken: string }): Promise<{ models: ModelLike[] } | ModelLike[]> } }).models.list({ gitHubToken: id.token })) as { models?: ModelLike[] } | ModelLike[];
+      list = Array.isArray(r) ? r : (r.models ?? []);
+    } else list = await client.listModels();
     this.modelCache = { at: Date.now(), list };
     return list;
   }
@@ -234,6 +278,7 @@ export class CopilotRuntime implements AgentRuntime {
       onPermissionRequest,
       hooks: { onPreToolUse },
       tools,
+      ...(this.o.identity ? { gitHubTokenProvider: this.tokenProvider() } : {}),
     };
 
     let session: SessionLike | undefined;
@@ -355,7 +400,7 @@ export class CopilotRuntime implements AgentRuntime {
     let denied = 0;
     for (const mode of ['read-only', 'build'] as const) {
       const { onPreToolUse, onPermissionRequest } = enforcement({ mode, root: workspace, allowedCommands: [], customTools: new Set() });
-      const session = await client.createSession({ clientName: 'tandem-selftest', workingDirectory: workspace, availableTools: new ToolSet().addBuiltIn(allowedBuiltins(mode)), excludedTools: new ToolSet().addMcp('*'), onPermissionRequest, hooks: { onPreToolUse } });
+      const session = await client.createSession({ clientName: 'tandem-selftest', workingDirectory: workspace, availableTools: new ToolSet().addBuiltIn(allowedBuiltins(mode)), excludedTools: new ToolSet().addMcp('*'), onPermissionRequest, hooks: { onPreToolUse }, ...(this.o.identity ? { gitHubTokenProvider: this.tokenProvider() } : {}) });
       try {
         for (const [m, name, args] of cases.filter((c) => c[0] === mode)) {
           const r = await session.rpc?.tools?.execute({ name, arguments: args }).catch((err: unknown) => ({ resultType: 'error', textResultForLlm: String(err) }));

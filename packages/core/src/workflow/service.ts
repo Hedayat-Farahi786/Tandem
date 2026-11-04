@@ -7,7 +7,7 @@ import { finalizeSpec, validateSpec } from '../spec/template.js';
 import { canTransition } from '../state-machine.js';
 import { NotFoundError, affectedRepos, loadProject, type WorkflowDeps } from './context.js';
 import { approvalState, currentSpecTemplate } from './steps.js';
-import { ownerOf } from '../audit.js';
+import { ownerNameOf, ownerOf } from '../audit.js';
 import { checkKey, stopCheck } from './live-checks.js';
 import { prTitle } from '../pr/description.js';
 
@@ -302,7 +302,9 @@ export class TaskService {
     if ((await this.deps.store.approvals.list(taskId)).some((x) => x.role === a.role && x.specVersion === latest.version)) return task;
     const approval: Approval = { id: this.deps.ids(), taskId, specVersion: latest.version, role: a.role, name: a.name.trim(), date: a.date, evidence: a.evidence.trim(), method: 'tandem', createdAt: this.deps.clock.iso() };
     await this.deps.store.approvals.upsert(approval);
-    await this.deps.store.audit.append({ at: approval.createdAt, actor: a.role === 'pm' ? 'pm' : 'owner', actorName: approval.name, action: 'spec.approved', summary: `${task.key}: ${a.role === 'pm' ? 'PM approval' : 'approval'} of spec version ${latest.version} by ${approval.name}${a.role === 'pm' ? ', recorded in Tandem' : ''}.`, taskId, projectId: task.projectId, detail: { role: a.role, specVersion: latest.version, method: 'tandem', evidence: approval.evidence, date: approval.date } });
+    // A PM's approval is recorded by someone in Tandem: say who.
+    const recordedBy = a.role === 'pm' ? ownerNameOf(await this.deps.settings()) : '';
+    await this.deps.store.audit.append({ at: approval.createdAt, actor: a.role === 'pm' ? 'pm' : 'owner', actorName: approval.name, action: 'spec.approved', summary: `${task.key}: ${a.role === 'pm' ? 'PM approval' : 'approval'} of spec version ${latest.version} by ${approval.name}${a.role === 'pm' ? `, recorded in Tandem${recordedBy ? ` by ${recordedBy}` : ''}` : ''}.`, taskId, projectId: task.projectId, detail: { role: a.role, specVersion: latest.version, method: 'tandem', evidence: approval.evidence, date: approval.date, ...(recordedBy ? { recordedBy } : {}) } });
     const state = approvalState(project, latest.version, await this.deps.store.approvals.list(taskId));
     if (state.complete) {
       const who = [state.owner?.name, state.pm ? `${state.pm.name} (PM)` : undefined].filter(Boolean).join(' and ');
