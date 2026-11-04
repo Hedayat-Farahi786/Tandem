@@ -376,8 +376,10 @@ export class ChatService {
     const task = await this.deps.store.tasks.get(taskId);
     if (!task || !((task.state === 'PR_OPEN' && !task.needsAttention) || task.state === 'DONE')) return;
     const thread = await this.taskThread(taskId);
-    const last = (await this.deps.store.messages.list(thread.id)).filter((m) => m.role !== 'system').at(-1);
-    if (!last || last.role !== 'assistant' || !last.content.startsWith(`I need your help with ${task.key}.`)) return;
+    // The latest help request, unless a later message already said it was sorted.
+    const msgs = await this.deps.store.messages.list(thread.id);
+    const help = msgs.findLastIndex((m) => m.role === 'assistant' && m.content.startsWith(`I need your help with ${task.key}.`));
+    if (help < 0 || msgs.slice(help + 1).some((m) => m.role === 'assistant' && (m.content.startsWith("That's sorted") || m.content.startsWith(`${task.key} is done`)))) return;
     const text = task.state === 'DONE' ? `${task.key} is done: every pull request is merged.` : "That's sorted: the checks pass and the pull request is up to date. Nothing needs you right now.";
     const m = await this.say(thread.id, 'assistant', text);
     this.deps.events?.emit({ type: 'chat.done', threadId: thread.id, messageId: m.id });
