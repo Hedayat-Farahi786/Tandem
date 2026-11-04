@@ -1,12 +1,10 @@
-import { execFile } from 'node:child_process';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { RetryableError, type DetectedRepo, type MirrorInfo, type PreflightCheck, type PullRequestRequest, type PullRequestResult, type PushResult, type RebaseResult, type SourceHost, type Worktree } from '@tandem/core';
 import type { PullRequest, PullRequestStatus, Repo, Settings } from '@tandem/shared';
-import { addWorktree, ensureMirror, ghHttpsAccess, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, type RemoteAccess } from '../git/repo-git.js';
+import { tandemAccess } from '../git/credential-helper.js';
+import { addWorktree, ensureMirror, localAccess, localGitDir, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, type RemoteAccess } from '../git/repo-git.js';
 import type { SecretStore } from '../secrets/keychain.js';
 
-const pexec = promisify(execFile);
 
 const isGitHubHost = (h: string) => /github/i.test(h) || /\.ghe\.com$/i.test(h);
 
@@ -24,22 +22,35 @@ export function parseGitHubUrl(url: string): { owner: string; name: string; tran
 export type { Fetch } from '../tracker-jira/jira-tracker.js';
 import type { Fetch } from '../tracker-jira/jira-tracker.js';
 
+/** A repository someone can pick to add: on GitHub or CodeCommit. */
+export interface RepoChoice {
+  id: string;
+  name: string;
+  owner?: string;
+  url: string;
+  description: string;
+  updatedAt: string;
+  defaultBranch: string;
+  private?: boolean;
+  canPush?: boolean;
+}
+
 export interface GitHubHostOptions {
   home: string;
   settings: () => Promise<Settings>;
   secrets: SecretStore;
   fetch?: Fetch;
-  /** Token from the GitHub CLI when no token is saved in Settings. */
-  ghToken?: (host: string) => Promise<string | undefined>;
+  /** The token of the GitHub account connected in Tandem (the Copilot sign-in) for this host. */
+  accountToken?: (host: string) => Promise<string | undefined>;
+  /** Tandem's git credential helper, once the server runs (HTTPS clone, fetch and push). */
+  gitHelper?: () => string | undefined;
 }
 
-async function ghCliToken(host: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await pexec('gh', ['auth', 'token', '--hostname', host], { timeout: 10_000, windowsHide: true });
-    return stdout.trim() || undefined;
-  } catch {
-    return undefined;
-  }
+/** The REST API of a GitHub host: github.com, GitHub Enterprise Cloud (api.<tenant>.ghe.com) or a server (/api/v3). */
+export function githubApiBase(host: string): string {
+  if (host === 'github.com') return 'https://api.github.com';
+  if (/\.ghe\.com$/i.test(host)) return `https://api.${host}`;
+  return `https://${host}/api/v3`;
 }
 
 export class GitHubHost implements SourceHost {
@@ -51,7 +62,7 @@ export class GitHubHost implements SourceHost {
   detect(url: string): DetectedRepo | undefined {
     const p = parseGitHubUrl(url);
     if (!p) return undefined;
-    return { host: { kind: 'github', owner: p.owner, name: p.name, ...(p.host !== 'github.com' ? { apiBase: `https://${p.host}/api/v3` } : {}) }, name: p.name, gitUrl: url };
+    return { host: { kind: 'github', owner: p.owner, name: p.name, ...(p.host !== 'github.com' ? { apiBase: githubApiBase(p.host) } : {}) }, name: p.name, gitUrl: url };
   }
 
   private ref(repo: Repo): { owner: string; name: string; apiBase: string; webHost: string } {
@@ -60,22 +71,26 @@ export class GitHubHost implements SourceHost {
     return { owner: repo.host.owner, name: repo.host.name, apiBase: repo.host.apiBase ?? 'https://api.github.com', webHost };
   }
 
+  /** HTTPS through Tandem's helper (the connected account's token); SSH with the user's own keys. */
   access(repo: Repo): RemoteAccess {
-    return parseGitHubUrl(repo.url)?.transport === 'https' ? ghHttpsAccess(repo.url) : plainAccess(repo.url);
+    if (repo.localPath) return localAccess(repo.url);
+    const helper = this.o.gitHelper?.();
+    return parseGitHubUrl(repo.url)?.transport === 'https' && helper ? tandemAccess(repo.url, helper) : plainAccess(repo.url);
   }
 
   mirrorPath(repo: Repo): string {
+    if (repo.localPath) return localGitDir(repo.localPath);
     const { owner, name, webHost } = this.ref(repo);
     return join(this.o.home, 'mirrors', webHost, owner, `${name}.git`);
   }
 
   private async token(repo: Repo): Promise<string | undefined> {
-    return (await this.o.secrets.get('github-token')) ?? (await (this.o.ghToken ?? ghCliToken)(this.ref(repo).webHost));
+    return (await this.o.accountToken?.(this.ref(repo).webHost)) ?? (await this.o.secrets.get('github-token'));
   }
 
   private async api<T>(repo: Repo, method: string, path: string, body?: unknown): Promise<T> {
     const token = await this.token(repo);
-    if (!token) throw new Error('No GitHub token: save one in Settings or run gh auth login.');
+    if (!token) throw new Error('No GitHub account is connected for this repository. Connect it in Settings › Copilot, or save a token in Settings › GitHub.');
     const f = this.o.fetch ?? (globalThis.fetch as unknown as Fetch);
     const res = await f(`${this.ref(repo).apiBase}${path}`, {
       method,
@@ -89,16 +104,43 @@ export class GitHubHost implements SourceHost {
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
+  /**
+   * The repositories the connected account can work in on a host, most recently pushed first: its
+   * own, its organizations' and those it collaborates on. Undefined when no account is connected.
+   */
+  async listRepositories(host = 'github.com'): Promise<RepoChoice[] | undefined> {
+    const token = await this.o.accountToken?.(host);
+    if (!token) return undefined;
+    const f = this.o.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const out: RepoChoice[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const res = await f(`${githubApiBase(host)}/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'tandem' },
+        signal: AbortSignal.timeout(30_000),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(res.status === 401 ? 'GitHub no longer accepts the connected account. Connect it again in Settings › Copilot.' : `GitHub returned ${res.status} listing your repositories.`);
+      const list = JSON.parse(text) as Array<{ full_name: string; name: string; owner: { login: string }; private: boolean; archived?: boolean; description?: string | null; pushed_at?: string; default_branch?: string; clone_url: string; permissions?: { push?: boolean } }>;
+      for (const r of list) {
+        if (r.archived) continue;
+        out.push({ id: r.full_name, name: r.name, owner: r.owner.login, url: r.clone_url, description: r.description ?? '', updatedAt: r.pushed_at ?? '', defaultBranch: r.default_branch ?? '', private: r.private, canPush: r.permissions?.push !== false });
+      }
+      if (list.length < 100) break;
+    }
+    return out;
+  }
+
   async preflight(repo: Repo): Promise<PreflightCheck[]> {
     const checks: PreflightCheck[] = [];
     try {
       const b = await remoteDefaultBranch(this.access(repo));
       checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'pass', message: `Reachable; default branch ${b ?? 'unknown'}.` });
     } catch (err) {
-      checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'fail', message: String((err as Error).message).split('\n')[0]!, fix: 'Check your SSH key (ssh -T git@github.com) or run gh auth login.' });
+      checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'fail', message: String((err as Error).message).split('\n')[0]!, fix: parseGitHubUrl(repo.url)?.transport === 'https' ? 'Connect the GitHub account that can see this repository in Settings › Copilot.' : 'Check your SSH key (ssh -T git@github.com), or use the HTTPS clone URL.' });
     }
     if (!(await this.token(repo))) {
-      checks.push({ id: `pr:${repo.id}`, label: 'Create pull requests', status: 'warn', message: 'No GitHub token; Tandem will give you a compare link instead.', fix: 'Run gh auth login, or save a token in Settings.' });
+      checks.push({ id: `pr:${repo.id}`, label: 'Create pull requests', status: 'warn', message: 'No GitHub account connected for this host; Tandem will give you a compare link instead.', fix: 'Connect your GitHub account in Settings › Copilot.' });
     } else {
       try {
         const { owner, name } = this.ref(repo);
@@ -137,7 +179,7 @@ export class GitHubHost implements SourceHost {
 
   async openPullRequest(req: PullRequestRequest): Promise<PullRequestResult> {
     const { owner, name } = this.ref(req.repo);
-    if (!(await this.token(req.repo))) return { kind: 'manual', url: this.compareUrl(req.repo, req.destinationBranch, req.sourceBranch, req.title), reason: 'No GitHub token. Open the link and paste the description Tandem prepared.' };
+    if (!(await this.token(req.repo))) return { kind: 'manual', url: this.compareUrl(req.repo, req.destinationBranch, req.sourceBranch, req.title), reason: 'No GitHub account connected. Open the link and paste the description Tandem prepared.' };
     // Idempotent: reuse an existing PR for this branch (for example after a restart).
     const existing = await this.api<Array<{ number: number; html_url: string }>>(req.repo, 'GET', `/repos/${owner}/${name}/pulls?state=all&head=${encodeURIComponent(`${owner}:${req.sourceBranch}`)}`);
     if (existing[0]) return { kind: 'created', providerId: String(existing[0].number), url: existing[0].html_url };

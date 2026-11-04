@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
@@ -15,6 +15,7 @@ import { registerTaskRoutes } from './routes/tasks.js';
 import { registerAuditRoutes } from './routes/audit.js';
 import { registerIconRoutes } from './routes/icons.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
+import { registerConnectionRoutes } from './routes/connections.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -55,9 +56,12 @@ function errorReply(err: unknown): { status: number; error: string } {
   return { status: 500, error: `Something went wrong: ${String(e?.message ?? err).split('\n')[0]}. Details are in the Tandem log (~/.tandem/logs).` };
 }
 
-export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app: FastifyInstance; token: string }> {
+export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app: FastifyInstance; token: string; gitKey: string }> {
   const token = o.token ?? randomBytes(24).toString('base64url');
   redactor.register(token);
+  // The git credential helper's own key: never given to the web page.
+  const gitKey = randomBytes(24).toString('base64url');
+  redactor.register(gitKey);
   const app = Fastify({ logger: false, bodyLimit: 5 * 1024 * 1024, forceCloseConnections: true });
   const allowedHosts = new Set([`127.0.0.1:${o.port}`, `localhost:${o.port}`]);
   const allowedOrigins = new Set([`http://127.0.0.1:${o.port}`, `http://localhost:${o.port}`]);
@@ -89,6 +93,17 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   registerSetupRoutes(app, ctx);
   registerTaskRoutes(app, ctx);
   registerCopilotRoutes(app, ctx);
+  registerConnectionRoutes(app, ctx);
+
+  /** git asks for the credentials of a remote Tandem manages (CodeCommit signature, GitHub token). Only the helper knows the key. */
+  app.post('/git/credential', async (req, reply) => {
+    const given = String(req.headers['x-tandem-git-key'] ?? '');
+    if (req.headers.origin || given.length !== gitKey.length || !timingSafeEqual(Buffer.from(given), Buffer.from(gitKey))) return reply.code(403).send({ error: 'Not allowed.' });
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string).slice(0, 500) : undefined);
+    const c = await ctx.tandem.gitCredential({ ...(pick('protocol') ? { protocol: pick('protocol')! } : {}), ...(pick('host') ? { host: pick('host')! } : {}), ...(pick('path') ? { path: pick('path')! } : {}) });
+    return c ?? {};
+  });
   registerAuditRoutes(app, ctx);
   registerIconRoutes(app, ctx);
   registerChatRoutes(app, ctx);
@@ -108,5 +123,5 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
       return reply.code(404).send({ error: 'Not found.' });
     });
   }
-  return { app, token };
+  return { app, token, gitKey };
 }

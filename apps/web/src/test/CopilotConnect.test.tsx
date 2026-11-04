@@ -9,7 +9,7 @@ const providers = [
   { kind: 'proxima', label: 'GitHub Enterprise Cloud (*.ghe.com)', available: true },
   { kind: 'entra', label: 'Your organization (Microsoft Entra)', available: false },
 ];
-const routes = (accounts: unknown, over: Record<string, unknown> = {}) => ({
+const routes = (accounts: object, over: Record<string, object> = {}) => ({
   'GET /api/bootstrap': boot(),
   'GET /api/settings': settings,
   'GET /api/secrets': { keychain: { ok: true }, jiraToken: false, githubToken: false },

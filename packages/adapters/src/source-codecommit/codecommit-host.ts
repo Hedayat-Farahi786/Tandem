@@ -4,7 +4,9 @@ import {
   CodeCommitClient,
   CreatePullRequestCommand,
   GetPullRequestCommand,
+  BatchGetRepositoriesCommand,
   GetRepositoryCommand,
+  ListRepositoriesCommand,
   UpdatePullRequestDescriptionCommand,
   UpdatePullRequestTitleCommand,
 } from '@aws-sdk/client-codecommit';
@@ -13,7 +15,10 @@ import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { RetryableError, type DetectedRepo, type MirrorInfo, type PreflightCheck, type PullRequestRequest, type PullRequestResult, type PushResult, type RebaseResult, type SourceHost, type Worktree } from '@tandem/core';
 import type { PullRequest, PullRequestStatus, Repo, Settings } from '@tandem/shared';
 import { runGit } from '../git/git.js';
-import { addWorktree, codeCommitHttpsAccess, ensureMirror, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, type RemoteAccess, type RepoGit } from '../git/repo-git.js';
+import type { AwsConnections } from '../aws/aws-connection.js';
+import type { RepoChoice } from '../source-github/github-host.js';
+import { tandemAccess } from '../git/credential-helper.js';
+import { addWorktree, codeCommitHttpsAccess, ensureMirror, localAccess, localGitDir, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, type RemoteAccess, type RepoGit } from '../git/repo-git.js';
 
 export interface ParsedCodeCommitUrl {
   region: string;
@@ -57,6 +62,10 @@ export interface CodeCommitHostOptions {
   sts?: (region: string, profile: string | undefined) => CodeCommitApi;
   /** Test seam: reach a repo through another remote (for example a local bare repo). */
   accessOverride?: (repo: Repo) => RemoteAccess | undefined;
+  /** The AWS connection made in Tandem (SSO, access key or profile); used before any profile. */
+  aws?: AwsConnections;
+  /** Tandem's git credential helper, once the server runs: signs HTTPS git with the AWS connection. */
+  gitHelper?: () => string | undefined;
 }
 
 const errName = (err: unknown) => (err as { name?: string })?.name ?? '';
@@ -85,16 +94,30 @@ export class CodeCommitHost implements SourceHost {
     return this.ref(repo).profile || s.aws.profile || undefined;
   }
 
-  /** SSH URLs use the user's ~/.ssh config; everything else is HTTPS signed by the AWS CLI. */
+  /**
+   * SSH URLs use the user's ~/.ssh config. HTTPS is signed by Tandem from the AWS connection made in
+   * the app (no AWS CLI); without the Tandem server (the terminal doctor), by the AWS CLI.
+   */
   async access(repo: Repo): Promise<RemoteAccess> {
     const override = this.o.accessOverride?.(repo);
     if (override) return override;
+    if (repo.localPath) return localAccess(repo.url);
     const { region, name } = this.ref(repo);
     if (parseCodeCommitUrl(repo.url)?.transport === 'ssh') return plainAccess(repo.url);
+    const helper = this.o.gitHelper?.();
+    if (helper) return tandemAccess(`https://git-codecommit.${region}.amazonaws.com/v1/repos/${name}`, helper);
     return codeCommitHttpsAccess(region, name, await this.profile(repo));
   }
 
+  /** AWS credentials: the connection made in Tandem, else the repo's or Settings' profile, else the default chain. */
+  private async credentials(repo: Repo) {
+    if (await this.o.aws?.connection()) return this.o.aws!.provider();
+    const profile = await this.profile(repo);
+    return profile ? fromIni({ profile }) : fromNodeProviderChain();
+  }
+
   mirrorPath(repo: Repo): string {
+    if (repo.localPath) return localGitDir(repo.localPath);
     const { region, name } = this.ref(repo);
     return join(this.o.home, 'mirrors', `codecommit-${region}`, `${name}.git`);
   }
@@ -103,7 +126,30 @@ export class CodeCommitHost implements SourceHost {
     const { region } = this.ref(repo);
     const profile = await this.profile(repo);
     if (this.o.api) return this.o.api(region, profile);
-    return new CodeCommitClient({ region, credentials: profile ? fromIni({ profile }) : fromNodeProviderChain() });
+    return new CodeCommitClient({ region, credentials: await this.credentials(repo) });
+  }
+
+  /** The CodeCommit repositories in a region, with the AWS connection made in the app (or the profile). */
+  async listRepositories(region: string): Promise<RepoChoice[]> {
+    const probe = { id: 'probe', url: `codecommit::${region}://probe`, host: { kind: 'codecommit', region, name: 'probe' }, name: 'probe', defaultBranch: '', role: 'other', commands: {}, createdAt: '' } as unknown as Repo;
+    const api = this.o.api ? this.o.api(region, await this.profile(probe)) : new CodeCommitClient({ region, credentials: await this.credentials(probe) });
+    const names: string[] = [];
+    let next: string | undefined;
+    do {
+      const r = (await api.send(new ListRepositoriesCommand({ sortBy: 'lastModifiedDate', order: 'descending', ...(next ? { nextToken: next } : {}) }))) as { repositories?: Array<{ repositoryName?: string }>; nextToken?: string };
+      for (const x of r.repositories ?? []) if (x.repositoryName) names.push(x.repositoryName);
+      next = r.nextToken;
+    } while (next && names.length < 1000);
+    const out: RepoChoice[] = [];
+    for (let i = 0; i < names.length; i += 25) {
+      const r = (await api.send(new BatchGetRepositoriesCommand({ repositoryNames: names.slice(i, i + 25) }))) as { repositories?: Array<{ repositoryName?: string; repositoryDescription?: string; lastModifiedDate?: Date; defaultBranch?: string }> };
+      const byName = new Map((r.repositories ?? []).map((x) => [x.repositoryName, x]));
+      for (const n of names.slice(i, i + 25)) {
+        const x = byName.get(n);
+        out.push({ id: `${region}/${n}`, name: n, url: `codecommit::${region}://${n}`, description: x?.repositoryDescription ?? '', updatedAt: x?.lastModifiedDate ? new Date(x.lastModifiedDate).toISOString() : '', defaultBranch: x?.defaultBranch ?? '' });
+      }
+    }
+    return out;
   }
 
   async preflight(repo: Repo): Promise<PreflightCheck[]> {
@@ -113,16 +159,16 @@ export class CodeCommitHost implements SourceHost {
       const b = await remoteDefaultBranch(access);
       checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'pass', message: `Reachable; default branch ${b ?? 'unknown (empty repo?)'}.` });
     } catch (err) {
-      checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'fail', message: String((err as Error).message).split('\n')[0]!, fix: parseCodeCommitUrl(repo.url)?.transport === 'ssh' ? 'Check the SSH key ID in ~/.ssh/config and that the key is uploaded to your IAM user.' : 'Sign in to AWS again (aws login or aws sso login) for the profile set in Settings.' });
+      checks.push({ id: `read:${repo.id}`, label: `Read ${repo.name}`, status: 'fail', message: String((err as Error).message).split('\n')[0]!, fix: parseCodeCommitUrl(repo.url)?.transport === 'ssh' ? 'Check the SSH key ID in ~/.ssh/config and that the key is uploaded to your IAM user.' : 'Connect AWS again in Settings › AWS (your sign-in may have expired).' });
     }
     const { region } = this.ref(repo);
     const profile = await this.profile(repo);
     try {
-      const sts = this.o.sts ? this.o.sts(region, profile) : new STSClient({ region, credentials: profile ? fromIni({ profile }) : fromNodeProviderChain() });
+      const sts = this.o.sts ? this.o.sts(region, profile) : new STSClient({ region, credentials: await this.credentials(repo) });
       await sts.send(new GetCallerIdentityCommand({}));
       checks.push({ id: `aws:${repo.id}`, label: 'AWS credentials', status: 'pass', message: `Signed in${profile ? ` with profile ${profile}` : ''}.` });
     } catch (err) {
-      checks.push({ id: `aws:${repo.id}`, label: 'AWS credentials', status: 'warn', message: `No working AWS credentials${profile ? ` for profile ${profile}` : ''} (${errName(err) || 'error'}).`, fix: `Run aws login${profile ? ` --profile ${profile}` : ''} (or aws sso login). Without it, pull requests use the console link.` });
+      checks.push({ id: `aws:${repo.id}`, label: 'AWS credentials', status: 'warn', message: `No working AWS credentials${profile ? ` for profile ${profile}` : ''} (${errName(err) || 'error'}).`, fix: 'Connect AWS in Settings › AWS. Without it, pull requests use the console link.' });
       return checks;
     }
     const can = await this.canCreatePullRequests(repo);

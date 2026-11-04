@@ -8,6 +8,33 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Add repositories without the command line.** The setup wizard now
+  starts with Copilot, then shows four ways to add a repository:
+  - **GitHub:** a searchable list of the repositories your connected
+    GitHub account can work in. The Copilot sign-in also covers your
+    repositories, so there is one sign-in for both.
+  - **AWS CodeCommit:** a list per region, once AWS is connected.
+  - **On this computer:** clones Tandem finds in your usual folders, or a
+    folder you name. Tandem works in that clone with your own SSH key or
+    git sign-in, without cloning it again or changing its settings, so
+    company code stays where it already is.
+  - **Clone URL:** paste one, as before.
+
+  AWS is connected in the app (Settings › AWS or the CodeCommit tab):
+  - Your company's IAM Identity Center sign-in: enter the access portal
+    URL, approve a code in the browser, then choose the account and role.
+    The access renews itself until your company's limit.
+  - An access key (temporary `ASIA…` keys are refused).
+  - A profile already on this computer.
+
+  Tandem signs CodeCommit's git passwords itself and passes the connected
+  GitHub account's token to git through its own credential helper. The
+  AWS CLI and the GitHub CLI are no longer needed, and the helper's key is
+  never given to the web page. Secrets stay in the system keychain. Error
+  messages point to Settings instead of `aws sso login` or
+  `gh auth login`. The API address of GitHub Enterprise Cloud
+  (`api.<tenant>.ghe.com`) is now right.
+
 - **Connect any Copilot account from the browser.** The setup wizard and
   Settings › Copilot now sign you in through Copilot's own GitHub sign-in:
   "GitHub.com" for a personal plan (Free, Pro, Pro+) or a Business or

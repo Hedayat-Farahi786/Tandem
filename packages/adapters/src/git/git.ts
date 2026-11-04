@@ -80,8 +80,8 @@ export function runGit(args: readonly string[], o: GitRun = {}): Promise<GitResu
       const what = `git ${args.slice(0, 3).join(' ')}`;
       const tail = reasonOf(stderr) || stdout.trim().split('\n').slice(-6).join('\n');
       if (code === null) reject(new RetryableError(`${what} timed out.`));
-      else if (EXPIRED.test(stderr)) reject(new GitError(`Your AWS sign-in has expired, so git could not reach CodeCommit. Sign in again in a terminal (aws login, or aws sso login for an SSO profile), then try again.`, stderr, code));
-      else if (AUTH.test(stderr)) reject(new GitError(`${what} was refused: ${tail}\nCheck your access: for CodeCommit, sign in to AWS again (aws login or aws sso login) or check your SSH key; for GitHub, run gh auth login.`, stderr, code));
+      else if (EXPIRED.test(stderr)) reject(new GitError(`Your AWS sign-in has expired, so git could not reach CodeCommit. Connect AWS again in Settings › AWS, then try again.`, stderr, code));
+      else if (AUTH.test(stderr)) reject(new GitError(`${what} was refused: ${tail}\nCheck your access: for CodeCommit, connect AWS again in Settings › AWS (or check your SSH key); for GitHub, connect the account that can see the repository in Settings › Copilot.`, stderr, code));
       else if (NETWORK.test(stderr)) reject(new RetryableError(`${what} failed on the network: ${tail}`));
       else reject(new GitError(`${what} failed: ${tail}`, stderr, code));
     });

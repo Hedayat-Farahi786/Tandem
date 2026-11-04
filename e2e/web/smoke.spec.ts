@@ -29,13 +29,21 @@ test('first launch opens the setup wizard', async () => {
   await checkScreen(page, '01-setup-welcome');
 });
 
-test('setup: detect and add a repository', async () => {
+test('setup: connect Copilot, then detect and add a repository', async () => {
   await page.getByRole('button', { name: 'Start' }).click();
-  await page.getByLabel('Clone URL').fill('not a url');
-  await page.getByRole('button', { name: 'Detect' }).click();
+  // Copilot first: in test mode a pretend account is already connected.
+  await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+  await page.getByLabel('Your name').fill('Sam');
+  await checkScreen(page, '04-setup-connect');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  // Repositories: from GitHub, CodeCommit, a clone on this computer, or a URL.
+  await page.getByRole('tab', { name: 'Clone URL' }).click();
+  const url = page.getByRole('textbox', { name: 'Clone URL' });
+  await url.fill('not a url');
+  await page.getByRole('button', { name: 'Read the repository' }).click();
   await expect(page.getByText('That is not a CodeCommit or GitHub URL', { exact: false })).toBeVisible();
-  await page.getByLabel('Clone URL').fill('codecommit::eu-central-1://tandem-sandbox-fullstack');
-  await page.getByRole('button', { name: 'Detect' }).click();
+  await url.fill('codecommit::eu-central-1://tandem-sandbox-fullstack');
+  await page.getByRole('button', { name: 'Read the repository' }).click();
   await expect(page.getByText('Confirm tandem-sandbox-fullstack')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByLabel('Default branch')).toHaveValue('main');
   await expect(page.getByLabel('Test', { exact: true })).toHaveValue('npm test');
@@ -44,14 +52,11 @@ test('setup: detect and add a repository', async () => {
   await expect(page.getByText('Added (1)')).toBeVisible();
 });
 
-test('setup: project, connections and check', async () => {
+test('setup: project and check', async () => {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Project name').fill('Shop');
   await checkScreen(page, '03-setup-project', { fullPage: true });
   await page.getByRole('button', { name: 'Create project' }).click();
-  await page.getByLabel('Your name').fill('Sam');
-  await checkScreen(page, '04-setup-connect');
-  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Run doctor' }).click();
   await expect(page.getByText(/Everything (required )?passes|need attention/)).toBeVisible({ timeout: 90_000 });

@@ -9,6 +9,7 @@ import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
 import { CopilotConnect } from '../ui/copilot-connect';
+import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
 import type { AuditVerification } from '../lib/types';
 
@@ -357,12 +358,12 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description="For CodeCommit: git over HTTPS and opening pull requests.">
-        <Row label="AWS profile" htmlFor="set-profile" description={note('aws.profile', 'Repositories whose codecommit:: URL names a profile use that one.')}>
-          <Input id="set-profile" disabled={Boolean(lock('aws.profile'))} value={s.aws.profile} onChange={(e) => set('aws', { ...s.aws, profile: e.target.value })} placeholder="default" />
-        </Row>
-        <Row label="Region" htmlFor="set-region" description={note('aws.region', 'Optional. Taken from the repository URL when empty.')}>
-          <Input id="set-region" disabled={Boolean(lock('aws.region'))} value={s.aws.region} onChange={(e) => set('aws', { ...s.aws, region: e.target.value })} placeholder="From the repo URL" />
+      <SettingsSection id="aws" icon={<BrandTile brand="aws" />} title="AWS" description="For CodeCommit repositories: reading and pushing code, and opening pull requests. The connection stays in your system keychain.">
+        <div className="py-4">
+          <AwsConnect />
+        </div>
+        <Row label="Usual region" htmlFor="set-region" description={note('aws.region', 'Where your CodeCommit repositories are, to list them first. Each repository keeps its own region.')}>
+          <Select id="set-region" disabled={Boolean(lock('aws.region'))} value={s.aws.region} onChange={(region) => set('aws', { ...s.aws, region })} placeholder="Choose a region" options={AWS_REGIONS} />
         </Row>
       </SettingsSection>
 
@@ -402,8 +403,8 @@ export function SettingsScreen() {
         </Row>
       </SettingsSection>
 
-      <SettingsSection id="github" icon={<BrandTile brand="github" />} title="GitHub" description="Only for GitHub repositories. Without a token Tandem uses the GitHub CLI's sign-in, or gives you a compare link.">
-        <Row label="GitHub token" htmlFor="set-gtoken" description="Needs permission to open pull requests on your repositories." wide>
+      <SettingsSection id="github" icon={<BrandTile brand="github" />} title="GitHub" description="GitHub repositories use the GitHub account you connected for Copilot: it reads, pushes and opens pull requests. Add a token only for repositories that account can't reach.">
+        <Row label="Extra GitHub token" htmlFor="set-gtoken" description="Optional. A fine-grained token with Contents and Pull requests (read and write) on those repositories." wide>
           <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
         </Row>
       </SettingsSection>

@@ -40,6 +40,11 @@ export const Repo = z.object({
   packageManager: z.string().optional(),
   role: RepoRole,
   commands: RepoCommands,
+  /**
+   * A clone already on this computer that Tandem works in, instead of a clone of its own: tasks get
+   * worktrees of it, and fetch and push use the person's own git setup (SSH keys, credentials).
+   */
+  localPath: z.string().optional(),
   createdAt: Iso,
 });
 export type Repo = z.infer<typeof Repo>;

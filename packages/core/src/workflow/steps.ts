@@ -651,7 +651,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         // to fail the task. Say what's wrong and try again in a few minutes.
         const message = err instanceof Error ? err.message : String(err);
         const expired = /expired|reauthenticate|ExpiredToken|security token|credentials|sso/i.test(message);
-        const note = expired ? 'Your AWS sign-in has expired, so Tandem can\'t check the pull requests. Sign in again (for example aws sso login); Tandem keeps trying.' : `Tandem couldn't check the pull requests: ${message.split('\n')[0]} It tries again in a few minutes.`;
+        const note = expired ? 'Your AWS sign-in has expired, so Tandem can\'t check the pull requests. Connect AWS again in Settings › AWS; Tandem keeps trying.' : `Tandem couldn't check the pull requests: ${message.split('\n')[0]} It tries again in a few minutes.`;
         deps.logger?.warn('could not check the pull requests', { taskId: task.id, error: message });
         return { kind: 'wait', ms: Math.min(5, settings.polling.prPollIntervalMin) * 60_000, patch: { progress: { pollProblem: note, pollProblemAt: deps.clock.iso() } } };
       }

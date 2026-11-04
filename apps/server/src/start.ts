@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +39,16 @@ function testSeams(): Partial<TandemOptions> {
         const bare = join(root, `${repo.name}.git`);
         return existsSync(bare) ? plainAccess(pathToFileURL(bare).href) : undefined;
       },
-      api: () => ({ send: async () => Promise.reject(denied) }),
+      // Listing repositories works on the local copies (so the picker can be shown); pull requests stay denied.
+      api: () => ({
+        send: async (cmd: unknown) => {
+          const c = cmd as { constructor: { name: string }; input?: { repositoryNames?: string[] } };
+          const names = () => readdirSync(root).filter((f) => f.endsWith('.git')).map((f) => f.slice(0, -4)).sort();
+          if (c.constructor.name === 'ListRepositoriesCommand') return { repositories: names().map((repositoryName) => ({ repositoryName })) };
+          if (c.constructor.name === 'BatchGetRepositoriesCommand') return { repositories: (c.input?.repositoryNames ?? []).map((repositoryName) => ({ repositoryName, defaultBranch: 'main', repositoryDescription: 'Local test copy' })) };
+          return Promise.reject(denied);
+        },
+      }),
       sts: () => ({ send: async () => Promise.reject(denied) }),
     },
   };
@@ -84,7 +93,7 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
   const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };
-  const { app, token } = await buildApp(ctx, { port: config.port, webDir: o.webDir ?? WEB_DIR, version: VERSION });
+  const { app, token, gitKey } = await buildApp(ctx, { port: config.port, webDir: o.webDir ?? WEB_DIR, version: VERSION });
   try {
     await app.listen({ host: '127.0.0.1', port: config.port });
   } catch (err) {
@@ -92,6 +101,8 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
     if ((err as { code?: string }).code === 'EADDRINUSE') throw new Error(`Port ${config.port} is in use. Is Tandem already running? Set TANDEM_PORT to use another port.`, { cause: err });
     throw err;
   }
+  // HTTPS git from now on asks Tandem for credentials (AWS connection, connected GitHub account).
+  tandem.useGitHelper(config.port, gitKey);
   tandem.runner.start(1_000);
 
   // Jira: import ready issues on a timer when Jira is configured.

@@ -5,14 +5,15 @@ import type { DoctorReport } from '../lib/types';
 import { api, post, put } from '../lib/api';
 import { useRouter } from '../lib/router';
 import type { Bootstrap } from '../lib/types';
-import { ArrowRight, GitBranch, Plus } from 'lucide-react';
+import { ArrowRight, Plus } from 'lucide-react';
 import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { CopilotConnect } from '../ui/copilot-connect';
+import { RepoImporter } from '../ui/repo-importer';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
 
-const STEPS = ['Welcome', 'Repositories', 'Project', 'Copilot and AWS', 'Jira (optional)', 'Check'] as const;
+const STEPS = ['Welcome', 'Copilot', 'Repositories', 'Project', 'Jira (optional)', 'Check'] as const;
 type Step = (typeof STEPS)[number];
 
 export function SetupScreen() {
@@ -52,9 +53,9 @@ export function SetupScreen() {
         </ol>
       </nav>
       {step === 'Welcome' && <Welcome boot={boot.data} onNext={next} />}
+      {step === 'Copilot' && <ConnectStep boot={boot.data} onNext={next} onBack={back} />}
       {step === 'Repositories' && <ReposStep repos={boot.data.repos} onNext={next} onBack={back} />}
       {step === 'Project' && <ProjectStep boot={boot.data} onNext={next} onBack={back} />}
-      {step === 'Copilot and AWS' && <ConnectStep boot={boot.data} onNext={next} onBack={back} />}
       {step === 'Jira (optional)' && <JiraStep boot={boot.data} onNext={next} onBack={back} />}
       {step === 'Check' && <CheckStep onBack={back} />}
     </div>
@@ -100,38 +101,26 @@ export const ROLE_LABEL: Record<RepoRole, string> = { 'full-stack': 'Full-stack'
 function ReposStep({ repos, onNext, onBack }: { repos: Repo[]; onNext: () => void; onBack: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [url, setUrl] = useState('');
+  const [reading, setReading] = useState<string | null>(null);
   const [draft, setDraft] = useState<(Repo & { evidence?: string[] }) | null>(null);
   const detect = useMutation({
-    mutationFn: (u: string) => post<{ repo: Repo; evidence: string[] }>('/api/repos/detect', { url: u }),
+    mutationFn: (src: { url: string } | { path: string }) => post<{ repo: Repo; evidence: string[] }>('/api/repos/detect', src),
+    onMutate: (src) => setReading('url' in src ? src.url : src.path),
+    onSettled: () => setReading(null),
     onSuccess: (r) => setDraft({ ...r.repo, evidence: r.evidence }),
   });
   const save = useMutation({
-    mutationFn: (r: Repo) => post<Repo>('/api/repos', { url: r.url, name: r.name, defaultBranch: r.defaultBranch, role: r.role, commands: r.commands, language: r.language, framework: r.framework, packageManager: r.packageManager }),
+    mutationFn: (r: Repo) => post<Repo>('/api/repos', { url: r.url, name: r.name, defaultBranch: r.defaultBranch, role: r.role, commands: r.commands, language: r.language, framework: r.framework, packageManager: r.packageManager, ...(r.localPath ? { localPath: r.localPath } : {}) }),
     onSuccess: (r) => {
       toast(`Added ${r.name}.`, 'ok');
       setDraft(null);
-      setUrl('');
-      void qc.invalidateQueries({ queryKey: ['bootstrap'] });
+      for (const key of ['bootstrap', 'github-repos', 'aws-repos', 'local-repos']) void qc.invalidateQueries({ queryKey: [key] });
     },
   });
   return (
     <div className="flex flex-col gap-4">
       <Card title="Add a repository">
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (url.trim()) detect.mutate(url.trim());
-          }}
-        >
-          <Input label="Clone URL" placeholder="codecommit::eu-central-1://my-repo or ssh://git-codecommit.… or git@github.com:org/repo.git" value={url} onChange={(e) => setUrl(e.target.value)} help="CodeCommit (SSH, HTTPS or codecommit::) and GitHub URLs work. Tandem clones it to detect its role and commands." />
-          <div>
-            <Button type="submit" variant="primary" icon={GitBranch} busy={detect.isPending} disabled={!url.trim()}>
-              {detect.isPending ? 'Reading the repository…' : 'Detect'}
-            </Button>
-          </div>
-        </form>
+        <RepoImporter busy={reading} onPick={(url) => detect.mutate({ url })} onPickLocal={(path) => detect.mutate({ path })} />
         {detect.isError && (
           <div className="mt-3">
             <ErrorState title="Could not read that repository" error={detect.error} />
@@ -242,13 +231,12 @@ function ProjectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
 
 function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
   const qc = useQueryClient();
-  const [profile, setProfile] = useState(boot.settings.aws.profile);
   const [owner, setOwner] = useState(boot.settings.ownerName);
   const save = useMutation({
     mutationFn: async () => {
       // The latest settings: connecting Copilot just above may have set its address.
       const fresh = await api<Bootstrap>('/api/bootstrap');
-      return put('/api/settings', { ...fresh.settings, ownerName: owner, aws: { ...fresh.settings.aws, profile: profile.trim() } });
+      return put('/api/settings', { ...fresh.settings, ownerName: owner });
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
@@ -259,11 +247,8 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
     <Card
       title={
         <h2 className="flex items-center gap-2.5 text-[14px] font-semibold tracking-tight">
-          <span className="flex items-center gap-1.5">
-            <BrandTile brand="copilot" size="sm" />
-            <BrandTile brand="aws" size="sm" />
-          </span>
-          Copilot and AWS
+          <BrandTile brand="copilot" size="sm" />
+          Connect GitHub Copilot
         </h2>
       }
     >
@@ -272,7 +257,6 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
         <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
           <CopilotConnect />
         </div>
-        <Input label="AWS profile for CodeCommit" value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="default" help="Used for git over HTTPS and to open pull requests. Without permission to create PRs, Tandem gives you a console link instead." />
         {save.isError && <ErrorState error={save.error} />}
       </div>
       <Nav onBack={onBack} onNext={() => save.mutate()} busy={save.isPending} />

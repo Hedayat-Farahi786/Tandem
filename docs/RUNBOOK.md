@@ -35,9 +35,11 @@ Everything lives in `TANDEM_HOME` (default `~/.tandem`):
 | `tasks/<id>/.tandem/` | check logs and diffs of that task | Same as above |
 | `deps/<repo>/<key>/` | shared installed dependencies (see below) | Yes, when stopped; the next check reinstalls |
 
-Secrets (Jira and GitHub tokens) are in the OS keychain under the service
-name `tandem`, never in these files. AWS credentials stay with the AWS CLI;
-Tandem stores only the profile name.
+Secrets (the AWS connection, Jira and GitHub tokens) are in the OS keychain
+under the service name `tandem`, never in these files. The Copilot sign-in
+is kept by the Copilot runtime in the keychain, with its state in
+`copilot/`. `bin/` holds the git credential helper Tandem writes at start
+(it asks the running Tandem for credentials and stores none).
 
 ### Backups
 
@@ -86,23 +88,12 @@ override them; `.env.example` lists every one. The most useful:
 
 ### AWS: "Sign in again" or 403 on CodeCommit
 
-AWS sessions from `aws login` or `aws sso login` expire. Sign in again with
-the profile Tandem uses (Settings › AWS profile):
-
-```sh
-aws login --profile <profile>
-```
-
-On a machine without a browser (SSH, EC2), use the cross-device sign-in:
-it prints a link to open on any device and asks for the code shown there.
-
-```sh
-aws login --remote --profile <profile>          # aws login sessions
-aws sso login --use-device-code --profile <profile>   # IAM Identity Center profiles
-```
-
-Check it with `aws sts get-caller-identity --profile <profile>`, then
-**Resume** any task that was waiting. Without permission to create pull
+An IAM Identity Center sign-in renews itself for as long as your company
+allows (often 8 hours to 90 days), then expires. Settings › AWS shows
+**Expired**; choose **Sign in again**, confirm the code in the browser, and
+**Resume** any task that was waiting. The sign-in works from any device:
+the code page can be opened on your phone. With a profile from this
+computer, renew it the way you usually do for that profile. Without permission to create pull
 requests, Tandem gives you a prefilled console link instead.
 
 ### Copilot: "This account can't use Copilot here" (403)

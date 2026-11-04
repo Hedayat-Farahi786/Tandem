@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Repo } from '@tandem/shared';
 import { git } from './git.js';
-import { RepoGit, addWorktree, assertAgentBranch, ensureMirror, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, withMirror } from './repo-git.js';
+import { RepoGit, addWorktree, assertAgentBranch, ensureMirror, localAccess, localGitDir, plainAccess, pushBranch, rebaseOnto, remoteDefaultBranch, withMirror } from './repo-git.js';
 
 const ID = ['-c', 'user.name=Test', '-c', 'user.email=test@example.com'];
 
@@ -277,5 +277,30 @@ describe('git layer (real git, local bare remote)', () => {
     expect(assertAgentBranch('feature/SHOP12-7-add-a-health-endpoint')).toBe('refs/heads/feature/SHOP12-7-add-a-health-endpoint');
     // Branches from before (agent/…) still push, so their open pull requests keep working.
     expect(assertAgentBranch('agent/TND-1-health')).toBe('refs/heads/agent/TND-1-health');
+  });
+
+  it("works in someone's own clone: fetches with their setup, adds a task worktree, and changes nothing of theirs", async () => {
+    const r = await remote();
+    const mine = join(r.root, 'my-clone');
+    await git(['clone', r.url, mine]);
+    await git(['config', 'credential.helper', 'store'], { cwd: mine });
+    // Their own worktree whose folder is gone, and one that is fine: neither folder is ever deleted.
+    const theirs = join(r.root, 'their-worktree');
+    await git(['worktree', 'add', '-b', 'their-work', theirs, 'origin/main'], { cwd: mine });
+    await r.upstream('new.txt', 'upstream\n');
+    const gitDir = localGitDir(mine);
+    expect(gitDir).toBe(join(mine, '.git'));
+    const info = await ensureMirror(gitDir, localAccess(r.url));
+    expect(info.defaultBranch).toBe('main');
+    expect(await git(['rev-parse', 'refs/remotes/origin/main'], { gitDir })).toBe(await git(['rev-parse', 'refs/heads/main'], { gitDir: join(r.root, 'remote.git') }));
+    // Their remote and credential setup are as they were.
+    expect(await git(['config', '--get', 'remote.origin.url'], { cwd: mine })).toBe(r.url);
+    expect(await git(['config', '--local', '--get-all', 'credential.helper'], { cwd: mine })).toBe('store');
+    const wt = join(r.root, 'tasks', 't1', 'repo');
+    await addWorktree(gitDir, { path: wt, branch: 'feature/T-1-x', base: 'origin/main' });
+    expect(existsSync(join(wt, 'new.txt'))).toBe(true);
+    expect(existsSync(theirs)).toBe(true);
+    // A worktree of the clone resolves to the clone's own git folder.
+    expect(localGitDir(theirs)).toBe(join(mine, '.git'));
   });
 });

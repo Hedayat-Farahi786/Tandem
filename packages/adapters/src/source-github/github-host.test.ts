@@ -22,7 +22,7 @@ function gh(routes: Record<string, (body: unknown) => { status?: number; body?: 
     return { ok: status < 400, status, text: async () => (r.body === undefined ? '' : JSON.stringify(r.body)) };
   };
   const secrets = new MemorySecrets();
-  const h = new GitHubHost({ home: mkdtempSync(join(tmpdir(), 'tandem-gh-')), settings: async () => DEFAULT_SETTINGS, secrets, fetch, ghToken: async () => token ?? undefined });
+  const h = new GitHubHost({ home: mkdtempSync(join(tmpdir(), 'tandem-gh-')), settings: async () => DEFAULT_SETTINGS, secrets, fetch, accountToken: async () => token ?? undefined });
   return { h, calls, secrets };
 }
 
@@ -36,8 +36,12 @@ describe('GitHub URLs', () => {
     expect(parseGitHubUrl('https://acme.ghe.com/team/app')).toMatchObject({ host: 'acme.ghe.com', transport: 'https' });
     expect(parseGitHubUrl('https://gitlab.com/a/b')).toBeUndefined();
     const { h } = gh({});
-    expect(h.detect('https://acme.ghe.com/team/app')?.host).toEqual({ kind: 'github', owner: 'team', name: 'app', apiBase: 'https://acme.ghe.com/api/v3' });
-    expect(h.access({ ...repo, url: 'https://github.com/acme/shop' }).config).toEqual(['credential.helper=', 'credential.helper=!gh auth git-credential']);
+    // GitHub Enterprise Cloud has its API on api.<tenant>.ghe.com.
+    expect(h.detect('https://acme.ghe.com/team/app')?.host).toEqual({ kind: 'github', owner: 'team', name: 'app', apiBase: 'https://api.acme.ghe.com' });
+    // HTTPS goes through Tandem's own helper (the connected account); never the GitHub CLI.
+    const withHelper = new GitHubHost({ home: '/tmp/x', settings: async () => DEFAULT_SETTINGS, secrets: new MemorySecrets(), gitHelper: () => '/t/bin/git-credential-tandem.mjs' });
+    expect(withHelper.access({ ...repo, url: 'https://github.com/acme/shop' }).config.join(' ')).toContain('git-credential-tandem.mjs');
+    expect(withHelper.access({ ...repo, url: 'https://github.com/acme/shop' }).config.join(' ')).not.toContain('gh auth');
     expect(h.access(repo).config).toEqual([]);
   });
 });
@@ -57,11 +61,15 @@ describe('GitHub pull requests', () => {
     expect(existing.calls).toHaveLength(1);
   });
 
-  it('prefers a token saved in Settings over the GitHub CLI', async () => {
-    const t = gh({ 'GET /repos/acme/shop/pulls': () => ({ body: [{ number: 1, html_url: 'u' }] }) });
-    await t.secrets.set('github-token', 'ghp_fromsettings1234567890');
+  it('uses the connected account first, and a token saved in Settings when there is none', async () => {
+    const t = gh({ 'GET /repos/acme/shop/pulls': () => ({ body: [{ number: 1, html_url: 'u' }] }) }, null);
+    await t.secrets.set('github-token', 'github_pat_fromsettings1234567890');
     await t.h.openPullRequest(req);
-    expect(t.calls[0]!.auth).toBe('Bearer ghp_fromsettings1234567890');
+    expect(t.calls[0]!.auth).toBe('Bearer github_pat_fromsettings1234567890');
+    const acct = gh({ 'GET /repos/acme/shop/pulls': () => ({ body: [{ number: 1, html_url: 'u' }] }) }, 'gho_connected');
+    await acct.secrets.set('github-token', 'github_pat_fromsettings1234567890');
+    await acct.h.openPullRequest(req);
+    expect(acct.calls[0]!.auth).toBe('Bearer gho_connected');
   });
 
   it('falls back to a compare link without a token or when refused, and retries 5xx', async () => {

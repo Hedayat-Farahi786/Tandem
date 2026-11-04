@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { GitOps, MirrorInfo, RebaseResult } from '@tandem/core';
 import type { Repo } from '@tandem/shared';
 import { GitError, git, runGit } from './git.js';
@@ -32,6 +32,30 @@ export interface RemoteAccess {
   config: readonly string[];
   /** Local config written into the mirror so fetch/push from worktrees use the same access. */
   mirrorConfig: ReadonlyArray<[string, string]>;
+  /** The person's own clone: never cloned, reconfigured or re-pointed, only fetched with their own setup. */
+  local?: true;
+}
+
+/** A clone on this computer, used as it is (see Repo.localPath). */
+export function localAccess(originUrl: string): RemoteAccess {
+  return { gitUrl: originUrl, config: [], mirrorConfig: [], local: true };
+}
+
+/** The git directory shared by a clone and its worktrees: <folder>/.git, or where a .git file points. */
+export function localGitDir(folder: string): string {
+  const dotGit = join(folder, '.git');
+  let dir = dotGit;
+  try {
+    const st = statSync(dotGit);
+    if (st.isFile()) {
+      const m = /^gitdir:\s*(.+)\s*$/m.exec(readFileSync(dotGit, 'utf8'));
+      if (m) dir = resolve(folder, m[1]!.trim());
+    }
+  } catch {
+    return dotGit;
+  }
+  const common = join(dir, 'commondir');
+  return existsSync(common) ? resolve(dir, readFileSync(common, 'utf8').trim()) : dir;
 }
 
 /** CodeCommit over HTTPS signed by the AWS CLI (any sign-in method: SSO, aws login, keys). */
@@ -115,6 +139,11 @@ const OBJECT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 export async function repairWorktrees(mirror: string): Promise<string[]> {
   const admin = join(mirror, 'worktrees');
   if (!existsSync(admin)) return [];
+  // Someone's own clone: never delete a folder; only forget worktrees whose folder is gone.
+  if ((await runGit(['config', '--bool', 'core.bare'], { gitDir: mirror, allowFail: true })).stdout.trim() !== 'true') {
+    await runGit(['worktree', 'prune'], { gitDir: mirror, allowFail: true });
+    return [];
+  }
   const removed: string[] = [];
   for (const name of await readdir(admin)) {
     const dir = join(admin, name);
@@ -137,6 +166,16 @@ export async function ensureMirror(path: string, access: RemoteAccess, defaultBr
 }
 
 async function ensureMirrorNow(path: string, access: RemoteAccess, defaultBranch?: string): Promise<MirrorInfo> {
+  if (access.local) {
+    // The person's clone: fetch it with their own setup, change nothing else.
+    if (!existsSync(join(path, 'HEAD'))) throw new GitError(`The clone at ${dirname(path)} is gone. Add the repository again.`, '', null);
+    await repairWorktrees(path);
+    await git(['fetch', '--prune', '--no-tags', 'origin'], { gitDir: path, timeoutMs: 900_000 });
+    const head = (await runGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { gitDir: path, allowFail: true })).stdout.trim().replace(/^origin\//, '');
+    const branch = defaultBranch || head || (await remoteDefaultBranch(access));
+    if (!branch) throw new GitError('Could not tell the default branch of the repo. Run git remote set-head origin --auto in it.', '', null);
+    return { path, defaultBranch: branch };
+  }
   if (!existsSync(join(path, 'HEAD'))) {
     await mkdir(dirname(path), { recursive: true });
     await git(['clone', '--bare', '--no-tags', access.gitUrl, path], { config: access.config, timeoutMs: 900_000 });
@@ -145,6 +184,7 @@ async function ensureMirrorNow(path: string, access: RemoteAccess, defaultBranch
   }
   await git(['config', 'remote.origin.url', access.gitUrl], { gitDir: path });
   await runGit(['config', '--unset-all', 'credential.helper'], { gitDir: path, allowFail: true });
+  await runGit(['config', '--unset-all', 'credential.useHttpPath'], { gitDir: path, allowFail: true });
   for (const [k, v] of access.mirrorConfig) await git(['config', '--add', k, v], { gitDir: path });
   await repairWorktrees(path);
   await git(['fetch', '--prune', '--no-tags', 'origin'], { gitDir: path, timeoutMs: 900_000 });

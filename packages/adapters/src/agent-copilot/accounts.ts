@@ -53,6 +53,11 @@ export interface CopilotAccounts {
   signInWithToken(host: string, token: string): Promise<{ login?: string; host: string; saved: boolean }>;
   switchTo(id: string): Promise<void>;
   signOut(id: string): Promise<void>;
+  /**
+   * Server-side only: the token of the connected account for a GitHub host (the active one first),
+   * which also reaches that account's repositories (the sign-in includes the repo scope).
+   */
+  tokenFor(host: string): Promise<string | undefined>;
 }
 
 /** "https://company.ghe.com/" → "company.ghe.com"; github.com stays "github.com". */
@@ -96,7 +101,7 @@ export interface AccountSessionLike {
 export interface AccountClientLike {
   rpc: {
     account: {
-      getAllUsers(): Promise<Array<{ authInfo: AuthInfoLike; selectionId?: string }>>;
+      getAllUsers(): Promise<Array<{ authInfo: AuthInfoLike; selectionId?: string; token?: string }>>;
       getCurrentAuth(): Promise<{ authInfo?: AuthInfoLike; authErrors?: string[] }>;
       login(p: { host: string; token: string; login?: string }): Promise<{ storedInVault: boolean }>;
     };
@@ -283,6 +288,15 @@ export class RuntimeAccounts implements CopilotAccounts {
     await this.o.useHost(target.host);
   }
 
+  async tokenFor(host: string): Promise<string | undefined> {
+    const h = hostName(host);
+    const client = await this.o.client();
+    const [users, current] = await Promise.all([client.rpc.account.getAllUsers().catch(() => []), client.rpc.account.getCurrentAuth().catch(() => ({}) as { authInfo?: AuthInfoLike })]);
+    const here = users.filter((u) => u.token && hostName(u.authInfo.host) === h);
+    const active = here.find((u) => current.authInfo && u.authInfo.login === current.authInfo.login);
+    return (active ?? here[0])?.token;
+  }
+
   async signOut(id: string): Promise<void> {
     const s = await this.session();
     try {
@@ -333,5 +347,8 @@ export class ScriptedAccounts implements CopilotAccounts {
   }
   async signOut(id: string): Promise<void> {
     this.accounts = this.accounts.filter((a) => a.id !== id);
+  }
+  async tokenFor(): Promise<string | undefined> {
+    return undefined;
   }
 }

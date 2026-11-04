@@ -175,6 +175,8 @@ describe('Setup wizard', () => {
     let added: unknown;
     mockApi({
       'GET /api/bootstrap': boot({ setupComplete: false, projects: [], repos: [] }),
+      'GET /api/copilot/accounts': { signedIn: false, accounts: [], providers: [], host: 'github.com' },
+      'PUT /api/settings': (b) => b as object,
       'POST /api/repos/detect': (b) =>
         (b as { url: string }).url.startsWith('codecommit')
           ? { repo: { id: 'd1', url: 'codecommit::eu-central-1://shop', host: { kind: 'codecommit', region: 'eu-central-1', name: 'shop' }, name: 'shop', defaultBranch: 'main', role: 'backend', commands: { test: 'npm test' }, language: 'TypeScript', createdAt: '' }, evidence: ['package.json'] }
@@ -185,12 +187,17 @@ describe('Setup wizard', () => {
     renderApp('/');
     await waitFor(() => expect(window.location.pathname).toBe('/setup'));
     await user.click(await screen.findByRole('button', { name: 'Start' }));
-    await user.type(screen.getByLabelText('Clone URL'), 'ftp://nope');
-    await user.click(screen.getByRole('button', { name: 'Detect' }));
+    // Copilot first, then repositories.
+    expect(await screen.findByRole('heading', { name: 'Connect GitHub Copilot' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // Pick from GitHub, CodeCommit, a clone on this computer, or paste a URL.
+    await user.click(await screen.findByRole('tab', { name: 'Clone URL' }));
+    await user.type(screen.getByRole('textbox', { name: 'Clone URL' }), 'ftp://nope');
+    await user.click(screen.getByRole('button', { name: 'Read the repository' }));
     expect(await screen.findByText('That is not a CodeCommit or GitHub URL.')).toBeTruthy();
-    await user.clear(screen.getByLabelText('Clone URL'));
-    await user.type(screen.getByLabelText('Clone URL'), 'codecommit::eu-central-1://shop');
-    await user.click(screen.getByRole('button', { name: 'Detect' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Clone URL' }));
+    await user.type(screen.getByRole('textbox', { name: 'Clone URL' }), 'codecommit::eu-central-1://shop');
+    await user.click(screen.getByRole('button', { name: 'Read the repository' }));
     expect(await screen.findByText('Confirm shop')).toBeTruthy();
     await user.click(screen.getByRole('combobox', { name: 'Role' }));
     await user.click(screen.getByRole('option', { name: /Full-stack/ }));

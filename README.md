@@ -23,11 +23,14 @@ Chat request ─▶ Ready? ─▶ Spec ─▶ Owner + PM approve ─▶ Build �
 | pnpm | 10 (`corepack enable` sets it up) |
 | git | 2.25 or newer |
 | GitHub Copilot | any plan: Free, Pro or Pro+ of your own, or Business or Enterprise from work. You connect it in the setup wizard |
-| AWS CLI v2 | for CodeCommit, signed in with the profile you use for your repos (`aws login` or `aws sso login`) |
+| AWS (CodeCommit only) | connected in the app: your company's IAM Identity Center sign-in, an access key, or a profile on this computer. No AWS CLI needed |
 | Disk | a few GB free; each repo is cloned once and its dependencies are shared between tasks |
 
-Jira is optional. A GitHub token is optional (the GitHub CLI is used when
-it's signed in).
+Jira is optional. GitHub repositories use the GitHub account you connect
+for Copilot; no GitHub CLI is needed. Repositories are added from a list
+of what your accounts can reach, from a clone already on this computer
+(Tandem then uses that clone and your own git sign-in, without cloning it
+again), or from a clone URL.
 
 ## Install and start
 

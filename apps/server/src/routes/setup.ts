@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { Budget, settingAt } from '@tandem/core';
 import { inspectMirror } from '@tandem/adapters';
+import { findLocalClones, readLocalClone } from '../local-clones.js';
 import { Project, Repo, RepoCommands, RepoRole, Settings, PmGate, estimateTaskCredits, type ModelOption } from '@tandem/shared';
 import { HttpError, type ServerContext } from '../app.js';
 import { runDoctor } from '../doctor.js';
@@ -33,6 +34,7 @@ const RepoInput = z.object({
   language: z.string().optional(),
   framework: z.string().optional(),
   packageManager: z.string().optional(),
+  localPath: z.string().optional(),
 });
 
 /** A project saved before its repositories changed may still name old ones in its order or spec repo. */
@@ -99,12 +101,29 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   /* ------------------------------------------------------------------ repositories */
   app.get('/api/repos', async () => store.repos.list());
 
-  /** Clones (or fetches) the repo and suggests role and commands from its default branch. */
+  /** Clones repositories already on this computer that Tandem can work in (GitHub or CodeCommit origin). */
+  app.get('/api/repos/local', async () => {
+    const added = new Set((await store.repos.list()).map((r) => r.localPath).filter(Boolean));
+    const found = await findLocalClones();
+    return found.flatMap((c) => {
+      const d = tandem.codecommit.detect(c.remote) ?? tandem.github.detect(c.remote);
+      return d ? [{ path: c.path, name: d.name, remote: c.remote, host: d.host.kind, branch: c.branch, added: added.has(c.path) }] : [];
+    });
+  });
+
+  /** Clones (or fetches) the repo and suggests role and commands from its default branch. A folder uses that clone as it is. */
   app.post('/api/repos/detect', async (req) => {
-    const { url } = z.object({ url: z.string().trim().min(1, 'Paste the clone URL') }).parse(req.body);
+    const body = z.object({ url: z.string().trim().min(1).optional(), path: z.string().trim().min(1).optional() }).refine((b) => b.url || b.path, 'Paste the clone URL').parse(req.body);
+    let url = body.url ?? '';
+    let localPath: string | undefined;
+    if (body.path) {
+      const clone = await readLocalClone(body.path);
+      url = clone.remote;
+      localPath = clone.path;
+    }
     const detected = tandem.codecommit.detect(url) ?? tandem.github.detect(url);
-    if (!detected) throw new HttpError(400, 'That is not a CodeCommit or GitHub URL. Use the SSH, HTTPS or codecommit:: clone URL.');
-    const draft: Repo = { id: randomUUID(), url, host: detected.host, name: detected.name, defaultBranch: '', role: 'other', commands: {}, createdAt: new Date().toISOString() };
+    if (!detected) throw new HttpError(400, localPath ? `The origin of that clone (${url}) is not on GitHub or CodeCommit.` : 'That is not a CodeCommit or GitHub URL. Use the SSH, HTTPS or codecommit:: clone URL.');
+    const draft: Repo = { id: randomUUID(), url, host: detected.host, name: detected.name, defaultBranch: '', role: 'other', commands: {}, ...(localPath ? { localPath } : {}), createdAt: new Date().toISOString() };
     const host = tandem.hostFor(draft);
     let mirror;
     try {
