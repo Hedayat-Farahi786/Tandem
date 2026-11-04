@@ -127,7 +127,9 @@ describe(`Phase 4 flows · scripted agent · ${REAL ? 'real CodeCommit' : 'local
     expect(activity.some((r) => r.kind === 'spec')).toBe(false);
     const buildRun = activity.find((r) => r.kind === 'build')!;
     expect(buildRun.status).toBe('succeeded');
-    expect(buildRun.steps.map((x) => x.kind)).toEqual(expect.arrayContaining(['prompt', 'intent', 'reasoning', 'tool', 'message']));
+    // Tandem's instructions stay on the server: the activity carries the work, not the prompt.
+    expect(buildRun.steps.map((x) => x.kind)).toEqual(expect.arrayContaining(['intent', 'reasoning', 'tool', 'message']));
+    expect(buildRun.steps.some((x) => x.kind === 'prompt')).toBe(false);
     expect(buildRun.steps.flatMap((x) => x.files?.map((f) => f.path) ?? [])).toEqual(expect.arrayContaining(['tandem-sandbox-fullstack/src/server/app.ts']));
     h.record('(a) one full-stack repo', d);
   });

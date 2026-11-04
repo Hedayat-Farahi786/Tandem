@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentRun, AgentStep } from '@tandem/shared';
-import { Brain, ChevronRight, CircleAlert, FileText, FlaskConical, ListChecks, Pencil, Search, ShieldAlert, Terminal, Wrench, XCircle, type LucideIcon } from 'lucide-react';
+import { Brain, ChevronRight, CircleAlert, FileText, FlaskConical, Pencil, Search, ShieldAlert, Terminal, Wrench, XCircle, type LucideIcon } from 'lucide-react';
 import { api } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import { BrandLogo, providerOf } from '../ui/brands';
@@ -113,11 +113,8 @@ function Narration({ text }: { text: string }) {
 export function Step({ s }: { s: AgentStep }) {
   switch (s.kind) {
     case 'prompt':
-      return (
-        <Fold icon={ListChecks} label="Tandem's instructions" meta={`${(s.text?.length ?? 0).toLocaleString()} characters`}>
-          <Pre text={s.text ?? ''} />
-        </Fold>
-      );
+      // What Tandem told Copilot stays out of the conversation (its fingerprint is in the Trace).
+      return null;
     case 'intent':
       return (
         <p className="flex items-center gap-2.5 px-2 py-1 text-[13px] text-muted">
@@ -313,14 +310,6 @@ export function RunCard({ run, open, onToggle, dense, project, afterReview }: { 
               <Message text={answer.text ?? ''} />
             </div>
           )}
-          {/* What Tandem told Copilot: kept for the record, out of the way. */}
-          <div className="mt-1.5 border-t border-line/70 pt-1.5">
-            {run.steps
-              .filter((s) => s.kind === 'prompt')
-              .map((s) => (
-                <Step key={s.id} s={s} />
-              ))}
-          </div>
         </div>
       </Collapse>
     </li>

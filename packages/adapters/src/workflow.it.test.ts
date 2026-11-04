@@ -170,7 +170,7 @@ describe.skipIf(SKIP)('workflow on real git (SQLite, local remotes, scripted age
     const files = await git(['ls-tree', '-r', '--name-only', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
     expect(files.split('\n').sort()).toEqual(['README.md', 'src/health.js', 'test/health.test.js']);
     const log = await git(['log', '--format=%s', `refs/heads/${task.branch}`], { gitDir: remotes.app!.bare });
-    expect(log.split('\n')[0]).toBe('TND-1: Add a GET /health endpoint');
+    expect(log.split('\n')[0]).toBe('Add a GET /health endpoint');
     // One commit on top of main, however many rounds it took.
     expect(await git(['rev-list', '--count', `refs/heads/main..refs/heads/${task.branch}`], { gitDir: remotes.app!.bare })).toBe('1');
 

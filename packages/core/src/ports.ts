@@ -185,6 +185,8 @@ export interface GitOps {
   commitTracked(worktree: string, message: string): Promise<string | undefined>;
   /** Folds every commit since its merge base with `onto` into one with this message; undefined when there is nothing to fold. */
   squash(worktree: string, onto: string, message: string): Promise<string | undefined>;
+  /** The commit HEAD and `ref` last had in common: where the task's branch starts. */
+  mergeBase(worktree: string, ref: string): Promise<string>;
   head(worktree: string): Promise<string>;
   diff(worktree: string, base: string): Promise<string>;
   diffStat(worktree: string, base: string): Promise<{ files: number; insertions: number; deletions: number }>;

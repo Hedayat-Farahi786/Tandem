@@ -169,7 +169,9 @@ describe('Chat', () => {
     renderApp('/chat');
     const recents = await screen.findByRole('navigation', { name: 'Conversations' });
     expect(await within(recents).findByText('Where is the greeting route?')).toBeTruthy();
-    expect(within(recents).getByLabelText('Became a task')).toBeTruthy();
+    // Chats carry no task icons: tasks have their own section.
+    expect(within(recents).queryByLabelText('Became a task')).toBeNull();
+    expect(within(recents).getByText('Health endpoint')).toBeTruthy();
     await user.click(within(recents).getByText('Where is the greeting route?'));
     expect(await screen.findByRole('heading', { name: 'Where is the greeting route?' })).toBeTruthy();
     expect(within(recents).getByText('Where is the greeting route?').closest('a')?.getAttribute('aria-current')).toBe('page');

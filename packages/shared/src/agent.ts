@@ -41,6 +41,10 @@ export const RecordTestArgs = z.object({
 });
 export type RecordTestArgs = z.infer<typeof RecordTestArgs>;
 
+/** The build agent names its change: the commit and pull request title, and a line or two on what changed. */
+export const NameChangeArgs = z.object({ title: z.string(), body: z.string().default('') });
+export type NameChangeArgs = z.infer<typeof NameChangeArgs>;
+
 export const ResolveFindingArgs = z.object({ id: z.string(), status: z.enum(['fixed', 'dismissed']), note: z.string().default('') });
 export type ResolveFindingArgs = z.infer<typeof ResolveFindingArgs>;
 

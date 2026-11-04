@@ -69,6 +69,53 @@ describe('shell policy: the repo command as configured', () => {
   });
 });
 
+describe('shell policy: working inside a repo folder of the workspace', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tandem-ws-'));
+  mkdirSync(join(root, 'web-app', 'node_modules', '.bin'), { recursive: true });
+  const policy = { root, configured: ['npm ci', 'CHROME_BIN=/opt/chrome npx ng test --watch=false --browsers=ChromeHeadless'] };
+  const cases: Array<[string, boolean]> = [
+    // What Copilot reached for in real tasks, and was refused.
+    ['cd web-app && git status --short', true],
+    ['cd web-app && CHROME_BIN=/opt/chrome npx ng test --watch=false --browsers=ChromeHeadless', true],
+    ['git -C web-app status --short', true],
+    ['git -C web-app diff -- src/app.ts', true],
+    ['npm --prefix web-app test -- --watch=false', true],
+    ['npm run --prefix web-app test', true],
+    ['npm install --prefix web-app', true],
+    ['npx --prefix web-app ng test --watch=false --browsers=ChromeHeadless', true],
+    ['CHROME_BIN=/opt/chrome npx --prefix web-app ng test --watch=false', true],
+    ['web-app/node_modules/.bin/ng test --watch=false', true],
+    ['./web-app/node_modules/.bin/prettier --write web-app/src/x.ts', true],
+    [`cd ${join(root, 'web-app')} && npm test`, true],
+    ['cd web-app && npm test && popd', true],
+    // Still refused: leaving the workspace, other variables, other tools by path, publishing.
+    ['cd ..', false],
+    ['cd web-app/../.. && ls', false],
+    ['cd /etc && ls', false],
+    ['cd ~ && ls', false],
+    ['cd', false],
+    ['git -C /tmp status', false],
+    ['git -C .. status', false],
+    ['git -C web-app push', false],
+    ['npm --prefix /tmp test', false],
+    ['npm --prefix=.. test', false],
+    ['npm install -g --prefix web-app typescript', false],
+    ['npm --prefix web-app publish', false],
+    ['CHROME_BIN=/tmp/evil npx ng test', false],
+    ['NODE_OPTIONS=--require=/tmp/x.js npm test', false],
+    ['web-app/scripts/run.sh', false],
+    ['/usr/bin/node web-app/x.js', false],
+    ['cd web-app && curl https://example.com', false],
+  ];
+  it.each(cases)('%s → %s', (cmd, ok) => {
+    expect(checkShell(cmd, policy).allowed).toBe(ok);
+  });
+  it('without a workspace, folder options stay refused', () => {
+    expect(checkShell('cd web-app && npm test', { configured: [] }).allowed).toBe(false);
+    expect(checkShell('git -C web-app status', { configured: [] }).allowed).toBe(false);
+  });
+});
+
 describe('shell policy', () => {
   const policy = { configured: ['npm test', 'npm run lint', 'npm run typecheck', 'npm run build', 'pnpm vitest run'] };
   const cases: Array<[string, boolean]> = [

@@ -9,6 +9,44 @@ import { HttpError, type ServerContext } from '../app.js';
 import { specPdf } from '../pdf.js';
 import { auditOwner } from '../audit.js';
 
+const sha = (v: unknown) => (typeof v === 'string' && /^[0-9a-f]{40}$/.test(v) ? v : undefined);
+
+/**
+ * A task's change in one repo, read from the mirror once its workspace is gone. Before the merge it
+ * is the branch against the default branch. Once merged, that difference is empty, so it is the
+ * branch against where it started: recorded at push, or the merge commit's other side, or (older
+ * tasks merged fast-forward) the parent of the task's own commits.
+ */
+async function changeInMirror(mirror: string, base: string, task: Task, repoId: string): Promise<string> {
+  const g = async (args: string[]) => runGit(args, { gitDir: mirror, allowFail: true });
+  let head = sha((task.progress.pushed as Record<string, unknown> | undefined)?.[repoId]);
+  if (!head || (await g(['cat-file', '-e', `${head}^{commit}`])).code !== 0) {
+    head = undefined;
+    for (const ref of [`refs/heads/${task.branch}`, `refs/remotes/origin/${task.branch}`]) {
+      const r = await g(['rev-parse', '--verify', '--quiet', ref]);
+      if (r.code === 0) {
+        head = r.stdout.trim();
+        break;
+      }
+    }
+  }
+  if (!head) return '';
+  const diff = async (from: string) => (await g(['diff', '--no-color', '--no-ext-diff', `${from}...${head}`])).stdout;
+  const merged = (await g(['merge-base', '--is-ancestor', head, base])).code === 0;
+  if (!merged) return diff(base);
+  const from = sha((task.progress.pushedBase as Record<string, unknown> | undefined)?.[repoId]);
+  if (from) return diff(from);
+  // Merged with a merge commit: the oldest one that brought the branch in; diff against its first parent.
+  const merges = (await g(['rev-list', '--ancestry-path', '--merges', '--reverse', `${head}..${base}`])).stdout.split('\n').filter(Boolean);
+  for (const m of merges) if ((await g(['merge-base', '--is-ancestor', head, `${m}^1`])).code !== 0) return diff(`${m}^1`);
+  // Fast-forward: the task's own commits sit on top of where it started, each naming its key.
+  const log = (await g(['log', '--first-parent', '--format=%H %s', '-n', '200', head])).stdout.split('\n').filter(Boolean);
+  const mine = (s: string) => s.includes(`(${task.key})`) || s.startsWith(`${task.key}:`) || s.startsWith(`${task.key} `);
+  let i = 0;
+  while (i < log.length && mine(log[i]!.slice(41))) i++;
+  return i > 0 && log[i] ? diff(log[i]!.slice(0, 40)) : '';
+}
+
 const id = (req: { params: unknown }) => (req.params as { id: string }).id;
 
 /** Zod 4 applies field defaults even inside .partial(): keep only the fields the client sent, so a PATCH never clears the others. */
@@ -179,16 +217,9 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
         let diff = '';
         if (existsSync(join(wt, '.git'))) diff = (await runGit(['diff', '--no-color', '--no-ext-diff', `${base}...HEAD`], { cwd: wt, allowFail: true })).stdout;
         else {
+          // No workspace any more (the task finished): the change from the mirror, merged or not.
           const mirror = tandem.hostFor(repo).mirrorPath(repo);
-          if (existsSync(mirror)) {
-            for (const head of [`refs/heads/${task.branch}`, `refs/remotes/origin/${task.branch}`]) {
-              const r = await runGit(['diff', '--no-color', '--no-ext-diff', `${base}...${head}`], { gitDir: mirror, allowFail: true });
-              if (r.code === 0) {
-                diff = r.stdout;
-                break;
-              }
-            }
-          }
+          if (existsSync(mirror)) diff = await changeInMirror(mirror, base, task, repo.id);
         }
         return { repoId: repo.id, name: repo.name, branch: task.branch, diff: diff.length > 2_000_000 ? `${diff.slice(0, 2_000_000)}\n… diff truncated …\n` : diff };
       }),
@@ -212,7 +243,8 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
           prompts: mine.reduce((n, u) => n + u.prompts, 0),
           modelCalls: mine.reduce((n, u) => n + u.modelCalls, 0),
           aiCredits: Math.round((mine.reduce((n, u) => n + u.nanoAiu, 0) / 1e9) * 100) / 100,
-          steps: steps.filter((s) => s.runId === r.id).sort((a, b) => a.seq - b.seq),
+          // Tandem's instructions to Copilot stay on the server: the Trace shows their fingerprint.
+          steps: steps.filter((s) => s.runId === r.id && s.kind !== 'prompt').sort((a, b) => a.seq - b.seq),
         };
       });
   });

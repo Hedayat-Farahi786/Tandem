@@ -257,6 +257,10 @@ export class RepoGit implements GitOps {
     return git(['rev-parse', 'HEAD'], { cwd: worktree });
   }
 
+  async mergeBase(worktree: string, ref: string): Promise<string> {
+    return git(['merge-base', 'HEAD', ref], { cwd: worktree });
+  }
+
   async head(worktree: string): Promise<string> {
     return git(['rev-parse', 'HEAD'], { cwd: worktree });
   }

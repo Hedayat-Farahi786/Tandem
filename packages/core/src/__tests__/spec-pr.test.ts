@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Approval, CommandResult, CriterionTest, ReviewFinding } from '@tandem/shared';
 import { DEFAULT_TEMPLATE, finalizeSpec, requiredHeadings, requirementMarkdown, sectionItems, sections, validateSpec } from '../spec/template.js';
 import { buildPrDescription, prTitle } from '../pr/description.js';
-import { branchName, slugify, specFileName } from '../naming.js';
+import { branchName, changeTitle, cleanTitle, commitMessage, slugify, specFileName } from '../naming.js';
 import { VALID_SPEC } from './fixtures.js';
 
 describe('spec template', () => {
@@ -166,5 +166,25 @@ describe('naming', () => {
     expect(slugify('implement the very long feature name that goes on and on')).toBe('implement-the-very-long-feature-name');
     expect(branchName('TND-7', 'health')).toBe('feature/TND-7-health');
     expect(specFileName('TND-7', 'health')).toBe('specs/TND-7-health.md');
+  });
+});
+
+describe('commit titles', () => {
+  it('reads like a person wrote it: no task key, no prefixes, no period', () => {
+    expect(cleanTitle('SHOP-12: Bump version to 1.7.13.')).toBe('Bump version to 1.7.13');
+    expect(cleanTitle('feat(TND-1): add health endpoint')).toBe('Add health endpoint');
+    expect(cleanTitle('[WIP] "fix flaky save button"')).toBe('Fix flaky save button');
+    expect(cleanTitle('  ')).toBeUndefined();
+  });
+  it("uses Copilot's name for the change, else the task title in sentence case", () => {
+    expect(changeTitle({ title: 'Update Frontend Application Version', progress: { commitTitle: 'Bump version to 1.7.13' } })).toBe('Bump version to 1.7.13');
+    expect(changeTitle({ title: 'Update Frontend Application Version', progress: {} })).toBe('Update frontend application version');
+    expect(changeTitle({ title: 'Add a GET /health endpoint', progress: {} })).toBe('Add a GET /health endpoint');
+  });
+  it('wraps the body under the title and keeps lists', () => {
+    expect(commitMessage('Bump version to 1.7.13')).toBe('Bump version to 1.7.13');
+    expect(commitMessage('Bump version to 1.7.13', '- package.json and the lockfile\n- a test for each environment')).toBe('Bump version to 1.7.13\n\n- package.json and the lockfile\n- a test for each environment');
+    const long = commitMessage('Add undo', 'word '.repeat(40));
+    expect(long.split('\n').slice(2).every((l) => l.length <= 72)).toBe(true);
   });
 });

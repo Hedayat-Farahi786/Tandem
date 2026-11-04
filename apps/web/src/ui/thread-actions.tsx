@@ -324,6 +324,31 @@ export function ChatRecents({ projectId }: { projectId: string }) {
   const current = path.startsWith('/chat') ? search.get('thread') : null;
   const pinned = threads.data?.filter((t) => t.pinnedAt) ?? [];
   const recent = threads.data?.filter((t) => !t.pinnedAt) ?? [];
+  // The project's tasks that are still going, so a task never hides among the chats.
+  const tasks = useQuery({ queryKey: ['tasks'], queryFn: () => api<TaskListItem[]>('/api/tasks'), enabled: Boolean(projectId), refetchInterval: 15_000 });
+  const open = (tasks.data ?? []).filter((t) => t.projectId === projectId && t.state !== 'DONE' && t.state !== 'CANCELLED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const SHOWN = 5;
+  const taskRow = (t: TaskListItem) => {
+    const active = path === `/tasks/${t.id}`;
+    const s = taskStatus(t);
+    return (
+      <li key={t.id}>
+        <Link
+          to={`/tasks/${t.id}`}
+          aria-current={active ? 'page' : undefined}
+          title={`${t.title} · ${s.word}`}
+          className={cx('flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-150', active ? 'bg-surface text-fg shadow-[0_0_0_1px_var(--border)]' : 'text-muted hover:bg-surface-3/60 hover:text-fg')}
+        >
+          <span aria-hidden className="relative grid size-2 shrink-0 place-items-center">
+            {s.pulse && <span className={cx('absolute inset-0 animate-ping rounded-full opacity-50 motion-reduce:hidden', s.dot)} />}
+            <span className={cx('size-[7px] rounded-full', s.dot)} />
+          </span>
+          <span className="min-w-0 flex-1 truncate">{t.title}</span>
+          <span className="sr-only">, {s.word}</span>
+        </Link>
+      </li>
+    );
+  };
 
   const row = (t: ChatThread) => {
     const active = t.id === current;
@@ -351,12 +376,6 @@ export function ChatRecents({ projectId }: { projectId: string }) {
         >
           <span className="min-w-0 flex-1 truncate">{t.title}</span>
         </Link>
-        {/* Becomes the menu button on hover, focus or when open; otherwise a quiet "became a task" mark. */}
-        <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center">
-          {t.createdTaskId && (
-            <ListTodo aria-label="Became a task" className={cx('size-3.5 text-faint opacity-70 transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0', menuOpen && 'opacity-0')} />
-          )}
-        </span>
         <span className="absolute inset-y-0 right-1 flex items-center">
           <ActionMenu
             label={`Actions for ${t.title}`}
@@ -376,7 +395,22 @@ export function ChatRecents({ projectId }: { projectId: string }) {
 
   return (
     <nav aria-label="Conversations" className="mt-6 flex min-h-0 flex-1 flex-col">
-      <div className="-mr-2 flex min-h-0 flex-1 flex-col overflow-y-auto pr-2 [scrollbar-width:thin]">
+      {/* Scrolls without a visible bar; the list fades out at the bottom edge when there is more. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-4 [mask-image:linear-gradient(to_bottom,black_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {open.length > 0 && (
+          <Group title="Open tasks">
+            <ul aria-label="Open tasks" className="flex flex-col gap-px">
+              {open.slice(0, SHOWN).map(taskRow)}
+              {open.length > SHOWN && (
+                <li>
+                  <Link to="/tasks" className="flex h-7 items-center rounded-lg px-2.5 text-[12px] text-faint transition-colors hover:bg-surface-3/60 hover:text-fg">
+                    {open.length - SHOWN} more in Tasks
+                  </Link>
+                </li>
+              )}
+            </ul>
+          </Group>
+        )}
         {pinned.length > 0 && (
           <Group title="Pinned">
             <ul aria-label="Pinned chats" className="flex flex-col gap-px">
@@ -384,10 +418,10 @@ export function ChatRecents({ projectId }: { projectId: string }) {
             </ul>
           </Group>
         )}
-        <Group title="Recents">
+        <Group title="Chats">
           <ul aria-label="Recent chats" className="flex flex-col gap-px">
             {threads.isLoading && <li className="px-2.5 py-1.5 text-[12px] text-faint">Loading…</li>}
-            {threads.data?.length === 0 && <li className="px-2.5 py-1.5 text-[12px] leading-snug text-faint">Your requests and questions appear here.</li>}
+            {threads.data?.length === 0 && <li className="px-2.5 py-1.5 text-[12px] leading-snug text-faint">Your questions and requests appear here.</li>}
             {recent.map(row)}
           </ul>
         </Group>
@@ -395,6 +429,15 @@ export function ChatRecents({ projectId }: { projectId: string }) {
       <DeleteThreadDialog thread={deleting} projectId={projectId} onClose={() => setDeleting(null)} />
     </nav>
   );
+}
+
+/** A task's state as the sidebar shows it: a coloured dot, and the word behind it. */
+function taskStatus(t: TaskListItem): { dot: string; word: string; pulse?: boolean } {
+  if (t.state === 'FAILED') return { dot: 'bg-danger', word: 'stopped' };
+  if (t.state === 'BLOCKED' || t.state === 'SPEC_REVIEW' || t.needsAttention) return { dot: 'bg-warn', word: t.state === 'SPEC_REVIEW' ? 'spec to review' : 'needs you' };
+  if (t.state === 'PR_OPEN') return { dot: 'bg-ok', word: 'pull request open' };
+  if (t.state === 'DRAFT') return { dot: 'bg-line-strong', word: 'not started' };
+  return { dot: 'bg-accent', word: 'working', pulse: true };
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {

@@ -57,10 +57,9 @@ describe('Task activity', () => {
     await user.click(build);
     expect(within(convo).getByText('Implemented shop: src/app.ts.')).toBeTruthy();
     expect(within(convo).getByText(/Tandem blocked: curl/)).toBeTruthy();
-    // Instructions, thinking and tool output open on demand.
+    // Tandem's instructions to Copilot never show in the conversation; thinking and tool output open on demand.
     expect(within(convo).queryByText('Implement the approved spec in shop.')).toBeNull();
-    await user.click(within(convo).getByRole('button', { name: /Tandem's instructions/ }));
-    expect(within(convo).getByText('Implement the approved spec in shop.')).toBeTruthy();
+    expect(within(convo).queryByRole('button', { name: /Tandem's instructions/ })).toBeNull();
     await user.click(within(convo).getByRole('button', { name: /I will add the route first\./ }));
     expect(within(convo).getByText(/Then the component\./)).toBeTruthy();
     await user.click(within(convo).getByRole('button', { name: /Ran npm test/ }));

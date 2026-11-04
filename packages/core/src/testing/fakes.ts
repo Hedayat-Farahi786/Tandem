@@ -218,6 +218,9 @@ export class FakeGit implements GitOps {
     this.squashes.push({ worktree, onto, message });
     return `squash-${this.squashes.length}`;
   }
+  async mergeBase(): Promise<string> {
+    return 'base-sha';
+  }
   async head(): Promise<string> {
     return `commit-${this.commits.length}`;
   }

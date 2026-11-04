@@ -71,6 +71,23 @@ async function manifests(root: string): Promise<string[]> {
  * Identity of an install: the command, the lockfiles, every package.json, and the Node version and
  * platform. Undefined without a lockfile: such an install is not reproducible, so it is not shared.
  */
+/**
+ * A project's own version number does not change what gets installed: a version bump (package.json
+ * and its lockfile) reuses the installed dependencies instead of installing everything again.
+ */
+export function withoutOwnVersion(file: string, content: Buffer): Buffer | string {
+  const name = file.split('/').pop();
+  if (name !== 'package.json' && name !== 'package-lock.json') return content;
+  try {
+    const j = JSON.parse(content.toString('utf8')) as { version?: unknown; packages?: Record<string, { version?: unknown }> };
+    delete j.version;
+    if (j.packages?.['']) delete j.packages[''].version;
+    return JSON.stringify(j);
+  } catch {
+    return content;
+  }
+}
+
 export async function installKey(root: string, command: string): Promise<string | undefined> {
   const locks = LOCKFILES.filter((f) => existsSync(join(root, f)));
   if (!locks.length) return undefined;
@@ -78,7 +95,7 @@ export async function installKey(root: string, command: string): Promise<string 
   h.update(`${command}\0${process.versions.node.split('.')[0]}\0${process.platform}\0${process.arch}\0`);
   for (const f of [...locks, ...(await manifests(root))]) {
     h.update(`${f}\0`);
-    h.update(await readFile(join(root, f)));
+    h.update(withoutOwnVersion(f, await readFile(join(root, f))));
     h.update('\0');
   }
   return h.digest('hex').slice(0, 32);

@@ -1,3 +1,5 @@
+import { isInside } from './paths.js';
+
 /**
  * Shell command policy for build sessions. Fails closed: a command line is allowed only when every
  * segment is understood and matches the allowlist, and the denylist always wins.
@@ -6,6 +8,11 @@
 export interface ShellPolicy {
   /** Owner-configured command lines (repo commands), matched as a prefix of a segment. */
   configured: readonly string[];
+  /**
+   * The workspace folder. When set, commands may work in a folder inside it: `cd <repo> && …`,
+   * `git -C <repo> …`, `npm --prefix <repo> …`. Never outside it, never with `..`.
+   */
+  root?: string;
 }
 
 export interface Verdict {
@@ -88,13 +95,68 @@ export function parseShell(input: string): { segments: string[][] } | { error: s
   return { segments };
 }
 
+/** A folder a command may move to: inside the workspace, spelled without `..` or `~`. */
+function folderOk(dir: string | undefined, policy: ShellPolicy): boolean {
+  if (!policy.root || !dir || dir === '-' || dir.startsWith('~') || dir.split(/[\\/]/).includes('..')) return false;
+  return isInside(policy.root, dir);
+}
+
+/** `NAME=value` the owner's own repo commands set (CHROME_BIN=/path/to/chrome, say): the agent may set them the same way. */
+function configuredEnv(policy: ShellPolicy): Set<string> {
+  const out = new Set<string>();
+  for (const c of policy.configured) for (const t of c.trim().split(/\s+/)) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) out.add(t);
+    else break;
+  }
+  return out;
+}
+
+/**
+ * Drops the "where" options (git -C <dir>, npm --prefix <dir>, pnpm --dir/-C, yarn --cwd) when the
+ * folder is inside the workspace, so the rest is checked like the same command run there.
+ */
+function withoutFolderOptions(seg: string[], policy: ShellPolicy): string[] | { reason: string } {
+  const [cmd, ...args] = seg;
+  const base = (cmd ?? '').toLowerCase();
+  const out: string[] = [];
+  const isPm = /^(npm|npx|pnpm|yarn)$/.test(base);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    const flag = base === 'git' ? (i === out.length && a === '-C' ? a : undefined) : isPm && /^(--prefix|--dir|--cwd|-C)$/.test(a) ? a : undefined;
+    const inline = isPm ? /^(--prefix|--dir|--cwd)=(.*)$/.exec(a) : null;
+    if (flag || inline) {
+      const dir = inline ? inline[2] : args[++i];
+      if (!folderOk(dir, policy)) return { reason: `${flag ?? inline![1]} ${dir ?? ''} must be a folder inside the workspace`.trim() };
+      continue;
+    }
+    out.push(a);
+  }
+  return [cmd!, ...out];
+}
+
 function checkSegment(raw: readonly string[], policy: ShellPolicy): Verdict {
+  // Moving into a repo folder of the workspace: `cd app && npm test`.
+  if (raw[0] === 'cd' || raw[0] === 'pushd') {
+    if (raw.length === 2 && folderOk(raw[1], policy)) return { allowed: true, reason: 'folder in the workspace' };
+    return { allowed: false, reason: policy.root ? `cd only into a folder inside the workspace (cd ${raw[1] ?? ''})`.replace(' ()', '') : `"${raw.join(' ')}" is not on the allowlist (repo commands, package installs, read-only helpers, safe git)` };
+  }
+  if (raw[0] === 'popd' && raw.length === 1) return { allowed: true, reason: 'back to the previous folder' };
   // The owner's own repo command, exactly as configured (it may set a variable, e.g. CHROME_BIN=...).
   const rawLine = raw.join(' ');
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(raw[0] ?? '') && policy.configured.some((c) => c.trim() && (rawLine === c.trim() || rawLine.startsWith(`${c.trim()} `)))) return { allowed: true, reason: 'configured repo command' };
-  const seg = [...raw];
-  while (seg.length && SAFE_ENV_PREFIX.test(seg[0]!)) seg.shift();
+  const envOk = configuredEnv(policy);
+  let seg = [...raw];
+  while (seg.length && (SAFE_ENV_PREFIX.test(seg[0]!) || envOk.has(seg[0]!))) seg.shift();
   if (seg.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(seg[0]!)) return { allowed: false, reason: `setting ${seg[0]!.split('=')[0]} is not allowed` };
+  if (!seg.length) return { allowed: true, reason: 'empty' };
+  // A repo's own tool by path (app/node_modules/.bin/ng) reads as the same tool run with npx.
+  const bin = /^(?:\.\/)?(?:[\w.@-]+\/)*node_modules\/\.bin\/([\w.-]+)$/.exec(seg[0]!);
+  if (bin && folderOk(seg[0], policy)) seg = ['npx', bin[1]!, ...seg.slice(1)];
+  if (policy.root) {
+    const moved = withoutFolderOptions(seg, policy);
+    if (!Array.isArray(moved)) return { allowed: false, reason: moved.reason };
+    seg = moved;
+  }
   const [cmd, ...args] = seg;
   if (!cmd) return { allowed: true, reason: 'empty' };
   const base = cmd.replace(/\.(exe|cmd|bat|ps1)$/i, '').toLowerCase();

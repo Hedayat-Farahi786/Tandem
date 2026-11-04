@@ -44,7 +44,7 @@ export function checkToolCall(mode: AgentMode, root: string, toolName: string, a
   }
   if ((SHELL_TOOLS as readonly string[]).includes(toolName)) {
     const command = typeof a.command === 'string' ? a.command : '';
-    return { ...checkShell(command, shell), summary: `${toolName}: ${command}` };
+    return { ...checkShell(command, { root, ...shell }), summary: `${toolName}: ${command}` };
   }
   return { allowed: true, reason: 'allowed', summary: `${toolName}${path ? ` ${path}` : ''}` };
 }

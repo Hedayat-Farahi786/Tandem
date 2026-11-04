@@ -12,6 +12,7 @@ export const READ_ONLY_RULES = [
 export const BUILD_RULES = [
   'You are the build agent for Tandem.',
   'Edit files only inside the workspace. Run only the repo commands, package installs and read-only commands you are allowed.',
+  'The workspace has one folder per repo. Run a repo\'s commands from its folder, exactly as configured, for example `cd web-app && npm test` (git -C <repo> and npm --prefix <repo> work too). Do not install system packages or browsers.',
   'Do not commit, rebase, push or change branches: Tandem does that. Do not deploy, call cloud CLIs or run migrations against real databases.',
   'Follow each repo\'s instructions and learned rules below. Keep the change as small as the spec allows.',
 ].join('\n');
@@ -79,7 +80,8 @@ export function implementPrompt(task: Task, repo: Repo, opts: { order: readonly 
   }
   lines.push(
     `For every acceptance criterion this repo covers (1-${opts.criteriaCount}), add or update at least one automated test, then call the tool tandem_record_test with the criterion number, repo "${repo.name}", the test file path (relative to the repo) and the test name.`,
-    `Run the repo's tests (${repo.commands.test ?? 'the test command'}) before you finish and fix what you broke.`,
+    repo.commands.test ? `Run the repo's tests before you finish and fix what you broke: \`cd ${repo.name} && ${repo.commands.test}\`.` : 'Run the repo\'s tests before you finish and fix what you broke.',
+    'Then call tandem_name_change to name the whole change for its commit and pull request: a short title like a person writes (imperative, at most 6 words, no task key, no period), for example "Bump version to 1.7.13" or "Add undo to the image editor", and one to three short lines on what changed.',
     'When you are done, reply with a short summary of what you changed.',
   );
   return lines.join('\n');
@@ -95,6 +97,7 @@ export function fixPrompt(failures: readonly CommandResult[], attempt: number, m
   return [
     `Verification failed (fix attempt ${attempt} of ${max}). Tandem ran these checks; fix the code so they pass. Do not weaken or skip tests, and do not change the check commands.`,
     ...failures.map((f) => `### ${f.repoId ? repoNames.get(f.repoId) ?? f.repoId : 'project'}: ${f.kind} — \`${f.command}\` (${f.timedOut ? 'timed out' : `exit ${f.exitCode}`})\n\n${fence(tail(f.outputTail))}`),
+    'Rerun the failing check from the repo folder to confirm, for example `cd <repo> && <command>`.',
     'Reply with a short summary of the fixes.',
   ].join('\n\n');
 }
@@ -111,6 +114,7 @@ export function reviewPrompt(opts: { spec: string; diff: string; rules: string }
     'Review this change as a careful senior engineer. Do not change anything.',
     'Check the full diff against: the approved spec, its acceptance criteria (is each one implemented and tested?), the repo rules, and this security checklist:',
     SECURITY_CHECKLIST.map((c) => `- ${c}`).join('\n'),
+    'The workspace has one folder per repo: a file from the diff under "# repo: web-app" is at web-app/<path>. Open files there.',
     'Report only real problems. For each: severity (high, medium, low), category, repo, file, line, a short title and the detail needed to fix it. An empty list is a fine answer.',
     '## Spec',
     opts.spec,
@@ -125,7 +129,7 @@ export function reviewFixPrompt(findings: readonly ReviewFinding[]): string {
   return [
     'A separate reviewer found these issues in your change. Fix the ones that are valid. For each finding, call tandem_resolve_finding with its id and status "fixed" or "dismissed" (with a one-line reason if dismissed).',
     ...findings.map((f) => `- id ${f.id} — **${f.severity}** (${f.category}) ${f.title}${f.file ? ` at ${f.file}${f.line ? `:${f.line}` : ''}` : ''}: ${f.detail}`),
-    'Then run the repo tests again and reply with a short summary.',
+    'Then run the repo tests again from the repo folder (`cd <repo> && <test command>`). If the change is now different, call tandem_name_change again. Reply with a short summary.',
   ].join('\n');
 }
 

@@ -27,13 +27,17 @@ describe('Tasks list', () => {
     mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/tasks': list });
     const user = userEvent.setup();
     renderApp('/tasks');
-    expect(await screen.findByRole('link', { name: /Review me/ })).toBeTruthy();
+    const main = await screen.findByRole('main');
+    expect(await within(main).findByRole('link', { name: /Review me/ })).toBeTruthy();
+    // The sidebar lists the open tasks, with their status in words; finished ones stay in Tasks.
+    const going = within(screen.getByRole('list', { name: 'Open tasks' }));
+    expect(going.getAllByRole('link').map((l) => l.textContent)).toEqual(['Building it, working', 'Review me, spec to review']);
     // One list, most recent activity first, whatever the status.
     expect(screen.getAllByRole('link', { name: /TND-/ }).map((l) => l.textContent)).toEqual([expect.stringContaining('Building it'), expect.stringContaining('Shipped'), expect.stringContaining('Review me')]);
     await user.click(screen.getByRole('button', { name: /Needs you/ }));
     expect(screen.getAllByRole('link', { name: /TND-/ }).map((l) => l.textContent)).toEqual([expect.stringContaining('Review me')]);
     await user.click(screen.getByRole('button', { name: /^Done/ }));
-    expect(screen.getByRole('link', { name: /Shipped/ }).getAttribute('href')).toBe('/tasks/c');
+    expect(within(main).getByRole('link', { name: /Shipped/ }).getAttribute('href')).toBe('/tasks/c');
   });
 
   it('shows a plain error with a retry', async () => {

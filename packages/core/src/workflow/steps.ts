@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   ExtractedRequirement,
+  NameChangeArgs,
   RecordTestArgs,
   ResolveFindingArgs,
   ReviewOutput,
@@ -22,7 +23,7 @@ import { checkReadiness, readinessMessage } from '../policies/ready.js';
 import { decideSize } from '../policies/size.js';
 import { redactor } from '../policies/redact.js';
 import { buildPrDescription, prTitle } from '../pr/description.js';
-import { commitMessage } from '../naming.js';
+import { changeBody, changeTitle, cleanTitle, commitMessage } from '../naming.js';
 import type { StepContext, StepHandlers, StepOutcome } from '../runner/runner.js';
 import { DEFAULT_TEMPLATE, finalizeSpec, validateSpec } from '../spec/template.js';
 import { affectedRepos, loadProject, openSession, refreshReferences, repoCommands, repoContext, worktreeOf, type GatedSession, type WorkflowDeps } from './context.js';
@@ -76,6 +77,23 @@ function recordTestTool(deps: WorkflowDeps, task: Task, repos: readonly Repo[]):
   };
 }
 
+/** The agent names its change when it finishes: the commit and pull request title, like a person would. */
+function nameChangeTool(ctx: StepContext): AgentTool<NameChangeArgs> {
+  return {
+    name: 'tandem_name_change',
+    description: 'Name the whole change for its commit and pull request: a short title and one to three lines on what changed. Call it when you finish, and again if the change grows.',
+    schema: NameChangeArgs,
+    handler: async (args) => {
+      const title = cleanTitle(args.title);
+      if (!title) return 'Give a title, for example "Bump version to 1.7.13".';
+      const words = title.split(' ').length;
+      if (title.length > 50 || words > 8) return `"${title}" is too long (${title.length} characters, ${words} words). Use at most 50 characters and 8 words, for example "Add undo to the image editor".`;
+      await ctx.saveProgress({ commitTitle: title, commitBody: args.body.trim().slice(0, 600) });
+      return `Saved. The commit and pull request are titled "${title}".`;
+    },
+  };
+}
+
 function resolveFindingTool(deps: WorkflowDeps, task: Task): AgentTool<ResolveFindingArgs> {
   return {
     name: 'tandem_resolve_finding',
@@ -110,7 +128,7 @@ async function buildSession(deps: WorkflowDeps, ctx: StepContext, project: Proje
     workspace: deps.paths.taskDir(task.id),
     instructions: P.buildInstructions(context, spec.markdown),
     allowedCommands: repoCommands(repos, project),
-    tools: [recordTestTool(deps, task, repos) as AgentTool<never>, ...extraTools],
+    tools: [recordTestTool(deps, task, repos) as AgentTool<never>, nameChangeTool(ctx) as AgentTool<never>, ...extraTools],
     ...(resumeId ? { resumeId } : {}),
     signal: ctx.signal,
   });
@@ -209,7 +227,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           patch: { sizeEstimate: estimate },
         };
       }
-      return { kind: 'goto', state: 'SPEC_DRAFTING', reason: `Ready, and about ${estimate.estimatedLines} lines: one reviewable change.`, patch: { sizeEstimate: estimate } };
+      return { kind: 'goto', state: 'SPEC_DRAFTING', reason: `Ready: a small, reviewable change (about ${estimate.estimatedLines} line${estimate.estimatedLines === 1 ? '' : 's'}).`, patch: { sizeEstimate: estimate } };
     },
 
     /* ---------------------------------------------------------------- SPEC_DRAFTING */
@@ -377,7 +395,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
       // The spec stays in Tandem (every version, with its approvals); the repository gets only the change.
-      await commitRepos(deps, task, repos, commitMessage(task.key, task.title));
+      await commitRepos(deps, task, repos, commitMessage(changeTitle(ctx.task)));
       return { kind: 'goto', state: 'VERIFYING', reason: 'Implementation committed; running checks.' };
     },
 
@@ -468,6 +486,9 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
         const host = deps.hosts(repo);
         await host.mirror(repo);
         const wt = { repoId: repo.id, path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` };
+        // A check run after the last commit may have changed tracked files (a formatter): a rebase
+        // refuses to start over them, so keep them first (they fold into the task's one commit).
+        await deps.git.commitTracked(wt.path, 'Save work in progress').catch(() => undefined);
         const r = await host.rebase(repo, wt);
         if (r.kind === 'ok') continue;
         const s = await buildSession(deps, ctx, project, repos, 'conflict');
@@ -500,17 +521,22 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const project = await loadProject(deps, task.projectId);
       const repos = await affectedRepos(deps, task, project);
       const pushed = asRecord(task.progress.pushed);
+      const pushedBase = asRecord(task.progress.pushedBase);
       for (const repo of repos) {
         const wt = { repoId: repo.id, path: worktreeOf(deps, task, repo), branch: task.branch, base: `origin/${repo.defaultBranch}` };
         const lease = pushed[repo.id];
         // One commit per task, written like a person's: the fix rounds and formatter passes on the way
         // there are Tandem's working steps, not history the team needs to read.
-        const squashed = await deps.git.squash(wt.path, wt.base, commitMessage(task.key, task.title, task.requirement.goal));
-        if (squashed) await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.committed', summary: `${task.key}: folded the branch into one commit in ${repo.name}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { commit: squashed, message: commitMessage(task.key, task.title, task.requirement.goal), branch: task.branch, files: [] } });
+        const message = commitMessage(changeTitle(task), changeBody(task));
+        const squashed = await deps.git.squash(wt.path, wt.base, message);
+        if (squashed) await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.committed', summary: `${task.key}: folded the branch into one commit in ${repo.name}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { commit: squashed, message, branch: task.branch, files: [] } });
         const r = await deps.hosts(repo).push(repo, wt, lease ? { forceWithLease: lease } : undefined);
         if (r.kind === 'rejected') return { kind: 'block', reason: 'push-rejected', message: `Pushing ${task.branch} to ${repo.name} was rejected: ${r.message}`, resumeTo: { state: 'SELF_REVIEW', step: 'sync' } };
         pushed[repo.id] = r.sha;
-        await ctx.saveProgress({ pushed: { ...pushed } });
+        // Where the branch starts: its changes stay viewable after the PR is merged (even fast-forward).
+        const from = await deps.git.mergeBase(wt.path, wt.base).catch(() => undefined);
+        if (from) pushedBase[repo.id] = from;
+        await ctx.saveProgress({ pushed: { ...pushed }, pushedBase: { ...pushedBase } });
         await deps.store.audit.append({ at: deps.clock.iso(), actor: 'system', action: 'git.pushed', summary: `${task.key}: pushed ${task.branch} to ${repo.name} at ${r.sha.slice(0, 7)}.`, taskId: task.id, projectId: task.projectId, repoId: repo.id, detail: { branch: task.branch, commit: r.sha, ...(lease ? { replaced: lease } : {}) } });
       }
       // Waiting on review needs no dependencies: free them (checks restore them from the cache).
@@ -529,7 +555,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
       const existing = await deps.store.prs.list(task.id);
       for (const repo of repos) {
         if (existing.some((p) => p.repoId === repo.id)) continue;
-        const title = prTitle(task.title);
+        const title = prTitle(changeTitle(task));
         const description = describe(repo, []);
         const r = await deps.hosts(repo).openPullRequest({ repo, sourceBranch: task.branch, destinationBranch: repo.defaultBranch, title, description, idempotencyKey: `${task.id}:${repo.id}` });
         const pr: PullRequest = {
@@ -565,7 +591,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           if (!repo) continue;
           const others = existing.filter((o) => o.id !== pr.id).map((o) => ({ repoName: repos.find((r) => r.id === o.repoId)?.name ?? o.repoId, url: o.url }));
           const description = describe(repo, others);
-          const title = prTitle(task.title);
+          const title = prTitle(changeTitle(task));
           if (!pr.manual && pr.status === 'open') await deps.hosts(repo).updatePullRequestDescription(repo, pr, description, title);
           await deps.store.prs.upsert({ ...pr, description, title });
         }
@@ -605,7 +631,7 @@ export function workflowHandlers(deps: WorkflowDeps): StepHandlers {
           if (!repo) continue;
           const status = await deps.hosts(repo).getPullRequestStatus(repo, pr);
           // A PR opened with an older title format ("[needs attention] KEY: ...") gets the plain name.
-          const title = prTitle(task.title);
+          const title = prTitle(changeTitle(task));
           if (status === 'open' && !pr.manual && pr.title !== title) {
             const renamed = await deps.hosts(repo).updatePullRequestDescription(repo, pr, pr.description, title).then(() => true, () => false);
             await deps.store.prs.upsert({ ...pr, ...(renamed ? { title } : {}), status, lastPolledAt: deps.clock.iso() });

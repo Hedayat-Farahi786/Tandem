@@ -28,10 +28,10 @@ describe('workflow: one full-stack repo', () => {
     expect((await h.store.specs.latest(t.id))!.markdown).toContain('| TND-1 | 1 |');
     expect((await h.store.approvals.list(t.id)).map((a) => a.role).sort()).toEqual(['owner', 'pm']);
     expect(h.host.opened[0]!.description).toContain('Spec: version 1, approved (Kept in Tandem with task TND-1)');
-    expect(h.git.commits.map((c) => c.message)).toEqual(['TND-1: Add a GET /health endpoint']);
-    // Pushed as one commit, written like a person's: the key, the change, then why.
+    expect(h.git.commits.map((c) => c.message)).toEqual(['Add a GET /health endpoint']);
+    // Pushed as one commit, written like a person's: a short title, then why. No task key.
     expect(h.git.squashes).toHaveLength(1);
-    expect(h.git.squashes[0]!.message).toMatch(/^TND-1: Add a GET \/health endpoint\n\n\S/);
+    expect(h.git.squashes[0]!.message).toMatch(/^Add a GET \/health endpoint\n\n\S/);
 
     // Verify ran every repo command, deterministic and by Tandem.
     expect(h.process.calls.map((c) => c.command)).toEqual(['npm ci', 'npm run lint', 'npm run typecheck', 'npm run build', 'npm test']);
@@ -297,7 +297,7 @@ describe('workflow: verification and review', () => {
     expect(fixes[1]!.prompt).toContain('fix attempt 2 of 2');
     expect(fixes[0]!.opts.resumeId).toBe(t.progress.buildSessionId); // the build session is resumed, not restarted
     expect(fixes[0]!.opts.resumeId).toBe(h.agent.calls.find((c) => c.prompt.startsWith('Implement'))!.opts.resumeId ?? 'scripted-3');
-    expect(h.git.commits.map((c) => c.message)).toEqual(['TND-1: Add a GET /health endpoint', 'Fix failing checks', 'Fix failing checks']);
+    expect(h.git.commits.map((c) => c.message)).toEqual(['Add a GET /health endpoint', 'Fix failing checks', 'Fix failing checks']);
     expect(h.host.opened[0]!.title).toBe('Add a GET /health endpoint');
     expect(h.host.opened[0]!.description).toContain('**Needs attention.**');
     expect((await h.store.verifyRuns.list(t.id)).map((v) => v.passed)).toEqual([false, false, false]);
@@ -819,3 +819,31 @@ describe('workflow: branch names', () => {
     expect((await h.store.tasks.get(t.id))!.branch).toBe(`agent/${t.key}-${t.slug}`);
   });
 });
+
+describe('workflow: the change is named like a person would', () => {
+  it("titles the commit and the pull request with Copilot's short name, without the task key; a long name is refused", async () => {
+    const h = harness({
+      script: {
+        implement: (call) => {
+          const repo = repoFromPrompt(call.prompt);
+          return {
+            text: 'Implemented.',
+            edits: [{ path: `${repo}/src/health.ts`, content: 'export const health = () => ({ status: "ok" });\n' }],
+            tools: [
+              { name: 'tandem_record_test', args: { criterion: 1, repo, file: 'test/a.test.ts', name: 'a' } },
+              { name: 'tandem_record_test', args: { criterion: 2, repo, file: 'test/b.test.ts', name: 'b' } },
+              { name: 'tandem_name_change', args: { title: 'Add a health endpoint and show the status on the main page of the app', body: '' } },
+              { name: 'tandem_name_change', args: { title: 'TND-1: Add health endpoint.', body: 'GET /health returns {status: "ok"}; the main page shows it.' } },
+            ],
+          };
+        },
+      },
+    });
+    let t = await h.start();
+    t = await h.approveAll(t.id);
+    expect(t.progress.commitTitle).toBe('Add health endpoint');
+    expect(h.git.squashes[0]!.message).toBe('Add health endpoint\n\nGET /health returns {status: "ok"}; the main page shows it.');
+    expect(h.host.opened[0]!.title).toBe('Add health endpoint');
+  });
+});
+

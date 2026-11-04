@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Check, ChevronDown, RotateCw } from 'lucide-react';
 import { api } from '../lib/api';
@@ -103,7 +104,10 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
   const [open, setOpen] = useState(false);
   // Opens toward the side with room and fits to it. Details sit beside the list (stacked below on narrow
   // screens) in a fixed-size panel, so hovering models never resizes the popover.
-  const [fit, setFit] = useState<{ side: 'top' | 'bottom'; list: number }>({ side: placement, list: 300 });
+  // Placed on the page itself (not inside the scrolling column), so the sidebar or the column's edge
+  // never cuts it off: anchored to the button, kept inside the window.
+  const [fit, setFit] = useState<{ side: 'top' | 'bottom'; list: number; pos?: { left: number; width: number; top?: number; bottom?: number } }>({ side: placement, list: 300 });
+  const panel = useRef<HTMLDivElement>(null);
   const catalog = useModels(open || Boolean(value));
   const items = useMemo<Item[]>(() => [{ kind: 'auto' }, ...(catalog.data?.models ?? []).map((m): Item => ({ kind: 'model', m }))], [catalog.data]);
   const selectedIndex = Math.max(0, items.findIndex((i) => itemId(i) === value));
@@ -115,9 +119,17 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && setOpen(false);
+    const close = (e: MouseEvent) => !root.current?.contains(e.target as Node) && !panel.current?.contains(e.target as Node) && setOpen(false);
+    // The page scrolling under it (not the list itself) or a resize would leave it floating: close.
+    const away = (e: Event) => !panel.current?.contains(e.target as Node) && setOpen(false);
     document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    window.addEventListener('scroll', away, true);
+    window.addEventListener('resize', away);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', away, true);
+      window.removeEventListener('resize', away);
+    };
   }, [open]);
   useLayoutEffect(() => {
     if (!open || !button.current) return;
@@ -127,8 +139,14 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
     const side = room[placement] >= 480 || room[placement] >= room[other] ? placement : other;
     const stacked = window.innerWidth < 640;
     // Narrow screens: a sheet along the bottom edge, so it never runs off the side.
-    setFit({ side, list: stacked ? Math.max(160, Math.min(280, window.innerHeight - 420)) : Math.max(160, Math.min(400, room[side] - 90)) });
-  }, [open, placement]);
+    const width = Math.min(640, window.innerWidth - 16);
+    const left = Math.min(Math.max(8, align === 'end' ? r.right - width : r.left), window.innerWidth - width - 8);
+    setFit({
+      side,
+      list: stacked ? Math.max(160, Math.min(280, window.innerHeight - 420)) : Math.max(160, Math.min(400, room[side] - 90)),
+      ...(stacked ? {} : { pos: { left, width, ...(side === 'top' ? { bottom: window.innerHeight - r.top + 8 } : { top: r.bottom + 8 }) } }),
+    });
+  }, [open, placement, align]);
   useEffect(() => {
     if (open) setActive(selectedIndex);
     // Only when opening or when the list arrives.
@@ -243,13 +261,14 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
         <span className="truncate">{label}</span>
         {busy ? <Spinner className="size-3.5" /> : <ChevronDown aria-hidden className={cx('size-3.5 shrink-0 text-faint transition-transform', open && 'rotate-180')} />}
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={panel}
+          style={fit.pos ? { position: 'fixed', left: fit.pos.left, width: fit.pos.width, top: fit.pos.top, bottom: fit.pos.bottom } : undefined}
           className={cx(
-            'absolute z-50 flex w-[min(640px,calc(100vw-32px))] max-sm:fixed max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-3 max-sm:m-0 max-sm:w-auto max-sm:origin-bottom animate-pop flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-lg',
-            fit.side === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
-            fit.side === 'top' ? (align === 'end' ? 'origin-bottom-right' : 'origin-bottom-left') : align === 'end' ? 'origin-top-right' : 'origin-top-left',
-            align === 'end' ? 'right-0' : 'left-0',
+            'z-[60] flex animate-pop flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left text-fg shadow-lg',
+            !fit.pos && 'fixed inset-x-3 bottom-3 origin-bottom',
+            fit.pos && (fit.side === 'top' ? (align === 'end' ? 'origin-bottom-right' : 'origin-bottom-left') : align === 'end' ? 'origin-top-right' : 'origin-top-left'),
           )}
         >
           <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
@@ -316,7 +335,8 @@ export function ModelPicker({ value, onChange, disabled, busy, placement = 'top'
               </div>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

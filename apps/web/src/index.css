@@ -189,3 +189,10 @@ html, body, #root { height: 100%; }
 .prose-tandem hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* A scroll area holds what it scrolls. Without a positioning context, hidden screen-reader text and
+   other absolute bits far down a long panel (a diff, a spec) escape its clipping and make the whole
+   page taller than the window, so it scrolls into empty space. Utilities (fixed, absolute) still win. */
+@layer base {
+  .overflow-auto, .overflow-y-auto, .overflow-x-auto { position: relative; }
+}

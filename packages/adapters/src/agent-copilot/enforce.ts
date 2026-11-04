@@ -24,7 +24,9 @@ export interface EnforcementOptions {
  * Both fail closed. Verified live in spike a (15/15 forbidden actions denied, 0 model calls).
  */
 export function enforcement(o: EnforcementOptions) {
-  const shell = { configured: o.allowedCommands };
+  const shell = { configured: o.allowedCommands, root: o.root };
+  // Absolute paths the owner's own repo commands use (CHROME_BIN=/path/to/chrome): not "outside" for them.
+  const ownerPaths = new Set(o.allowedCommands.flatMap((c) => c.split(/\s+/).map((t) => t.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, '')).filter((t) => t.startsWith('/'))));
   const tell = (tool: string, summary: string, allowed: boolean, reason: string) => o.onEvent?.({ type: 'tool', tool, summary, allowed, ...(allowed ? {} : { reason }) });
 
   const onPreToolUse = (input: { toolName: string; toolArgs: unknown }) => {
@@ -51,7 +53,7 @@ export function enforcement(o: EnforcementOptions) {
       case 'shell': {
         const r = req as { fullCommandText: string; possiblePaths?: string[] };
         if (o.mode !== 'build') return deny('this session is read-only');
-        const outside = (r.possiblePaths ?? []).find((p) => !isInside(o.root, p));
+        const outside = (r.possiblePaths ?? []).find((p) => !isInside(o.root, p) && !ownerPaths.has(p));
         if (outside) return deny(`the command touches ${outside}, outside the workspace`);
         const v = checkShell(r.fullCommandText, shell);
         return v.allowed ? { kind: 'approve-once' } : deny(v.reason);

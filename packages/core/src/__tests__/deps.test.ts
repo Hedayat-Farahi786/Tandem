@@ -45,6 +45,16 @@ describe('dependency cache', () => {
     expect(await installKey(a, 'npm install')).not.toBe(key);
     put(b, 'packages/ui/package.json', '{"name":"ui","dependencies":{"x":"1"}}');
     expect(await installKey(b, 'npm ci')).not.toBe(key);
+    // A version bump installs nothing new: same key. A dependency change does.
+    const c = tmp();
+    const d = tmp();
+    put(c, 'package.json', '{"name":"app","version":"1.7.12","dependencies":{"x":"1"}}');
+    put(c, 'package-lock.json', '{"name":"app","version":"1.7.12","packages":{"":{"name":"app","version":"1.7.12"},"node_modules/x":{"version":"1.0.0"}}}');
+    put(d, 'package.json', '{"name":"app","version":"1.7.13","dependencies":{"x":"1"}}');
+    put(d, 'package-lock.json', '{"name":"app","version":"1.7.13","packages":{"":{"name":"app","version":"1.7.13"},"node_modules/x":{"version":"1.0.0"}}}');
+    expect(await installKey(d, 'npm ci')).toBe(await installKey(c, 'npm ci'));
+    put(d, 'package-lock.json', '{"name":"app","version":"1.7.13","packages":{"":{"name":"app","version":"1.7.13"},"node_modules/x":{"version":"1.0.1"}}}');
+    expect(await installKey(d, 'npm ci')).not.toBe(await installKey(c, 'npm ci'));
     const none = tmp();
     put(none, 'package.json', '{}');
     expect(await installKey(none, 'npm ci')).toBeUndefined();

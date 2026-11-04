@@ -140,6 +140,8 @@ test('task: built, verified, reviewed, and a pull request to open', async () => 
   await checkScreen(page, '12b-task-trace');
   await panel.getByRole('tab', { name: 'Changes' }).click();
   await expect(panel.getByText(/\d+ files changed/)).toBeVisible({ timeout: 30_000 });
+  // A long diff scrolls inside its panel; the page itself never grows past the window.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeLessThanOrEqual(1);
   await checkScreen(page, '13-task-changes');
   await panel.getByRole('tab', { name: 'Overview' }).click();
   // The task kept the model picked in chat, and shows its credits.

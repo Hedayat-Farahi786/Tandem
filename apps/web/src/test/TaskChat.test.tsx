@@ -32,7 +32,8 @@ describe('Task as a conversation', () => {
     const convo = await screen.findByRole('region', { name: 'Conversation' });
     // The request, what happened, what Copilot did and the spec, in order.
     expect(await within(convo).findByText('Add GET /health')).toBeTruthy();
-    expect(within(convo).getByText('Readiness check')).toBeTruthy();
+    // Routine stage changes stay out of the conversation (the bar shows them); its cards tell the story.
+    expect(within(convo).queryByText('Readiness check')).toBeNull();
     expect(await within(convo).findByText('Wrote the spec')).toBeTruthy();
     expect(within(convo).getByText('Spec v1')).toBeTruthy();
     // What needs you sits at the end, right above the composer.

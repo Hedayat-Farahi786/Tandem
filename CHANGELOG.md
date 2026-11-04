@@ -8,6 +8,50 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **A review of the recent tasks, and what it fixed.**
+  - *Copilot can run your tests while it builds.* In every recent task
+    Copilot tried to run the repo's tests and was blocked. The workspace
+    holds one folder per repo, and the guard refused `cd <repo>`,
+    `git -C <repo>`, `npm --prefix <repo>` and the `CHROME_BIN=…` the repo's
+    own test command sets. Copilot wrote tests blind, which cost fix rounds,
+    and one task merged tests that fail. Now commands may run in a folder
+    inside the workspace (never outside it, never with `..`), and Copilot
+    may set the same variables your repo commands set. The prompts say how
+    to run each check, and the reviewer is told where each repo's files are.
+  - *Short commit and pull request titles, without the task number.*
+    Copilot names its change when it finishes ("Bump version to 1.7.13",
+    at most 50 characters). The pushed commit and the pull request take
+    that title, with a few lines on what changed. Without a name, the task
+    title in sentence case is used.
+  - *Changes stay visible after the merge.* A merged task's Changes tab was
+    empty: once the branch is part of the default branch, comparing the two
+    shows nothing. Tandem now records where each branch starts when it
+    pushes, and finds the start of older tasks from their merge or their
+    commits.
+  - *Faster version bumps.* The project's own version number no longer
+    counts toward the dependency cache, so a version bump reuses the
+    installed dependencies.
+  - *No more failed rebases over files a formatter left behind.* Before a
+    rebase, changes to tracked files are kept first.
+  - *Tandem's instructions stay private.* The task conversation and the
+    activity API no longer include the prompt Tandem sends Copilot; the
+    Trace still shows its fingerprint.
+  - *A cleaner conversation.* Routine stage changes are left out (the bar
+    shows them); stops, resumes and the end remain. An approval appears
+    after the spec it approves.
+  - *A clearer sidebar.* "Open tasks" lists the project's tasks still in
+    progress, each with a status dot and its status in words, separate from
+    "Chats". Chat rows have no task icons, and the list scrolls without a
+    visible bar.
+  - *The model picker is always fully visible.* It opens on top of the page,
+    anchored to its button and kept inside the window, instead of being cut
+    off by the sidebar.
+  - *The page never scrolls into empty space.* Hidden screen-reader text
+    deep in a long diff or spec made the whole page taller than the window.
+    Scroll areas now hold everything they contain.
+  - "Ready, and about 1 lines" now reads "Ready: a small, reviewable change
+    (about 1 line)".
+
 - **See every stage of a task while it runs.** Under the task's title, one
   quiet line and a thin bar show where the task is: the stage, what is
   happening now and for how long ("Build · Copilot coding 4m 02s", "Checks ·
