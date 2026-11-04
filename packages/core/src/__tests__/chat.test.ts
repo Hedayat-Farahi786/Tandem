@@ -360,3 +360,55 @@ describe('chat: a stuck task', () => {
     await expect(c.continueTask((await c.createThread({ projectId: 'p1', mode: 'ask' })).id, 'x')).rejects.toThrow(/Only a task chat/);
   });
 });
+
+describe('chat: rename, pin and delete', () => {
+  it('renames and pins a chat without reordering it by activity, and keeps a manual name after replies', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    h.overrides.chat = () => ({ text: 'Sure.' });
+    const t = await c.createThread({ projectId: 'p1', mode: 'ask' });
+    const renamed = await c.renameThread(t.id, '  Greeting   route  ');
+    expect(renamed.title).toBe('Greeting route');
+    expect(renamed.updatedAt).toBe(t.updatedAt);
+    // The first answer names an unnamed chat, never one you named.
+    await c.send(t.id, 'Where is the greeting route?');
+    expect((await h.store.threads.get(t.id))!.title).toBe('Greeting route');
+    await expect(c.renameThread(t.id, '   ')).rejects.toThrow(/Give the chat a name/);
+    expect((await c.pinThread(t.id, true)).pinnedAt).toBeTruthy();
+    expect((await c.pinThread(t.id, false)).pinnedAt).toBeUndefined();
+    expect(h.events.events.filter((e) => e.type === 'thread.updated' && e.threadId === t.id).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('deletes a chat and its messages, keeps the task made from it, and records it in the audit log', async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    h.overrides.chat = () => ({ text: 'Noted.' });
+    const t = await c.createThread({ projectId: 'p1', mode: 'ask', title: 'Old question' });
+    await c.send(t.id, 'Hi');
+    const task = await h.service.create({ projectId: 'p1', title: 'Health endpoint', description: 'Please add a health endpoint and show it.', source: 'chat' });
+    await h.store.threads.upsert({ ...(await h.store.threads.get(t.id))!, createdTaskId: task.id });
+    expect(await c.deleteThread(t.id)).toEqual({ deleted: true, messages: 2 });
+    expect(await h.store.threads.get(t.id)).toBeUndefined();
+    expect(await c.messages(t.id)).toEqual([]);
+    expect(await h.store.tasks.get(task.id)).toBeTruthy();
+    const entry = (await h.store.audit.list()).find((e) => e.action === 'chat.deleted')!;
+    expect(entry.summary).toContain('"Old question" (2 messages)');
+    expect(entry.summary).toContain(`${task.key} keeps its own record`);
+    await expect(c.deleteThread(t.id)).rejects.toThrow(/not found/);
+  });
+
+  it("won't delete a chat while Copilot answers in it, nor a task's own chat", async () => {
+    const h = harness();
+    await h.ready;
+    const c = chat(h);
+    const t = await c.createThread({ projectId: 'p1', mode: 'request' });
+    await h.store.threads.upsert({ ...t, busy: { since: h.deps.clock.iso() } });
+    await expect(c.deleteThread(t.id)).rejects.toThrow(/still answering/);
+    const task = await h.service.create({ projectId: 'p1', title: 'Health endpoint', description: 'Please add a health endpoint and show it.', source: 'chat' });
+    const tc = await c.taskThread(task.id);
+    await expect(c.deleteThread(tc.id)).rejects.toThrow(/part of the task's record/);
+    await expect(c.renameThread(tc.id, 'x')).rejects.toThrow(/Rename the task/);
+  });
+});

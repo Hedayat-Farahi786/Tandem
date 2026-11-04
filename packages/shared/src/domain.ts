@@ -345,6 +345,8 @@ export const ChatThread = z.object({
    * `runId` is the agent run, once it started.
    */
   busy: z.object({ since: Iso, runId: Id.optional() }).optional(),
+  /** Pinned to the top of Recents (when). */
+  pinnedAt: Iso.optional(),
   /** Request chat: questions the agent asked, waiting for the owner's answers. */
   pendingQuestions: z.object({ questions: z.array(OwnerQuestion), askedAt: Iso }).optional(),
   createdAt: Iso,

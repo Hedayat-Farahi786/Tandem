@@ -129,6 +129,11 @@ class MemoryRepos implements RawRepos {
   messages: Store['messages'] = {
     add: async (m) => void this.data.messages.push(clone(m)),
     list: async (threadId) => this.data.messages.filter((m) => m.threadId === threadId).map(clone) as never,
+    deleteFor: async (threadId) => {
+      const before = this.data.messages.length;
+      this.data.messages = this.data.messages.filter((m) => m.threadId !== threadId);
+      return before - this.data.messages.length;
+    },
   };
   rules: Store['rules'] = {
     ...this.collection('rules'),

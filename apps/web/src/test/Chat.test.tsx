@@ -153,6 +153,76 @@ describe('Chat', () => {
     expect(await screen.findByRole('heading', { name: 'What should we build?' })).toBeTruthy();
   });
 
+  it('renames, pins and deletes chats from the sidebar menu and the chat title; a deleted open chat goes back to the composer', async () => {
+    let list = [
+      { ...thread, id: 't2', title: 'Where is the greeting route?', mode: 'ask' },
+      { ...thread, id: 't3', title: 'Health endpoint', createdTaskId: 'task1' },
+    ] as Array<Record<string, unknown>>;
+    const byId = (id: string) => list.find((t) => t.id === id)!;
+    const api = mockApi({
+      'GET /api/bootstrap': boot(),
+      'GET /api/tasks': [{ id: 'task1', key: 'TND-1', title: 'Health endpoint', state: 'BUILDING', prCount: 0 }],
+      'GET /api/projects/p1/threads': () => [...list].sort((a, b) => String(b.pinnedAt ?? '').localeCompare(String(a.pinnedAt ?? ''))),
+      'GET /api/threads/t2': () => ({ thread: byId('t2'), model: '', messages: [], readiness: null }),
+      'GET /api/threads/t3': () => ({ thread: byId('t3'), model: '', messages: [], readiness: null }),
+      'PUT /api/threads/t2/title': (b) => Object.assign(byId('t2'), { title: (b as { title: string }).title }),
+      'PUT /api/threads/t3/pin': (b) => Object.assign(byId('t3'), { pinnedAt: (b as { pinned: boolean }).pinned ? '2026-11-04T00:00:00Z' : undefined }),
+      'DELETE /api/threads/t3': () => ((list = list.filter((t) => t.id !== 't3')), { deleted: true, messages: 4 }),
+    });
+    const user = userEvent.setup();
+    renderApp('/chat?project=p1');
+    const nav = await screen.findByRole('navigation', { name: 'Conversations' });
+    await within(nav).findByText('Where is the greeting route?');
+
+    // Rename from the sidebar: the name edits in place, Enter saves.
+    await user.click(within(nav).getByRole('button', { name: 'Actions for Where is the greeting route?' }));
+    const menu = await screen.findByRole('menu', { name: 'Actions for Where is the greeting route?' });
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Pin to top', 'Rename', 'Delete']);
+    await user.click(within(menu).getByRole('menuitem', { name: 'Rename' }));
+    const field = within(nav).getByRole('textbox', { name: 'Chat name' });
+    await user.clear(field);
+    await user.type(field, 'Greeting route{Enter}');
+    expect(api.calls.find((c) => c.path === '/api/threads/t2/title')?.body).toEqual({ title: 'Greeting route' });
+    expect(await within(nav).findByText('Greeting route')).toBeTruthy();
+
+    // Escape cancels a rename.
+    await user.click(within(nav).getByRole('button', { name: 'Actions for Greeting route' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    await user.type(within(nav).getByRole('textbox', { name: 'Chat name' }), ' nope{Escape}');
+    expect(api.calls.filter((c) => c.path === '/api/threads/t2/title')).toHaveLength(1);
+
+    // Pin: it moves to a Pinned group at the top.
+    await user.click(within(nav).getByRole('button', { name: 'Actions for Health endpoint' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Pin to top' }));
+    const pinned = await within(nav).findByRole('list', { name: 'Pinned chats' });
+    expect(within(pinned).getByText('Health endpoint')).toBeTruthy();
+
+    // Open it, then delete from its title bar: asked first, the task is said to stay.
+    await user.click(within(pinned).getByText('Health endpoint'));
+    expect(await screen.findByRole('heading', { name: 'Health endpoint' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Chat actions' }));
+    expect(within(await screen.findByRole('menu', { name: 'Chat actions' })).getByRole('menuitem', { name: 'Unpin' })).toBeTruthy();
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this chat?' });
+    expect(await within(dialog).findByText('TND-1')).toBeTruthy();
+    expect(within(dialog).getByText(/keeps its own copy of the request/)).toBeTruthy();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete chat' }));
+    expect(api.calls.some((c) => c.method === 'DELETE' && c.path === '/api/threads/t3')).toBe(true);
+    expect(await screen.findByRole('heading', { name: 'What should we build?' })).toBeTruthy();
+    await waitFor(() => expect(within(nav).queryByText('Health endpoint')).toBeNull());
+    expect(within(nav).queryByRole('list', { name: 'Pinned chats' })).toBeNull();
+  });
+
+  it("won't offer Delete while Copilot is answering in a chat", async () => {
+    const busy = { ...thread, id: 't4', title: 'Busy one', busy: { since: '2026-11-04T00:00:00Z' } };
+    mockApi({ 'GET /api/bootstrap': boot(), 'GET /api/projects/p1/threads': [busy] });
+    const user = userEvent.setup();
+    renderApp('/chat?project=p1');
+    const nav = await screen.findByRole('navigation', { name: 'Conversations' });
+    await user.click(await within(nav).findByRole('button', { name: 'Actions for Busy one' }));
+    expect((await screen.findByRole('menuitem', { name: 'Delete' })).getAttribute('aria-disabled')).toBe('true');
+  });
+
   it('picks a Copilot model with prices and details, for a new chat and an open one', async () => {
     let model = '';
     const api = mockApi({

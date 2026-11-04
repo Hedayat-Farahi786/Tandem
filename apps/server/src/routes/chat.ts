@@ -8,7 +8,15 @@ const id = (req: { params: unknown }) => (req.params as { id: string }).id;
 export function registerChatRoutes(app: FastifyInstance, ctx: ServerContext) {
   const { chat, tandem } = ctx;
 
-  app.get('/api/projects/:id/threads', async (req) => (await tandem.store.threads.listFor({ projectId: id(req) })).filter((t) => t.mode !== 'task').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  /** A project's chats: pinned first (latest pin on top), then the most recently active. */
+  app.get('/api/projects/:id/threads', async (req) =>
+    (await tandem.store.threads.listFor({ projectId: id(req) }))
+      .filter((t) => t.mode !== 'task')
+      .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '') || b.updatedAt.localeCompare(a.updatedAt)),
+  );
+  app.put('/api/threads/:id/title', async (req) => chat.renameThread(id(req), z.object({ title: z.string().max(500) }).parse(req.body).title));
+  app.put('/api/threads/:id/pin', async (req) => chat.pinThread(id(req), z.object({ pinned: z.boolean() }).parse(req.body).pinned));
+  app.delete('/api/threads/:id', async (req) => chat.deleteThread(id(req)));
   app.post('/api/threads', async (req) => chat.createThread(z.object({ projectId: z.string(), mode: z.enum(['ask', 'request']), title: z.string().optional(), model: z.string().optional() }).parse(req.body)));
   app.get('/api/threads/:id', async (req) => {
     const thread = await tandem.store.threads.get(id(req));

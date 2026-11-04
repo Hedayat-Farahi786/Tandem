@@ -4,6 +4,7 @@ import { AskOwnerArgs, ContinueArgs, DraftUpdateArgs, RenameTaskArgs, Requiremen
 import type { AgentEvent, AgentTool } from '../ports.js';
 import { checkReadiness, type ReadinessResult } from '../policies/ready.js';
 import { requirementMarkdown } from '../spec/template.js';
+import { ownerOf } from '../audit.js';
 import { ActionError, checkModel, type TaskService } from '../workflow/service.js';
 import { NotFoundError, affectedRepos, loadProject, openSession, refreshReferences, type WorkflowDeps } from '../workflow/context.js';
 import { READ_ONLY_RULES } from '../workflow/prompts.js';
@@ -117,6 +118,55 @@ export class ChatService {
     const t: ChatThread = { id: this.deps.ids(), projectId: task.projectId, taskId, mode: 'task', title: `${task.key} chat`, createdAt: now, updatedAt: now };
     await this.deps.store.threads.upsert(t);
     return t;
+  }
+
+  /** Renames a chat. A task's chat is named after its task: rename the task instead. */
+  async renameThread(id: string, title: string): Promise<ChatThread> {
+    const t = await this.thread(id);
+    if (t.mode === 'task') throw new ActionError("A task's chat carries the task's name. Rename the task instead.");
+    const name = title.replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!name) throw new ActionError('Give the chat a name.');
+    if (name === t.title) return t;
+    // The latest copy: a reply may have just landed. The order in Recents stays as it was.
+    const next: ChatThread = { ...(await this.thread(id)), title: name };
+    await this.deps.store.threads.upsert(next);
+    this.deps.events?.emit({ type: 'thread.updated', threadId: id });
+    return next;
+  }
+
+  /** Pins a chat to the top of Recents, or unpins it. */
+  async pinThread(id: string, pinned: boolean): Promise<ChatThread> {
+    const { pinnedAt: _was, ...t } = await this.thread(id);
+    if (t.mode === 'task') throw new ActionError("A task's chat lives with its task.");
+    const next: ChatThread = pinned ? { ...t, pinnedAt: this.deps.clock.iso() } : t;
+    await this.deps.store.threads.upsert(next);
+    this.deps.events?.emit({ type: 'thread.updated', threadId: id });
+    return next;
+  }
+
+  /**
+   * Deletes a chat and its messages. A task made from it is not touched: the task keeps its own
+   * copy of the request, spec and trace. Not while Copilot is answering in it.
+   */
+  async deleteThread(id: string): Promise<{ deleted: true; messages: number }> {
+    const t = await this.thread(id);
+    if (t.mode === 'task') throw new ActionError("A task's chat is part of the task's record and can't be deleted on its own.");
+    if (t.busy && !(await this.staleBusy(t))) throw new ActionError('Copilot is still answering in this chat. Delete it once the answer is in.');
+    const messages = await this.deps.store.messages.deleteFor(id);
+    await this.deps.store.threads.delete(id);
+    const task = t.createdTaskId ? await this.deps.store.tasks.get(t.createdTaskId) : undefined;
+    await this.deps.store.audit.append({
+      at: this.deps.clock.iso(),
+      actor: 'owner',
+      ...ownerOf(await this.deps.settings()),
+      action: 'chat.deleted',
+      summary: `Deleted the ${t.mode === 'ask' ? 'question' : 'request'} chat "${t.title}" (${messages} message${messages === 1 ? '' : 's'})${task ? `; ${task.key} keeps its own record` : ''}.`,
+      projectId: t.projectId,
+      ...(task ? { taskId: task.id } : {}),
+      detail: { threadId: id, title: t.title, mode: t.mode, messages, ...(task ? { task: task.key } : {}) },
+    });
+    this.deps.events?.emit({ type: 'thread.updated', threadId: id });
+    return { deleted: true, messages };
   }
 
   async messages(threadId: string): Promise<ChatMessage[]> {

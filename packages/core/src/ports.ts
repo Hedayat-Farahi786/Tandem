@@ -90,7 +90,7 @@ export interface Store {
   findings: TaskScoped<ReviewFinding> & { replace(taskId: string, items: ReviewFinding[]): Promise<void> };
   prs: TaskScoped<PullRequest> & { listByStatus(statuses: readonly PullRequestStatus[]): Promise<PullRequest[]> };
   threads: Collection<ChatThread> & { listFor(scope: { projectId?: string; taskId?: string }): Promise<ChatThread[]> };
-  messages: { add(m: ChatMessage): Promise<void>; list(threadId: string): Promise<ChatMessage[]> };
+  messages: { add(m: ChatMessage): Promise<void>; list(threadId: string): Promise<ChatMessage[]>; deleteFor(threadId: string): Promise<number> };
   rules: Collection<Rule> & { listPending(repoId: string): Promise<Rule[]> };
   usage: { add(u: UsageRecord): Promise<void>; prompts(scope: { taskId?: string; since?: string }): Promise<number>; list(scope: { taskId?: string; since?: string }): Promise<UsageRecord[]> };
   jobs: {

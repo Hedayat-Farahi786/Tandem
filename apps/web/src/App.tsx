@@ -26,7 +26,7 @@ import { NEEDS_YOU } from "./lib/tasks";
 import { useTheme } from "./lib/theme";
 import { CommandPalette } from "./ui/command";
 import { ProjectAvatar } from "./ui/visual";
-import { relativeTime } from "./lib/format";
+import { ChatRecents } from "./ui/thread-actions";
 import { useChatProject } from "./lib/project";
 import {
   Avatar,
@@ -93,62 +93,6 @@ const navItem = (active: boolean) =>
       ? "bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.04)]"
       : "text-fg hover:bg-surface-3/60",
   );
-
-function Recents({ projectId }: { projectId: string }) {
-  const { path, search } = useRouter();
-  const threads = useQuery({
-    queryKey: ["threads", projectId],
-    queryFn: () => api<ChatThread[]>(`/api/projects/${projectId}/threads`),
-    enabled: Boolean(projectId),
-  });
-  const current = path.startsWith("/chat") ? search.get("thread") : null;
-  return (
-    <nav
-      aria-label="Conversations"
-      className="mt-6 flex min-h-0 flex-1 flex-col"
-    >
-      <p className="mb-1 flex h-6 items-center px-2.5 text-[12px] font-medium text-faint">
-        Recents
-      </p>
-      <ul className="-mr-2 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pr-2 [scrollbar-width:thin]">
-        {threads.isLoading && (
-          <li className="px-2.5 py-1.5 text-[12px] text-faint">Loading…</li>
-        )}
-        {threads.data?.length === 0 && (
-          <li className="px-2.5 py-1.5 text-[12px] leading-snug text-faint">
-            Your requests and questions appear here.
-          </li>
-        )}
-        {threads.data?.map((t) => {
-          const active = t.id === current;
-          return (
-            <li key={t.id}>
-              <Link
-                to={`/chat?project=${projectId}&thread=${t.id}`}
-                aria-current={active ? "page" : undefined}
-                title={`${t.title} · ${t.createdTaskId ? "became a task" : t.mode === "request" ? "request" : "question"} · ${relativeTime(t.updatedAt)}`}
-                className={cx(
-                  "group flex h-8 items-center gap-2 rounded-lg px-2.5 text-[13px] transition-colors duration-150",
-                  active
-                    ? "bg-surface text-fg shadow-[0_0_0_1px_var(--border)]"
-                    : "text-muted hover:bg-surface-3/60 hover:text-fg",
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate">{t.title}</span>
-                {t.createdTaskId && (
-                  <ListTodo
-                    aria-label="Became a task"
-                    className="size-3.5 shrink-0 text-faint opacity-70"
-                  />
-                )}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
-}
 
 function ThemeToggle() {
   const [theme, toggle] = useTheme();
@@ -450,7 +394,7 @@ function Shell() {
             })}
           </nav>
           {boot.data?.projects.length ? (
-            <Recents projectId={chatProject} />
+            <ChatRecents projectId={chatProject} />
           ) : (
             <div className="flex-1" />
           )}

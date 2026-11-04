@@ -149,6 +149,7 @@ class SqliteRepos implements RawRepos {
   messages: Store['messages'] = {
     add: (m) => this.op(() => void this.db.prepare('INSERT INTO messages (id, thread_id, created_at, doc) VALUES (?, ?, ?, ?)').run(m.id, m.threadId, m.createdAt, this.encode(m))),
     list: (threadId) => this.op(() => this.all('SELECT doc FROM messages WHERE thread_id = ? ORDER BY seq', threadId)),
+    deleteFor: (threadId) => this.op(() => Number(this.db.prepare('DELETE FROM messages WHERE thread_id = ?').run(threadId).changes)),
   };
 
   rules: Store['rules'] = {

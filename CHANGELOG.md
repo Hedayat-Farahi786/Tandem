@@ -8,6 +8,11 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Rename, pin and delete chats.** Every conversation in Recents, and the
+  open chat's title, has a menu: Pin to top, Rename (or double-click the
+  name), Open the task, and Delete. Delete asks first, says the task made
+  from the chat stays as it is, and is recorded in the audit log; it waits
+  while Copilot is still answering.
 - **The task page reads cleanly when something stops.** The reason is said
   once, in the card at the bottom of the conversation, and an expired AWS
   sign-in says so in plain words ("Sign-in expired … sign in again, then

@@ -55,6 +55,17 @@ The sidebar has **New chat**, your **Tasks** and **Projects**, and
 **Recents**, your conversations for the current project. Settings and the
 doctor are at the bottom.
 
+Each conversation has a **⋯** menu (on hover, or Tab to it) with **Pin to
+top**, **Rename**, **Open the task** (when it became one) and **Delete**; the
+same menu sits next to an open chat's name. Double-click a name to rename it
+in place: Enter saves, Escape cancels. A name you give is kept; Tandem only
+names chats you haven't. Pinned chats stay in a **Pinned** group above
+Recents. Deleting asks first and removes the chat and its messages for good
+(the audit log notes it). A task made from the chat isn't affected: it keeps
+its own copy of the request, spec and trace. A chat can't be deleted while
+Copilot is answering in it, and a task's own conversation lives with the
+task.
+
 A new chat starts in one of two modes:
 
 - **Request**: describe a change. When Copilot needs to know something, a

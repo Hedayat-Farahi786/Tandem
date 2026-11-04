@@ -11,6 +11,7 @@ import { useRouter } from '../lib/router';
 import { useChatProject } from '../lib/project';
 import type { Bootstrap, ThreadView } from '../lib/types';
 import { Button, Callout, EmptyState, ErrorState, Loading, Markdown, Select, Spinner, cx, useToast } from '../ui/kit';
+import { ThreadTitle } from '../ui/thread-actions';
 import { ModelPicker, useModels } from '../ui/model-picker';
 import { RequestDraft } from './RequestDraft';
 import { AnswersBubble, QuestionCard } from '../ui/questions';
@@ -605,7 +606,7 @@ export function ChatScreen() {
             {/* A slim title bar, like a chat app: the conversation gets the room. */}
             <div className="sticky top-0 z-20 -mx-4 mb-2 flex h-14 items-center justify-between gap-4 bg-bg/85 px-4 backdrop-blur-md md:-mx-8 md:px-8">
               <div className="flex min-w-0 items-center gap-2.5">
-                <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{current.title}</h1>
+                <ThreadTitle thread={current} projectId={projectId} />
                 <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] text-muted">{current.mode === 'request' ? 'Request' : 'Question'}</span>
               </div>
               {current.createdTaskId && (
