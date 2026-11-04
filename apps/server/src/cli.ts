@@ -2,7 +2,8 @@
 import { spawn } from 'node:child_process';
 import { ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
 import { runDoctor, type DoctorCheck } from './doctor.js';
-import { VERSION, readConfig, startServer } from './start.js';
+import { VERSION, WEB_DIR, readConfig, startServer } from './start.js';
+import { readHostedConfig, startHosted } from './hosted/server.js';
 
 const ICON: Record<DoctorCheck['status'], string> = { pass: '✔', warn: '!', fail: '✖', skipped: '–' };
 
@@ -40,7 +41,21 @@ async function doctor(json: boolean): Promise<number> {
   }
 }
 
+async function startHostedMode(): Promise<void> {
+  const cfg = readHostedConfig(process.env);
+  const h = await startHosted(cfg, { webDir: WEB_DIR });
+  console.log(`Tandem ${VERSION} (hosted) is running on ${cfg.listenHost}:${new URL(h.url).port} for ${cfg.publicUrl}`);
+  const shutdown = async () => {
+    await h.stop();
+    process.exit(0);
+  };
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
+}
+
 async function start(open: boolean): Promise<void> {
+  // Hosted: the web app with GitHub sign-in and one workspace per team (see docs/WEB_PLAN.md).
+  if (process.env.TANDEM_MODE === 'hosted') return startHostedMode();
   const config = readConfig();
   const r = await startServer(config);
   console.log(`Tandem ${VERSION} is running at ${r.url}`);

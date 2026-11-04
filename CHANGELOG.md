@@ -8,6 +8,25 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **Hosted mode, first step.** `TANDEM_MODE=hosted` runs Tandem as a web
+  app (see `docs/WEB_PLAN.md`):
+  - **Sign-in:** "Continue with GitHub" through a GitHub App, with a state
+    check. Each person's GitHub tokens are sealed with AES-256-GCM.
+    Sessions use host-only, HttpOnly, Secure, SameSite=Lax cookies; only a
+    hash of each session is stored, and each session has its own CSRF token
+    for changes.
+  - **Workspaces:** each has its own database and engine (a "cell"), reached
+    only through the front server after a membership check. People can
+    create workspaces and switch between them.
+  - **Your data (GDPR):** export your account, or delete it. Deleting it
+    removes the workspaces only you owned, with all their data.
+  - **Security:** a sign-in page with no external requests; strict host and
+    origin checks, HSTS, security headers and a CSP.
+  - **Settings:** every address comes from the environment
+    (`TANDEM_PUBLIC_URL` and the GitHub App credentials); none is in the code.
+
+  The local app is unchanged: it now runs one cell.
+
 - **The plan for Tandem as a web app, legal drafts and a website.**
   `docs/WEB_PLAN.md` sets out the agreed direction:
   - Tandem hosted in the EU (Frankfurt), with sign-in through a GitHub App.

@@ -26,6 +26,7 @@ import { useTheme } from "./lib/theme";
 import { CommandPalette } from "./ui/command";
 import { ProjectAvatar } from "./ui/visual";
 import { ChatRecents } from "./ui/thread-actions";
+import { AccountMenu, isHosted } from "./ui/account-menu";
 import { useChatProject } from "./lib/project";
 import {
   Avatar,
@@ -422,6 +423,7 @@ function Shell() {
                 );
               })}
             </nav>
+            {isHosted() ? <AccountMenu /> : (
             <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
               <Avatar name={owner || "You"} />
               <div className="min-w-0 flex-1 leading-tight">
@@ -449,6 +451,7 @@ function Shell() {
                 )}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

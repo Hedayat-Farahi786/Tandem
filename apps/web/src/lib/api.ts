@@ -25,6 +25,8 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   }
   const text = await res.text();
   const data = text ? (() => { try { return JSON.parse(text) as unknown; } catch { return text; } })() : undefined;
+  // Hosted: the session ended (signed out elsewhere, expired). Back to the sign-in page.
+  if (res.status === 401 && (data as { signIn?: boolean })?.signIn) window.location.assign('/');
   if (!res.ok) throw new ApiError(res.status, (data as { error?: string })?.error ?? `Request failed (${res.status}).`);
   return data as T;
 }

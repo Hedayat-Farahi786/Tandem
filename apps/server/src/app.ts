@@ -31,8 +31,13 @@ export interface AppOptions {
   /** Per-launch token required on every state-changing request. */
   token?: string;
   /** Built web app (apps/web/dist). Omit to serve the API only. */
-  webDir?: string;
+  webDir?: string | undefined;
   version?: string;
+  /**
+   * Hosted mode: the Host header the front server sets when it hands a signed-in request to this
+   * workspace's cell (the cell itself is never reachable from outside).
+   */
+  allowedHost?: string;
 }
 
 /** Plain-language HTTP errors: what happened, and what to do next. */
@@ -63,7 +68,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   const gitKey = randomBytes(24).toString('base64url');
   redactor.register(gitKey);
   const app = Fastify({ logger: false, bodyLimit: 5 * 1024 * 1024, forceCloseConnections: true });
-  const allowedHosts = new Set([`127.0.0.1:${o.port}`, `localhost:${o.port}`]);
+  const allowedHosts = new Set([`127.0.0.1:${o.port}`, `localhost:${o.port}`, ...(o.allowedHost ? [o.allowedHost] : [])]);
   const allowedOrigins = new Set([`http://127.0.0.1:${o.port}`, `http://localhost:${o.port}`]);
 
   // Local-only security: loopback Host (blocks DNS rebinding), same-origin, token on writes.

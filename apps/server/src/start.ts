@@ -6,7 +6,8 @@ import { ChatService, loadConfig, type Logger } from '@tandem/core';
 import { ScriptedAgent, createTandem, defaultScript, plainAccess, type TandemOptions, type Tandem } from '@tandem/adapters';
 import { pathToFileURL } from 'node:url';
 import type { RuntimeConfig } from '@tandem/shared';
-import { buildApp } from './app.js';
+import type { FastifyInstance } from 'fastify';
+import { buildApp, type ServerContext } from './app.js';
 import { EventBus } from './events.js';
 import { createLogger } from './logger.js';
 import { runDoctor, type DoctorReport } from './doctor.js';
@@ -64,12 +65,30 @@ export interface Running {
   firstDoctor?: Promise<DoctorReport>;
 }
 
-/** Starts the server on 127.0.0.1, recovers interrupted work and starts the runner and pollers. */
-export async function startServer(config: RuntimeConfig, o: { webDir?: string; quiet?: boolean } = {}): Promise<Running> {
-  const logger = createLogger(join(config.home, 'logs'), config.logLevel === 'silent' ? 'silent' : config.logLevel);
+export interface Cell {
+  tandem: Tandem;
+  bus: EventBus;
+  app: FastifyInstance;
+  /** The per-launch token the page sends on writes. */
+  token: string;
+  /** The git credential helper's own key. */
+  gitKey: string;
+  ctx: ServerContext;
+  firstDoctor?: Promise<DoctorReport>;
+  /** Once reachable: install the git helper (at `gitUrl`), start the runner and the pollers. */
+  start(port: number, gitPath?: string): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/**
+ * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
+ * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
+ */
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string }): Promise<Cell> {
+  const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
-    home: config.home,
+    home: o.home,
     overrides: config.overrides,
     seeds: config.seeds,
     ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript), realModels: process.env.TANDEM_REAL_MODELS === '1' } : {}),
@@ -92,8 +111,61 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
   await chat.clearStaleBusy().catch((err: unknown) => logger.warn('could not clear busy chats', { error: String(err) }));
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
-  const ctx = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };
-  const { app, token, gitKey } = await buildApp(ctx, { port: config.port, webDir: o.webDir ?? WEB_DIR, version: VERSION });
+  const ctx: ServerContext = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> } };
+  const { app, token, gitKey } = await buildApp(ctx, { port: o.port, webDir: o.webDir, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}) });
+  let jiraTimer: NodeJS.Timeout | undefined;
+  let stopped = false;
+  let firstDoctor: Promise<DoctorReport> | undefined;
+  // First launch: run doctor once so the setup wizard can show it.
+  if ((await tandem.store.projects.list()).length === 0) {
+    firstDoctor = runDoctor(tandem, tandem.agent).then((r) => (ctx.doctor.last = r));
+    firstDoctor.catch((err: unknown) => logger.warn('first-run doctor failed', { error: String(err) }));
+  }
+  return {
+    tandem,
+    bus,
+    app,
+    token,
+    gitKey,
+    ctx,
+    ...(firstDoctor ? { firstDoctor } : {}),
+    start: async (port, gitPath) => {
+      // HTTPS git from now on asks Tandem for credentials (AWS connection, connected GitHub account).
+      tandem.useGitHelper(port, gitKey, gitPath);
+      tandem.runner.start(1_000);
+      // Jira: import ready issues on a timer when Jira is configured.
+      jiraTimer = setInterval(() => {
+        void (async () => {
+          const tracker = await tandem.deps.tracker();
+          if (tracker.kind !== 'jira') return;
+          // A project with its own query is polled with it. With one project, the Settings query is enough;
+          // with several, each needs its own query so an issue can't land in the wrong project.
+          const projects = await tandem.store.projects.list();
+          for (const p of projects) {
+            if (!p.jiraJql?.trim() && projects.length > 1) continue;
+            await tandem.service.importFromTracker(p).catch((err: unknown) => logger.warn('jira poll failed', { project: p.id, error: String(err) }));
+          }
+        })();
+      }, Math.max(1, (await tandem.settings()).jira.pollIntervalMin) * 60_000);
+      jiraTimer.unref();
+      logger.info('tandem started', { port, recovered, agent: tandem.agent.name, home: o.home });
+    },
+    stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      if (jiraTimer) clearInterval(jiraTimer);
+      await app.close();
+      // Running steps are not interrupted; whatever is unfinished resumes on the next start.
+      await Promise.race([tandem.close(), new Promise((r) => setTimeout(r, 5_000))]);
+    },
+  };
+}
+
+/** Starts the local app on 127.0.0.1: one cell, its runner and pollers. */
+export async function startServer(config: RuntimeConfig, o: { webDir?: string; quiet?: boolean } = {}): Promise<Running> {
+  const logger = createLogger(join(config.home, 'logs'), config.logLevel === 'silent' ? 'silent' : config.logLevel);
+  const cell = await openCell({ home: config.home, config, logger, webDir: o.webDir ?? WEB_DIR, port: config.port });
+  const { app, tandem, token, bus } = cell;
   try {
     await app.listen({ host: '127.0.0.1', port: config.port });
   } catch (err) {
@@ -101,49 +173,14 @@ export async function startServer(config: RuntimeConfig, o: { webDir?: string; q
     if ((err as { code?: string }).code === 'EADDRINUSE') throw new Error(`Port ${config.port} is in use. Is Tandem already running? Set TANDEM_PORT to use another port.`, { cause: err });
     throw err;
   }
-  // HTTPS git from now on asks Tandem for credentials (AWS connection, connected GitHub account).
-  tandem.useGitHelper(config.port, gitKey);
-  tandem.runner.start(1_000);
-
-  // Jira: import ready issues on a timer when Jira is configured.
-  const jiraTimer = setInterval(() => {
-    void (async () => {
-      const tracker = await tandem.deps.tracker();
-      if (tracker.kind !== 'jira') return;
-      // A project with its own query is polled with it. With one project, the Settings query is enough;
-      // with several, each needs its own query so an issue can't land in the wrong project.
-      const projects = await tandem.store.projects.list();
-      for (const p of projects) {
-        if (!p.jiraJql?.trim() && projects.length > 1) continue;
-        await tandem.service.importFromTracker(p).catch((err: unknown) => logger.warn('jira poll failed', { project: p.id, error: String(err) }));
-      }
-    })();
-  }, Math.max(1, (await tandem.settings()).jira.pollIntervalMin) * 60_000);
-  jiraTimer.unref();
-
-  // First launch: run doctor once so the setup wizard can show it.
-  let firstDoctor: Promise<DoctorReport> | undefined;
-  if ((await tandem.store.projects.list()).length === 0) {
-    firstDoctor = runDoctor(tandem, tandem.agent).then((r) => (ctx.doctor.last = r));
-    firstDoctor.catch((err: unknown) => logger.warn('first-run doctor failed', { error: String(err) }));
-  }
-  logger.info('tandem started', { port: config.port, recovered, agent: tandem.agent.name });
-  const url = `http://127.0.0.1:${config.port}`;
-  let stopping = false;
+  await cell.start(config.port);
   return {
-    url,
+    url: `http://127.0.0.1:${config.port}`,
     token,
     tandem,
     bus,
     logger,
-    ...(firstDoctor ? { firstDoctor } : {}),
-    stop: async () => {
-      if (stopping) return;
-      stopping = true;
-      clearInterval(jiraTimer);
-      await app.close();
-      // Running steps are not interrupted; whatever is unfinished resumes on the next start.
-      await Promise.race([tandem.close(), new Promise((r) => setTimeout(r, 5_000))]);
-    },
+    ...(cell.firstDoctor ? { firstDoctor: cell.firstDoctor } : {}),
+    stop: () => cell.stop(),
   };
 }
