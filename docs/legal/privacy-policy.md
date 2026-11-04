@@ -2,14 +2,14 @@
 
 *Draft for legal review. Effective [Effective date].*
 
-This policy explains how [Operator] ("we") processes personal data when you
+This policy explains how CHD Labs ("we") processes personal data when you
 visit our website or use Tandem, a service that turns requests into tested
 code changes with GitHub Copilot.
 
 ## 1. Who is responsible
 
-[Operator], [Address], registered under [Registration number].
-Privacy questions: [Privacy contact]. Data protection officer: [DPO, or "not
+CHD Labs ([legal form]), [Address], registered under [Registration number].
+Privacy questions: privacy@chdlabs.com. Data protection officer: [DPO, or "not
 required"].
 
 For data that a business customer puts into its Tandem workspace (tasks, code,
@@ -64,7 +64,7 @@ we do not ask for cookie consent. If this ever changes, we will ask first.
 You can access, export, correct and delete your data, restrict or object to
 processing, and withdraw consent where processing relies on it. Most of this is
 self-service in Settings › Privacy (export, delete account). Otherwise write to
-[Privacy contact]; we answer within one month. You may complain to a
+privacy@chdlabs.com; we answer within one month. You may complain to a
 supervisory authority, for example [Supervisory authority].
 
 ## 8. Security

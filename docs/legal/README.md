@@ -13,8 +13,10 @@
 | [subprocessors.md](subprocessors.md) | Who processes data on Tandem's behalf, where, and why | Website, linked from the DPA |
 | [records-of-processing.md](records-of-processing.md) | Record of processing activities (GDPR Art. 30), internal | Kept by the operator |
 
-Placeholders to fill in everywhere: `[Operator]` (legal name and form),
-`[Address]`, `[Registration number]`, `[VAT ID]`, `[Privacy contact]`
+Operator: **CHD Labs** (chdlabs.com), service at **tandem.chdlabs.com**,
+privacy contact **privacy@chdlabs.com** (create this mailbox).
+Placeholders still to fill in: `[legal form]`,
+`[Address]`, `[Registration number]`, `[VAT ID]`, `privacy@chdlabs.com`
 (email), `[DPO]` (if one is required), `[Supervisory authority]`,
 `[Governing law and courts]`, `[Effective date]`.
 

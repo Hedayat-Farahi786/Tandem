@@ -3,7 +3,7 @@
 *Draft for legal review, under Article 28 GDPR. Effective [Effective date].*
 
 Between the customer that owns a Tandem workspace ("Controller") and
-[Operator], [Address] ("Processor"). It applies to personal data the Processor
+CHD Labs, [Address] ("Processor"). It applies to personal data the Processor
 processes for the Controller through Tandem, and forms part of the
 [terms of service](terms-of-service.md).
 

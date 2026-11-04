@@ -136,10 +136,16 @@ working throughout.
 * The web UI: screens stay; sign-in, workspace switcher, members and privacy
   pages are added.
 
-## 6. Open points for the operator
+## 6. Names and addresses
 
-* The legal entity that operates Tandem (controller and processor), its
-  address, and a contact for privacy questions (a DPO if required).
-* The GitHub App's name and the domain (for example `app.tandem.dev`).
-* An AWS organization for the hosted service (separate from any company
-  account used for testing).
+* **Operator:** CHD Labs (chdlabs.com). Still needed for the legal texts: the
+  legal form, address, registration number, VAT ID; whether a DPO is required.
+* **Domain:** `tandem.chdlabs.com`, with the website at `/` and the app at
+  `/app`. One origin keeps the session cookie first-party and the security
+  headers simple. Email from `tandem@chdlabs.com`; privacy questions to
+  `privacy@chdlabs.com`.
+* **GitHub App:** "Tandem by CHD Labs" (app names are unique on GitHub),
+  callback `https://tandem.chdlabs.com/app/auth/github/callback`, webhook
+  `https://tandem.chdlabs.com/app/hooks/github`.
+* **AWS:** a new AWS organization for the hosted service, separate from any
+  company account used for testing (being created by the operator).

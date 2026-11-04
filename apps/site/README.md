@@ -8,4 +8,4 @@ so no cookie banner is needed.
 * Deploy: serve the folder as static files from the EU (for example S3 and
   CloudFront with an EU origin). `/app` is the web app, `/legal/*` the
   documents in `docs/legal/` once reviewed.
-* Before launch: replace `[Operator]` and `[Privacy contact]` in the footer.
+* Before launch: replace `CHD Labs` and `privacy@chdlabs.com` in the footer.

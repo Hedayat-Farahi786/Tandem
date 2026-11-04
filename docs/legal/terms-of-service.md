@@ -2,7 +2,7 @@
 
 *Draft for legal review. Effective [Effective date].*
 
-These terms are a contract between [Operator] ("we") and the person or
+These terms are a contract between CHD Labs ("we") and the person or
 organisation that signs up for Tandem ("you").
 
 ## 1. The service
