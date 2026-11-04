@@ -31,6 +31,7 @@ import {
   relativeTime,
   stepLabel,
   plainReason,
+  SIGNIN_EXPIRED,
 } from "../lib/format";
 import { Link } from "../lib/router";
 import type { RepoDiff, TaskDetail } from "../lib/types";
@@ -1085,7 +1086,9 @@ function StatusBanner({
   if (t.state === "BLOCKED" || t.state === "FAILED") {
     const title =
       t.state === "FAILED"
-        ? "Something failed"
+        ? SIGNIN_EXPIRED.test(t.blockedMessage ?? "")
+          ? "Sign-in expired"
+          : "Something failed"
         : t.blockedReason === "readiness-missing"
           ? "Not ready yet"
           : t.blockedReason === "budget-reached"
@@ -1331,7 +1334,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
             </Link>
             <div className="min-w-0 flex-1 basis-60">
               <p className="flex min-w-0 items-center gap-1.5 text-[12px] leading-tight text-faint">
-                <span className="font-mono">{t.key}</span>
+                <span className="font-medium tracking-wide text-muted">{t.key}</span>
                 <span aria-hidden>·</span>
                 <span className="truncate">{d.project.name}</span>
               </p>

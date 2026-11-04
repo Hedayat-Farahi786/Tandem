@@ -123,7 +123,7 @@ export interface Trace {
   generatedAt: string;
   task: { id: string; key: string; title: string; state: string; source: string; externalKey?: string; branch: string; createdAt: string; updatedAt: string; project: string };
   requirement: { goal: string; userStory: string; exampleData: string; affectedAreas: string; outOfScope: string };
-  criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
+  criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test' | 'skipped'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
   specs: Array<{ version: number; source: string; createdAt: string; feedback?: string; sha256: string; status: 'approved' | 'in-review' | 'superseded'; approvals: Array<{ role: string; name: string; date: string; method: string; evidence: string }> }>;
   agent: Array<{ kind: string; runs: number; succeeded: number; failed: number; models: string[]; prompts: number; modelCalls: number; aiCredits: number; firstAt?: string; lastAt?: string }>;
   checks: Array<{ attempt: number; passed: boolean; at: string; results: Array<{ repo: string; kind: string; command: string; exitCode: number | null; durationMs: number; timedOut: boolean }> }>;

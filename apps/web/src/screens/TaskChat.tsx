@@ -156,6 +156,8 @@ function useTimeline(d: TaskDetail, threadId: string | undefined, openPanel: (t:
     items.push({ at: t.createdAt, key: 'request', message: { id: 'request', threadId: threadId ?? '', role: 'user', content: t.description.trim() || t.requirement.goal.trim() || t.title, refs: [], createdAt: t.createdAt } });
     for (const [i, x] of d.transitions.entries()) {
       if (x.from === x.to && i > 0) continue;
+      // The card at the bottom already says why the task stopped.
+      if (i === d.transitions.length - 1 && (x.to === 'FAILED' || x.to === 'BLOCKED') && t.state === x.to) continue;
       // The spec and pull request cards already say these.
       if ((x.to === 'SPEC_REVIEW' && d.specs.length) || (x.to === 'PR_OPEN' && d.prs.length)) continue;
       items.push({ at: x.at, key: `tr-${i}`, node: <Milestone icon={<StatusIcon state={x.to as TaskState} className="size-3.5" />} title={STATE_LABEL[x.to]} body={plainReason(x.reason)} at={x.at} /> });

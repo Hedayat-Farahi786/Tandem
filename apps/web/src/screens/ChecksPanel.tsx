@@ -58,12 +58,15 @@ function Section({ icon: Icon, title, sub, action, children }: { icon: LucideIco
   );
 }
 
-function ResultBadge({ result }: { result: 'pass' | 'fail' | 'none' | 'not-run' }) {
+type CriterionResult = 'pass' | 'fail' | 'none' | 'not-run' | 'skipped';
+
+function ResultBadge({ result }: { result: CriterionResult }) {
   const look = {
     pass: { tone: 'ok' as const, icon: CheckCircle2, label: 'Pass' },
     fail: { tone: 'danger' as const, icon: XCircle, label: 'Fail' },
     none: { tone: 'warn' as const, icon: AlertTriangle, label: 'Missing' },
-    'not-run': { tone: 'neutral' as const, icon: MinusCircle, label: 'Pending' },
+    'not-run': { tone: 'neutral' as const, icon: MinusCircle, label: 'Not run' },
+    skipped: { tone: 'neutral' as const, icon: SkipForward, label: 'Skipped' },
   }[result];
   const Icon = look.icon;
   return (
@@ -128,12 +131,15 @@ export function ChecksTab({ d }: { d: TaskDetail }) {
       void qc.invalidateQueries({ queryKey: ['rules'] });
     },
   });
+  // Tests you skipped for this task read as skipped, not as waiting to run.
+  const testsSkipped = (repoId?: string) => Boolean(last?.results.some((r) => (r.kind === 'test' || r.kind === 'integration') && r.skipped && (!repoId || !r.repoId || r.repoId === repoId)));
   const criteria = d.task.requirement.criteria.map((c, i) => {
     const tests = d.tests.filter((t) => t.criterion === i + 1);
-    const result: 'pass' | 'fail' | 'none' | 'not-run' = tests.length === 0 ? (verified ? 'none' : 'not-run') : tests.some((t) => t.result === 'fail') ? 'fail' : tests.every((t) => t.result === 'pass') ? 'pass' : 'not-run';
+    const result: CriterionResult = tests.length === 0 ? (verified ? 'none' : 'not-run') : tests.some((t) => t.result === 'fail') ? 'fail' : tests.every((t) => t.result === 'pass') ? 'pass' : tests.every((t) => t.result === 'pass' || testsSkipped(t.repoId)) ? 'skipped' : 'not-run';
     return { c, n: i + 1, tests, result };
   });
   const proven = criteria.filter((x) => x.result === 'pass').length;
+  const allSkipped = criteria.length > 0 && criteria.every((x) => x.result === 'pass' || x.result === 'skipped') && proven < criteria.length;
   const cmds = last?.results ?? [];
   const passing = cmds.filter(ok).length;
   const openFindings = d.findings.filter((f) => f.status === 'open');
@@ -141,7 +147,7 @@ export function ChecksTab({ d }: { d: TaskDetail }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-2.5 @lg:grid-cols-3">
-        <Stat icon={ListChecks} label="Criteria proven" value={criteria.length ? `${proven} of ${criteria.length}` : 'None'} tone={!criteria.length ? 'neutral' : proven === criteria.length ? 'ok' : criteria.some((x) => x.result === 'fail') ? 'danger' : 'neutral'} />
+        <Stat icon={ListChecks} label={allSkipped ? 'Criteria tests' : 'Criteria proven'} value={!criteria.length ? 'None' : allSkipped && proven === 0 ? 'Skipped' : `${proven} of ${criteria.length}`} tone={!criteria.length ? 'neutral' : proven === criteria.length ? 'ok' : criteria.some((x) => x.result === 'fail') ? 'danger' : 'neutral'} />
         <Stat icon={ShieldCheck} label="Checks passing" value={last ? `${passing} of ${cmds.length}` : 'Not run yet'} tone={!last ? 'neutral' : last.passed ? 'ok' : 'danger'} />
         <Stat icon={SearchCheck} label="Findings open" value={d.findings.length ? `${openFindings.length} of ${d.findings.length}` : d.task.progress.reviewed ? 'None' : 'Not yet'} tone={openFindings.some((f) => f.severity === 'high') ? 'danger' : openFindings.length ? 'warn' : d.task.progress.reviewed ? 'ok' : 'neutral'} />
       </div>
@@ -163,14 +169,16 @@ export function ChecksTab({ d }: { d: TaskDetail }) {
                 <div role="cell" className="col-start-2 flex min-w-0 flex-col gap-1">
                   {tests.length ? (
                     tests.map((t) => (
-                      <p key={`${t.repoId}${t.file}${t.name}`} className="flex min-w-0 items-start gap-1.5 font-mono text-[12px]">
-                        <FlaskConical aria-hidden className="mt-[2px] size-3.5 shrink-0 text-faint" strokeWidth={1.9} />
-                        <span className="min-w-0 break-words">
-                          <span className="text-muted">{repoName(t.repoId)}/</span>
-                          {t.file} <span className="text-muted">› {t.name}</span>
-                          {t.scope === 'suite' && <span className="text-faint"> (suite)</span>}
-                        </span>
-                      </p>
+                      <div key={`${t.repoId}${t.file}${t.name}`} className="flex min-w-0 items-start gap-2">
+                        <FlaskConical aria-hidden className="mt-[3px] size-3.5 shrink-0 text-faint" strokeWidth={1.9} />
+                        <div className="min-w-0">
+                          <p className="text-[12.5px] leading-snug text-fg">{t.name}</p>
+                          <p className="truncate font-mono text-[11.5px] text-faint" title={`${repoName(t.repoId)}/${t.file}${t.scope === 'suite' ? ' (runs the whole file)' : ''}`}>
+                            {d.repos.length > 1 && `${repoName(t.repoId)} · `}
+                            {t.file}
+                          </p>
+                        </div>
+                      </div>
                     ))
                   ) : (
                     <p className="flex items-center gap-1.5 text-[12.5px] text-faint">

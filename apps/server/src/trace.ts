@@ -12,7 +12,7 @@ export interface Trace {
   generatedAt: string;
   task: { id: string; key: string; title: string; state: string; source: string; externalKey?: string; branch: string; createdAt: string; updatedAt: string; project: string };
   requirement: { goal: string; userStory: string; exampleData: string; affectedAreas: string; outOfScope: string };
-  criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
+  criteria: Array<{ n: number; given: string; when: string; then: string; status: 'pass' | 'fail' | 'not-run' | 'no-test' | 'skipped'; tests: Array<{ repo: string; file: string; name: string; result: string; scope: string }> }>;
   specs: Array<{ version: number; source: string; createdAt: string; feedback?: string; sha256: string; status: 'approved' | 'in-review' | 'superseded'; approvals: Array<{ role: string; name: string; date: string; method: string; evidence: string }> }>;
   agent: Array<{ kind: AgentRunKind; runs: number; succeeded: number; failed: number; models: string[]; prompts: number; modelCalls: number; aiCredits: number; firstAt?: string; lastAt?: string }>;
   checks: Array<{ attempt: number; passed: boolean; at: string; results: Array<{ repo: string; kind: string; command: string; exitCode: number | null; durationMs: number; timedOut: boolean }> }>;
@@ -59,9 +59,11 @@ export async function buildTrace(store: Store, task: Task): Promise<Trace> {
   const chain = verifyAuditChain(auditAll);
   const latest = specs.at(-1)?.version;
 
+  // Tests the owner skipped for this task read as skipped, not as waiting to run.
+  const testsSkipped = (repoId?: string) => Boolean(verify.at(-1)?.results.some((r) => (r.kind === 'test' || r.kind === 'integration') && r.skipped && (!repoId || !r.repoId || r.repoId === repoId)));
   const criteria = task.requirement.criteria.map((c, i) => {
     const mine = tests.filter((t) => t.criterion === i + 1);
-    const status = !mine.length ? 'no-test' : mine.some((t) => t.result === 'fail') ? 'fail' : mine.every((t) => t.result === 'pass') ? 'pass' : 'not-run';
+    const status = !mine.length ? 'no-test' : mine.some((t) => t.result === 'fail') ? 'fail' : mine.every((t) => t.result === 'pass') ? 'pass' : mine.every((t) => t.result === 'pass' || testsSkipped(t.repoId)) ? 'skipped' : 'not-run';
     return { n: i + 1, given: c.given, when: c.when, then: c.then, status: status as Trace['criteria'][number]['status'], tests: mine.map((t) => ({ repo: repoName(t.repoId), file: t.file, name: t.name, result: t.result, scope: t.scope })) };
   });
 

@@ -8,6 +8,12 @@ All notable changes to Tandem. The format follows
 
 ### Added
 
+- **The task page reads cleanly when something stops.** The reason is said
+  once, in the card at the bottom of the conversation, and an expired AWS
+  sign-in says so in plain words ("Sign-in expired … sign in again, then
+  Retry"). In Checks and the trace, criteria whose tests you skipped read
+  "Skipped", not "Pending", and each test shows its name with the file
+  underneath instead of a wrapped path.
 - **An open pull request no longer fails its task** when Tandem can't
   reach the host to check it (an expired AWS sign-in, the network). The task
   stays open with a plain note in the conversation, Tandem tries again every

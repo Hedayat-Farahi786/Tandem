@@ -72,6 +72,7 @@ const RESULT: Record<string, { icon: LucideIcon; cls: string; label: string }> =
   fail: { icon: XCircle, cls: 'text-danger', label: 'Failing' },
   'not-run': { icon: CircleDashed, cls: 'text-faint', label: 'Not run yet' },
   'no-test': { icon: Circle, cls: 'text-faint', label: 'No test yet' },
+  skipped: { icon: SkipForward, cls: 'text-faint', label: 'Tests skipped' },
 };
 
 export function TraceTab({ taskId }: { taskId: string }) {
@@ -167,9 +168,12 @@ export function TraceTab({ taskId }: { taskId: string }) {
                           <span className="text-faint">Given</span> {c.given}, <span className="text-faint">when</span> {c.when}, <span className="text-faint">then</span> {c.then}
                         </p>
                         {c.tests.map((x, i) => (
-                          <p key={i} className="mt-1.5 truncate font-mono text-[12px] text-muted" title={`${x.repo}: ${x.file} › ${x.name}`}>
-                            {x.repo}: {x.file} › {x.name}
-                          </p>
+                          <div key={i} className="mt-1.5 min-w-0">
+                            <p className="text-[12.5px] leading-snug text-muted">{x.name}</p>
+                            <p className="truncate font-mono text-[11.5px] text-faint" title={`${x.repo}: ${x.file}`}>
+                              {x.repo}: {x.file}
+                            </p>
+                          </div>
                         ))}
                       </div>
                       <span className={cx('flex shrink-0 items-center gap-1.5 text-[12px]', r.cls)}>
