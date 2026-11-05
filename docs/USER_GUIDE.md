@@ -62,6 +62,18 @@ tasks, chats, connections and history, apart from every other workspace.
   whole workspace as one file, and the account menu's **Export my data** gives your account. The
   account menu also deletes your account.
 
+### Connecting CodeCommit in the web app
+
+Settings › AWS › **Connect with a role** is the way for teams:
+
+1. Tandem shows your workspace's external ID and a CloudFormation template.
+2. You create the role in your AWS account from the template, with a one-click link or one
+   command. It may use CodeCommit only, and only Tandem may assume it, only for your workspace.
+3. You paste the role's ARN.
+
+No keys are shared, and deleting the role cuts access. Signing in with IAM Identity Center or
+an access key works too.
+
 ### Working on a company computer
 
 Some companies don't want their code cloned anywhere else. A workspace can work on a computer of

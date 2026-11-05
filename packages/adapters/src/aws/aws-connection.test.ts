@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MemorySecrets } from '../secrets/keychain.js';
-import { AwsConnections, normalizeStartUrl } from './aws-connection.js';
+import { AwsConnections, codeCommitRoleTemplate, normalizeStartUrl } from './aws-connection.js';
 
 type Call = { url: string; method: string; body?: unknown; headers?: Record<string, string> };
 
@@ -82,5 +82,52 @@ describe('AWS connection', () => {
     await expect(t.aws.useProfile('missing', 'eu-central-1')).rejects.toThrow(/no AWS profile/);
     await t.aws.disconnect();
     expect((await t.aws.state()).connected).toBe(false);
+  });
+
+  it('connects with a role in the customer\'s account: their external ID, assumed only by Tandem', async () => {
+    const secrets = new MemorySecrets();
+    const assumed: Array<{ roleArn: string; externalId: string; region: string }> = [];
+    let now = 1_800_000_000_000;
+    const aws = new AwsConnections({
+      secrets,
+      now: () => now,
+      profiles: () => [],
+      roleSource: {
+        principal: 'arn:aws:iam::111122223333:role/tandem-server',
+        credentials: async () => ({ accessKeyId: 'AKIAABCDEFGHIJKLMNOP', secretAccessKey: 'x'.repeat(40) }),
+        assume: async (roleArn, externalId, region) => {
+          if (externalId !== (await secrets.get('aws-external-id'))) throw new Error('AccessDenied: not authorized to perform sts:AssumeRole');
+          assumed.push({ roleArn, externalId, region });
+          return { accessKeyId: 'ASIAROLE', secretAccessKey: 's', sessionToken: 't', expiration: new Date(now + 3_600_000) };
+        },
+      },
+    });
+    // The external ID is made once per workspace and stays the same.
+    const setup = await aws.roleSetup();
+    expect(setup).toMatchObject({ available: true, principal: 'arn:aws:iam::111122223333:role/tandem-server', externalId: expect.stringMatching(/^tandem-[0-9a-f-]{36}$/) });
+    expect(await aws.roleSetup()).toEqual(setup);
+    await expect(aws.useRole('arn:aws:iam::444455556666:user/bob', 'eu-central-1')).rejects.toThrow(/not a role ARN/);
+    const st = await aws.useRole('arn:aws:iam::444455556666:role/TandemCodeCommit', 'eu-central-1');
+    expect(st).toMatchObject({ connected: true, kind: 'role', label: 'Role TandemCodeCommit in 444455556666' });
+    // Credentials come from assuming the role, cached until near their end.
+    expect(await aws.credentials()).toMatchObject({ accessKeyId: 'ASIAROLE', sessionToken: 't' });
+    expect(await aws.credentials()).toMatchObject({ accessKeyId: 'ASIAROLE' });
+    expect(assumed).toHaveLength(2);
+    now += 3_400_000;
+    await aws.credentials();
+    expect(assumed).toHaveLength(3);
+    // Without Tandem's own identity (a local install), there is no role connection.
+    expect(await new AwsConnections({ secrets: new MemorySecrets(), profiles: () => [] }).roleSetup()).toEqual({ available: false });
+  });
+
+  it('writes a role template that may use CodeCommit only, in the repositories named', () => {
+    const all = codeCommitRoleTemplate();
+    expect(all).toContain("'sts:ExternalId': !Ref ExternalId");
+    expect(all).toContain(':codecommit:*:${AWS::AccountId}:*');
+    expect(all).not.toMatch(/iam:|s3:|\*:\*|Action: '\*'/);
+    const two = codeCommitRoleTemplate({ repositories: ['shop', 'api', 'bad name; rm'] });
+    expect(two).toContain(':codecommit:*:${AWS::AccountId}:shop');
+    expect(two).toContain(':codecommit:*:${AWS::AccountId}:api');
+    expect(two).not.toContain('bad name');
   });
 });

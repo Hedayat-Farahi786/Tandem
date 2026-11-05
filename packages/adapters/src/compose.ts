@@ -20,7 +20,7 @@ import { CopilotRuntime } from './agent-copilot/copilot-runtime.js';
 import { ScriptedAccounts, type CopilotAccounts } from './agent-copilot/accounts.js';
 import type { GitHubIdentity } from './agent-copilot/copilot-runtime.js';
 import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import { AwsConnections } from './aws/aws-connection.js';
+import { AwsConnections, type RoleSource } from './aws/aws-connection.js';
 import { codeCommitGitCredential, codeCommitRegion } from './aws/codecommit-credential.js';
 import { installCredentialHelper, type CredentialRequest } from './git/credential-helper.js';
 import { RepoGit } from './git/repo-git.js';
@@ -59,7 +59,7 @@ export interface TandemOptions {
    * Copilot and GitHub use the workspace's GitHub identity, and nothing of the server's own is
    * reachable: no AWS profiles or default credentials, no SSH keys, no folders on the server.
    */
-  hosted?: { secrets: SecretStore; identity: () => Promise<GitHubIdentity | undefined>; accounts: CopilotAccounts };
+  hosted?: { secrets: SecretStore; identity: () => Promise<GitHubIdentity | undefined>; accounts: CopilotAccounts; awsRoleSource?: RoleSource | undefined };
   /** Tandem's cloud: checks, installs and the Copilot runtime run isolated (see sandbox/namespace-sandbox.ts). */
   sandbox?: NamespaceSandbox;
 }
@@ -106,7 +106,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   const hostFor = (repo: Repo) => (repo.host.kind === 'codecommit' ? hostRef.current!.codecommit : hostRef.current!.github);
   const git = new RepoGit((repo) => hostFor(repo).mirrorPath(repo));
   // Connections made in the app: AWS (for CodeCommit) here, GitHub through the Copilot sign-in.
-  const aws = new AwsConnections({ secrets, ...(ambient ? {} : { profiles: () => [] }) });
+  const aws = new AwsConnections({ secrets, ...(ambient ? {} : { profiles: () => [] }), ...(o.hosted?.awsRoleSource ? { roleSource: o.hosted.awsRoleSource } : {}) });
   const helper: { path?: string } = {};
   const accountsRef: { current?: CopilotAccounts } = {};
   const hosts = {

@@ -53,7 +53,20 @@ async function signIn(code: string) {
 beforeAll(async () => {
   h = await startHosted(
     { home, port: 0, listenHost: '127.0.0.1', publicUrl: 'http://tandem.test', github: { clientId: 'Iv1.test', clientSecret: 'secret', webUrl: 'https://github.example', apiUrl: 'https://api.github.example' }, secretKey: randomBytes(32).toString('base64'), logLevel: 'silent', agent: 'scripted' },
-    { fetch: fakeFetch, webDir: join(__dirname, '..', '..', '..', 'web', 'dist'), legalDir: join(__dirname, '..', '..', '..', '..', 'docs', 'legal') },
+    {
+      fetch: fakeFetch,
+      webDir: join(__dirname, '..', '..', '..', 'web', 'dist'),
+      legalDir: join(__dirname, '..', '..', '..', '..', 'docs', 'legal'),
+      // Tandem's own AWS identity, pretend: it may assume a customer's role when the external ID matches.
+      awsRoleSource: {
+        principal: 'arn:aws:iam::111122223333:role/tandem-server',
+        credentials: async () => ({ accessKeyId: 'AKIAABCDEFGHIJKLMNOP', secretAccessKey: 'x'.repeat(40) }),
+        assume: async (roleArn, externalId) => {
+          if (!roleArn.endsWith('/TandemCodeCommit') || !externalId.startsWith('tandem-')) throw new Error('AccessDenied: not authorized to perform sts:AssumeRole');
+          return { accessKeyId: 'ASIAROLE', secretAccessKey: 's', sessionToken: 't', expiration: new Date(Date.now() + 3_600_000) };
+        },
+      },
+    },
   );
 }, 60_000);
 afterAll(async () => {
@@ -117,6 +130,20 @@ describe('hosted Tandem', () => {
     const created = await h.app.inject({ method: 'POST', url: '/api/workspaces', headers: { cookie: mona.cookie, 'x-tandem-token': mona.csrf, 'content-type': 'application/json' }, payload: JSON.stringify({ name: 'Acme' }) });
     expect(created.json()).toMatchObject({ name: 'Acme' });
     expect((await h.app.inject({ method: 'GET', url: '/api/me', headers: { cookie: mona.cookie } })).json().workspaces).toHaveLength(2);
+  });
+
+  it("connects CodeCommit with a role in the customer's account: a template, their external ID, the role's ARN", async () => {
+    const mona = await signIn('code-mona');
+    const h1 = { cookie: mona.cookie };
+    const setup = (await h.app.inject({ method: 'GET', url: '/api/aws/role', headers: h1 })).json();
+    expect(setup).toMatchObject({ available: true, principal: 'arn:aws:iam::111122223333:role/tandem-server', externalId: expect.stringMatching(/^tandem-/), template: '/api/aws/role/template' });
+    expect(setup.command).toContain(`ExternalId=${setup.externalId}`);
+    const tpl = await h.app.inject({ method: 'GET', url: '/api/aws/role/template?repositories=shop', headers: h1 });
+    expect(tpl.headers['content-disposition']).toContain('tandem-codecommit-role.yaml');
+    expect(tpl.body).toContain(':codecommit:*:${AWS::AccountId}:shop');
+    const write = (url: string, body: unknown) => h.app.inject({ method: 'POST', url, headers: { cookie: mona.cookie, 'x-tandem-token': mona.csrf, 'content-type': 'application/json' }, payload: JSON.stringify(body) });
+    expect((await write('/api/aws/role', { roleArn: 'arn:aws:iam::444455556666:role/SomethingElse' })).json().error).toMatch(/can't assume .* yet/);
+    expect((await write('/api/aws/role', { roleArn: 'arn:aws:iam::444455556666:role/TandemCodeCommit' })).json()).toMatchObject({ connected: true, kind: 'role', label: 'Role TandemCodeCommit in 444455556666' });
   });
 
   it('exports the account, and deletes it with the workspaces only that person owned', async () => {

@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
-import { fromIni } from '@aws-sdk/credential-providers';
+import { AssumeRoleCommand, GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
+import { fromIni, fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { SecretStore } from '../secrets/keychain.js';
 import type { AwsKeys } from './codecommit-credential.js';
 
@@ -25,7 +25,80 @@ export type AwsConnection =
       role: string;
     }
   | { kind: 'keys'; accessKeyId: string; secretAccessKey: string }
-  | { kind: 'profile'; profile: string };
+  | { kind: 'profile'; profile: string }
+  /** The web app: a role in the customer's account that trusts Tandem, with the workspace's external ID. */
+  | { kind: 'role'; roleArn: string; externalId: string; region: string };
+
+/**
+ * The web app's own AWS identity, used for one thing only: assuming the roles customers create for
+ * Tandem (`sts:AssumeRole` with their external ID). Never used for anything else.
+ */
+export interface RoleSource {
+  /** The ARN customers trust: arn:aws:iam::<account>:role/<name> (or :root). */
+  principal: string;
+  credentials: () => Promise<AwsKeys & { expiration?: Date | undefined }>;
+  /** Test seam: assume the role (default: STS AssumeRole). */
+  assume?: (roleArn: string, externalId: string, region: string) => Promise<AwsKeys & { expiration: Date }>;
+}
+
+const ROLE_ARN = /^arn:aws(-[a-z]+)*:iam::(\d{12}):role\/([\w+=,.@/-]{1,512})$/;
+
+/** The CodeCommit actions Tandem uses, and nothing else: what the role template grants. */
+export const CODECOMMIT_ACTIONS = ['codecommit:GitPull', 'codecommit:GitPush', 'codecommit:GetRepository', 'codecommit:ListRepositories', 'codecommit:BatchGetRepositories', 'codecommit:CreatePullRequest', 'codecommit:GetPullRequest', 'codecommit:UpdatePullRequestDescription', 'codecommit:UpdatePullRequestTitle'];
+
+/**
+ * A CloudFormation template for the role: trusts Tandem's principal with the external ID, and may
+ * use CodeCommit only, in the repositories named (or all of this account's).
+ */
+export function codeCommitRoleTemplate(o: { repositories?: readonly string[] } = {}): string {
+  const names = (o.repositories ?? []).filter((n) => /^[\w.-]{1,100}$/.test(n));
+  const arn = (name: string) => `!Sub 'arn:\${AWS::Partition}:codecommit:*:\${AWS::AccountId}:${name}'`;
+  const resources = names.length ? names.map((n) => `                  - ${arn(n)}`).join('\n') : `                  - ${arn('*')}`;
+  return `AWSTemplateFormatVersion: '2010-09-09'
+Description: Lets Tandem work in ${names.length ? `the CodeCommit repositories ${names.join(', ')}` : "this account's CodeCommit repositories"} (read, push branches, open pull requests). Nothing else.
+Parameters:
+  TandemPrincipal:
+    Type: String
+    Description: Tandem's AWS identity, shown in Tandem (Settings, AWS, Connect with a role).
+  ExternalId:
+    Type: String
+    Description: Your workspace's external ID, shown in Tandem.
+    MinLength: 16
+  RoleName:
+    Type: String
+    Default: TandemCodeCommit
+Resources:
+  TandemRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Ref TandemPrincipal }
+            Action: sts:AssumeRole
+            Condition: { StringEquals: { 'sts:ExternalId': !Ref ExternalId } }
+      Policies:
+        - PolicyName: TandemCodeCommit
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [codecommit:ListRepositories]
+                Resource: '*'
+              - Effect: Allow
+                Action:
+${CODECOMMIT_ACTIONS.filter((a) => a !== 'codecommit:ListRepositories').map((a) => `                  - ${a}`).join('\n')}
+                Resource:
+${resources}
+Outputs:
+  RoleArn:
+    Description: Paste this into Tandem.
+    Value: !GetAtt TandemRole.Arn
+`;
+}
 
 export interface AwsState {
   connected: boolean;
@@ -96,6 +169,20 @@ const mask = (id: string) => `…${id.slice(-4)}`;
 /** AWS SDK shape: no undefined session token. */
 export const sdkKeys = (k: AwsKeys & { expiration?: Date | undefined }) => ({ accessKeyId: k.accessKeyId, secretAccessKey: k.secretAccessKey, ...(k.sessionToken ? { sessionToken: k.sessionToken } : {}), ...(k.expiration ? { expiration: k.expiration } : {}) });
 
+/** This server's AWS identity, for assuming customers' roles only; read once at start. */
+export async function serverRoleSource(principal: string | undefined): Promise<RoleSource> {
+  const credentials = fromNodeProviderChain();
+  try {
+    const me = await new STSClient({ region: process.env.AWS_REGION || 'eu-central-1', credentials }).send(new GetCallerIdentityCommand({}));
+    // A role's session (arn:aws:sts::1:assumed-role/Name/session) is trusted as the role itself.
+    const arn = principal ?? (me.Arn ?? '').replace(/^arn:(aws[\w-]*):sts::(\d{12}):assumed-role\/([^/]+)\/.*$/, 'arn:$1:iam::$2:role/$3');
+    if (!/^arn:aws[\w-]*:iam::\d{12}:(role|user)\//.test(arn)) throw new Error(`unexpected identity ${me.Arn ?? ''}`);
+    return { principal: arn, credentials: async () => credentials() };
+  } catch (err) {
+    throw new Error(`TANDEM_AWS_ROLE_SOURCE is on, but this server has no usable AWS identity (${(err as Error).message}). Give its instance or task a role that may call sts:AssumeRole, or turn it off.`, { cause: err });
+  }
+}
+
 export class AwsConnections {
   private readonly pending = new Map<string, Pending>();
   private cached: { key: string; keys: AwsKeys & { expiration?: Date } } | undefined;
@@ -110,6 +197,8 @@ export class AwsConnections {
       profiles?: () => string[];
       /** Test seam for the profile credentials. */
       fromProfile?: (profile: string) => () => Promise<AwsKeys & { expiration?: Date }>;
+      /** The web app: Tandem's identity for assuming customers' roles (absent: no role connection). */
+      roleSource?: RoleSource | undefined;
     },
   ) {}
 
@@ -139,7 +228,8 @@ export class AwsConnections {
     const profiles = (this.o.profiles ?? localProfiles)();
     const c = await this.connection();
     if (!c) return { connected: false, profiles };
-    const label = c.kind === 'sso' ? `${c.account.name} · ${c.role}` : c.kind === 'keys' ? `Access key ${mask(c.accessKeyId)}` : `Profile ${c.profile}`;
+    const role = c.kind === 'role' ? ROLE_ARN.exec(c.roleArn) : null;
+    const label = c.kind === 'sso' ? `${c.account.name} · ${c.role}` : c.kind === 'keys' ? `Access key ${mask(c.accessKeyId)}` : c.kind === 'role' ? `Role ${role?.[3] ?? c.roleArn} in ${role?.[2] ?? 'your account'}` : `Profile ${c.profile}`;
     const base: AwsState = { connected: true, kind: c.kind, label, profiles };
     if (c.kind === 'sso') {
       const until = c.token.refresh ? c.client.expiresAt : c.token.expiresAt;
@@ -275,6 +365,47 @@ export class AwsConnections {
     await this.save(undefined);
   }
 
+  /* ------------------------------------------------------------ a role in the customer's account */
+
+  /** What a customer needs to create the role: Tandem's principal and their workspace's external ID (made once). */
+  async roleSetup(): Promise<{ available: false } | { available: true; principal: string; externalId: string }> {
+    const src = this.o.roleSource;
+    if (!src) return { available: false };
+    let externalId = await this.o.secrets.get('aws-external-id').catch(() => undefined);
+    if (!externalId) {
+      externalId = `tandem-${randomUUID()}`;
+      await this.o.secrets.set('aws-external-id', externalId);
+    }
+    return { available: true, principal: src.principal, externalId };
+  }
+
+  private async assume(roleArn: string, externalId: string, region: string): Promise<AwsKeys & { expiration: Date }> {
+    const src = this.o.roleSource;
+    if (!src) throw new Error('This Tandem has no AWS identity for roles.');
+    if (src.assume) return src.assume(roleArn, externalId, region);
+    const r = await new STSClient({ region, credentials: async () => sdkKeys(await src.credentials()) }).send(new AssumeRoleCommand({ RoleArn: roleArn, ExternalId: externalId, RoleSessionName: 'tandem', DurationSeconds: 3600 }));
+    const k = r.Credentials;
+    if (!k?.AccessKeyId || !k.SecretAccessKey || !k.SessionToken || !k.Expiration) throw new Error('AWS gave no credentials for the role.');
+    return { accessKeyId: k.AccessKeyId, secretAccessKey: k.SecretAccessKey, sessionToken: k.SessionToken, expiration: k.Expiration };
+  }
+
+  /** Connects with the role the customer created; checks that Tandem can assume it first. */
+  async useRole(roleArnInput: string, region: string): Promise<AwsState> {
+    const roleArn = roleArnInput.trim();
+    if (!ROLE_ARN.test(roleArn)) throw new Error('That is not a role ARN. It looks like arn:aws:iam::123456789012:role/TandemCodeCommit (the stack\'s RoleArn output).');
+    const setup = await this.roleSetup();
+    if (!setup.available) throw new Error('This Tandem can\'t use roles. Connect with IAM Identity Center or an access key.');
+    try {
+      // Assuming it with the external ID is the proof: the role trusts Tandem, for this workspace.
+      await this.assume(roleArn, setup.externalId, region);
+    } catch (err) {
+      const msg = String((err as Error).message ?? err).split('\n')[0] ?? '';
+      throw new Error(/AccessDenied|not authorized/i.test(msg) ? `Tandem can't assume ${roleArn} yet. Check that the role trusts ${setup.principal} with the external ID ${setup.externalId} (the template does this).` : `AWS refused the role (${msg}).`, { cause: err });
+    }
+    await this.save({ kind: 'role', roleArn, externalId: setup.externalId, region });
+    return this.state();
+  }
+
   private profileProvider(profile: string) {
     return this.o.fromProfile?.(profile) ?? (fromIni({ profile }) as unknown as () => Promise<AwsKeys & { expiration?: Date }>);
   }
@@ -312,12 +443,13 @@ export class AwsConnections {
   async credentials(): Promise<(AwsKeys & { expiration?: Date }) | undefined> {
     const c = await this.connection();
     if (!c) return undefined;
-    const key = c.kind === 'sso' ? `sso:${c.account.id}:${c.role}` : c.kind === 'keys' ? `keys:${c.accessKeyId}` : `profile:${c.profile}`;
+    const key = c.kind === 'sso' ? `sso:${c.account.id}:${c.role}` : c.kind === 'keys' ? `keys:${c.accessKeyId}` : c.kind === 'role' ? `role:${c.roleArn}` : `profile:${c.profile}`;
     const hit = this.cached;
     if (hit && hit.key === key && (!hit.keys.expiration || hit.keys.expiration.getTime() - 5 * 60_000 > this.now())) return hit.keys;
     let keys: AwsKeys & { expiration?: Date };
     if (c.kind === 'keys') keys = { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey };
     else if (c.kind === 'profile') keys = await this.profileProvider(c.profile)();
+    else if (c.kind === 'role') keys = await this.assume(c.roleArn, c.externalId, c.region);
     else keys = await this.roleCredentials(await this.refreshSso(c));
     this.cached = { key, keys };
     return keys;

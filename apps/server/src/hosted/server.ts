@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
-import { NamespaceSandbox, guardWorktrees } from '@tandem/adapters';
+import { NamespaceSandbox, guardWorktrees, serverRoleSource, type RoleSource } from '@tandem/adapters';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
 import { Directory, type Session } from './directory.js';
@@ -49,6 +49,19 @@ export const HostedConfig = z.object({
   overrides: z.record(z.string(), z.unknown()).default({}),
   /** Starting values for a new workspace (its Copilot budget), which its owners can change. */
   seeds: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * CodeCommit through roles in customers' accounts: this server's own AWS identity (its instance
+   * or task role) assumes them, and is used for nothing else.
+   */
+  aws: z
+    .object({
+      roleSource: z.boolean().default(false),
+      /** The ARN customers' roles trust, when it can't be read from the identity (a role with a path). */
+      principal: z.string().optional(),
+      /** The role template on S3, for CloudFormation's one-click "quick create" link. */
+      templateUrl: z.string().url().optional(),
+    })
+    .default({ roleSource: false }),
   /** Builds in the cloud run isolated ('on'); 'off' only for trying Tandem out, never with real users. */
   sandbox: z.enum(['on', 'off']).default('on'),
 });
@@ -71,6 +84,7 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     logLevel: env.TANDEM_LOG_LEVEL ?? 'info',
     agent: env.TANDEM_AGENT ?? 'copilot',
     sandbox: env.TANDEM_SANDBOX === 'off' ? 'off' : 'on',
+    aws: { roleSource: env.TANDEM_AWS_ROLE_SOURCE === 'on', ...(env.TANDEM_AWS_ROLE_PRINCIPAL ? { principal: env.TANDEM_AWS_ROLE_PRINCIPAL } : {}), ...(env.TANDEM_AWS_TEMPLATE_URL ? { templateUrl: env.TANDEM_AWS_TEMPLATE_URL } : {}) },
     ...operatorSettings(env),
   });
 }
@@ -146,13 +160,15 @@ export interface Hosted {
   stop(): Promise<void>;
 }
 
-export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch } = {}): Promise<Hosted> {
+export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch; awsRoleSource?: RoleSource } = {}): Promise<Hosted> {
   const cfg = HostedConfig.parse(input);
   const http = o.fetch ?? fetch;
   mkdirSync(join(cfg.home, 'workspaces'), { recursive: true, mode: 0o700 });
   const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel);
   const directory = await Directory.open(join(cfg.home, 'directory.db'), cfg.secretKey);
   const workspacesRoot = resolve(cfg.home, 'workspaces');
+  const awsRoleSource = o.awsRoleSource ?? (cfg.aws.roleSource ? await serverRoleSource(cfg.aws.principal) : undefined);
+  if (awsRoleSource) logger.info('customers can connect CodeCommit with a role', { principal: awsRoleSource.principal });
   if (cfg.sandbox === 'on') {
     await provesIsolation(cfg.home, workspacesRoot);
     guardWorktrees([workspacesRoot]);
@@ -183,7 +199,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       const overrides = { ...cfg.overrides, 'copilot.cliPath': cfg.overrides['copilot.cliPath'] ?? '', 'github.apiBase': 'https://api.github.com' };
       const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides, seeds: cfg.seeds };
       const accounts = new WorkspaceAccounts(directory, id, tokens);
-      const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl };
+      const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl, awsRoleSource, awsTemplateUrl: cfg.aws.templateUrl };
       const sandbox = cfg.sandbox === 'on' ? new NamespaceSandbox(cellSandbox(cfg.home, home)) : undefined;
       c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}) }).then(async (cell) => {
         await cell.app.ready();

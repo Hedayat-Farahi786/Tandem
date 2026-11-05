@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { HttpError, type ServerContext } from '../app.js';
 import { auditOwner } from '../audit.js';
+import { codeCommitRoleTemplate } from '@tandem/adapters';
 
 const REGION = z.string().regex(/^[a-z]{2}(-gov)?-[a-z]+-\d$/, 'Choose an AWS region.');
 const plain = (err: unknown) => String((err as Error)?.message ?? err).replace(/^Request \S+ failed with message:\s*/, '').split('\n')[0]!;
@@ -78,6 +79,51 @@ export function registerConnectionRoutes(app: FastifyInstance, ctx: ServerContex
     await tandem.aws.disconnect();
     await auditOwner(store, { action: 'aws.disconnected', summary: 'Disconnected AWS.', detail: {} });
     return awsState();
+  });
+
+  /* ------------------------------------------------------------ a role in the customer's account */
+
+  /**
+   * The web app: what an owner needs to create a role for Tandem in their AWS account. The role
+   * trusts Tandem's identity with this workspace's external ID, and may use CodeCommit only.
+   */
+  app.get('/api/aws/role', async () => {
+    const setup = await tandem.aws.roleSetup();
+    if (!setup.available) return setup;
+    const region = (await tandem.settings()).aws.region || 'eu-central-1';
+    const params = `TandemPrincipal=${setup.principal} ExternalId=${setup.externalId}`;
+    const quick = ctx.hosted?.awsTemplateUrl;
+    return {
+      ...setup,
+      region,
+      template: '/api/aws/role/template',
+      command: `aws cloudformation deploy --region ${region} --stack-name tandem-codecommit --template-file tandem-codecommit-role.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ${params}`,
+      output: `aws cloudformation describe-stacks --region ${region} --stack-name tandem-codecommit --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text`,
+      ...(quick
+        ? { quickCreateUrl: `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/quickcreate?templateURL=${encodeURIComponent(quick)}&stackName=tandem-codecommit&param_TandemPrincipal=${encodeURIComponent(setup.principal)}&param_ExternalId=${encodeURIComponent(setup.externalId)}` }
+        : {}),
+    };
+  });
+
+  /** The role's CloudFormation template; with ?repositories=a,b only those repositories. */
+  app.get('/api/aws/role/template', async (req, reply) => {
+    const { repositories } = z.object({ repositories: z.string().max(2000).optional() }).parse(req.query);
+    const names = repositories ? repositories.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+    return reply
+      .header('Content-Disposition', 'attachment; filename="tandem-codecommit-role.yaml"')
+      .type('text/plain; charset=utf-8')
+      .send(codeCommitRoleTemplate(names ? { repositories: names } : {}));
+  });
+
+  app.post('/api/aws/role', async (req) => {
+    const { roleArn } = z.object({ roleArn: z.string().trim().min(20).max(600) }).parse(req.body);
+    try {
+      const s = await tandem.aws.useRole(roleArn, (await tandem.settings()).aws.region || 'eu-central-1');
+      await auditOwner(store, { action: 'aws.connected', summary: `Connected AWS with a role (${s.label}).`, detail: { kind: 'role', roleArn } });
+      return awsState();
+    } catch (err) {
+      throw new HttpError(400, plain(err));
+    }
   });
 
   /** CodeCommit repositories in a region that the AWS connection can see. */

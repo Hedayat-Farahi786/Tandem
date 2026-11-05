@@ -27,6 +27,15 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **CodeCommit through a role in the customer's account.** In the web app,
+  Settings › AWS › "Connect with a role" shows the workspace's external ID
+  and a CloudFormation template (a one-click link when the operator sets
+  `TANDEM_AWS_TEMPLATE_URL`). The role it creates trusts Tandem only with
+  that ID and may use CodeCommit only, in the repositories named. The owner
+  pastes the role's ARN, and Tandem assumes it when it needs AWS. The
+  server's own identity (`TANDEM_AWS_ROLE_SOURCE=on`) is used for nothing
+  else.
+
 - **Isolated builds in Tandem's cloud.** Every command of a cloud workspace
   runs in its own Linux namespaces: its checks and installs, and the Copilot
   runtime with every command Copilot runs.

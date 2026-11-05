@@ -86,7 +86,7 @@ export interface Cell {
  * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
  * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
  */
-export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined }; sandbox?: TandemOptions['sandbox'] }): Promise<Cell> {
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined }; sandbox?: TandemOptions['sandbox'] }): Promise<Cell> {
   const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
@@ -115,7 +115,7 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
   await chat.clearStaleBusy().catch((err: unknown) => logger.warn('could not clear busy chats', { error: String(err) }));
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
-  const ctx: ServerContext = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> }, ...(o.hosted ? { hosted: { githubInstallUrl: o.hosted.githubInstallUrl } } : {}) };
+  const ctx: ServerContext = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> }, ...(o.hosted ? { hosted: { githubInstallUrl: o.hosted.githubInstallUrl, awsTemplateUrl: o.hosted.awsTemplateUrl } } : {}) };
   const { app, token, gitKey } = await buildApp(ctx, { port: o.port, webDir: o.webDir, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}), ...(o.trustActor ? { trustActor: true } : {}) });
   let jiraTimer: NodeJS.Timeout | undefined;
   let stopped = false;

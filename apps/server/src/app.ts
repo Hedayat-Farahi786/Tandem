@@ -24,7 +24,7 @@ export interface ServerContext {
   chat: ChatService;
   logger?: Logger;
   /** Hosted mode: a workspace of the web app (no folders, profiles or keys of the server). */
-  hosted?: { githubInstallUrl?: string | undefined };
+  hosted?: { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined };
   /** Last doctor run (shown on the Doctor screen and used for "first run"). */
   doctor: { last?: DoctorReport | undefined; running?: Promise<DoctorReport> | undefined };
 }

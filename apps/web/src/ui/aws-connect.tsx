@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, Building2, KeyRound, LogOut, TerminalSquare } from 'lucide-react';
+import { ArrowUpRight, Building2, KeyRound, LogOut, ShieldCheck, TerminalSquare } from 'lucide-react';
 import { secretsKept } from './account-menu';
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
@@ -13,7 +13,7 @@ import { Button, Callout, CopyButton, Dialog, Input, Select, Spinner, cx, useToa
 
 export interface AwsState {
   connected: boolean;
-  kind?: 'sso' | 'keys' | 'profile';
+  kind?: 'sso' | 'keys' | 'profile' | 'role';
   label?: string;
   expiresAt?: string;
   profiles: string[];
@@ -252,11 +252,101 @@ function KeysDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** The AWS connection: who Tandem works as for CodeCommit, or the ways to connect. */
+interface RoleSetup {
+  available: boolean;
+  principal?: string;
+  externalId?: string;
+  region?: string;
+  template?: string;
+  command?: string;
+  output?: string;
+  quickCreateUrl?: string;
+}
+export const useAwsRole = () => useQuery({ queryKey: ['aws-role'], queryFn: () => api<RoleSetup>('/api/aws/role'), staleTime: 300_000, retry: false });
+
+/** A role in the customer's AWS account that trusts Tandem: create it from the template, paste its ARN. */
+function RoleDialog({ setup, onClose }: { setup: RoleSetup; onClose: () => void }) {
+  const refresh = useRefresh();
+  const toast = useToast();
+  const [arn, setArn] = useState('');
+  const connect = useMutation({
+    mutationFn: () => post<AwsState>('/api/aws/role', { roleArn: arn.trim() }),
+    onSuccess: (st) => {
+      refresh();
+      toast(`AWS is connected: ${st.label ?? 'the role'}.`, 'ok');
+      onClose();
+    },
+  });
+  const Step = ({ n, title, children }: { n: number; title: string; children: ReactNode }) => (
+    <li className="flex gap-3">
+      <span aria-hidden className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent-text">
+        {n}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <p className="text-[13.5px] font-medium">{title}</p>
+        {children}
+      </div>
+    </li>
+  );
+  const Copyable = ({ label, text }: { label: string; text: string }) => (
+    <div className="flex items-center gap-2 rounded-lg bg-surface-2 py-1.5 pr-1.5 pl-3 shadow-[0_0_0_1px_var(--border)]">
+      <span className="shrink-0 text-[12px] text-muted">{label}</span>
+      <code className="min-w-0 flex-1 overflow-x-auto font-mono text-[12px] whitespace-nowrap [scrollbar-width:none]">{text}</code>
+      <CopyButton text={text} />
+    </div>
+  );
+  return (
+    <Dialog
+      open
+      wide
+      onClose={onClose}
+      title="Connect AWS with a role"
+      description="A role in your AWS account that only Tandem can assume, only for this workspace, and that may use CodeCommit only. No keys change hands; remove the role to cut access."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" busy={connect.isPending} disabled={!/^arn:aws/.test(arn.trim())} onClick={() => connect.mutate()}>
+            Connect
+          </Button>
+        </>
+      }
+    >
+      <ol className="flex flex-col gap-5">
+        <Step n={1} title="Create the role in your AWS account">
+          {setup.quickCreateUrl ? (
+            <a className={cx('inline-flex h-9 w-fit items-center gap-2 rounded-lg bg-accent px-3.5 text-[13px] font-medium text-accent-fg')} href={setup.quickCreateUrl} target="_blank" rel="noreferrer">
+              Open AWS CloudFormation <ArrowUpRight aria-hidden className="size-4" />
+            </a>
+          ) : (
+            <>
+              <p className="text-[12.5px] text-muted">
+                <a className="font-medium text-accent-text underline-offset-2 hover:underline" href={setup.template} download>
+                  Download the template
+                </a>{' '}
+                and create a stack from it in the CloudFormation console, or run:
+              </p>
+              {setup.command && <Copyable label="$" text={setup.command} />}
+            </>
+          )}
+          <p className="text-[12.5px] text-muted">The template fills these in; they are also here to check:</p>
+          {setup.principal && <Copyable label="Tandem" text={setup.principal} />}
+          {setup.externalId && <Copyable label="External ID" text={setup.externalId} />}
+        </Step>
+        <Step n={2} title="Paste the role's ARN">
+          <Input id="aws-role-arn" label="Role ARN" placeholder="arn:aws:iam::123456789012:role/TandemCodeCommit" value={arn} onChange={(e) => setArn(e.target.value)} help={setup.output ? `The stack's RoleArn output. From the command line: ${setup.output}` : "The stack's RoleArn output."} />
+          {connect.isError && <Callout tone="danger">{(connect.error as Error).message}</Callout>}
+        </Step>
+      </ol>
+    </Dialog>
+  );
+}
+
 export function AwsConnect() {
   const q = useAws();
   const refresh = useRefresh();
   const toast = useToast();
-  const [dialog, setDialog] = useState<'sso' | 'keys' | null>(null);
+  const [dialog, setDialog] = useState<'sso' | 'keys' | 'role' | null>(null);
+  const role = useAwsRole();
   const [profile, setProfile] = useState('');
   const [changing, setChanging] = useState(false);
   const useProfile = useMutation({
@@ -285,6 +375,7 @@ export function AwsConnect() {
     <>
       {dialog === 'sso' && <SsoDialog region={s?.region ?? 'eu-central-1'} onClose={() => setDialog(null)} />}
       {dialog === 'keys' && <KeysDialog onClose={() => setDialog(null)} />}
+      {dialog === 'role' && role.data?.available && <RoleDialog setup={role.data} onClose={() => setDialog(null)} />}
     </>
   );
 
@@ -301,7 +392,7 @@ export function AwsConnect() {
               {s.error ? <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">Expired</span> : <span className="shrink-0 rounded-full bg-ok-soft px-2 py-px text-[11.5px] font-medium text-ok">Connected</span>}
             </p>
             <p className="mt-0.5 truncate text-[12.5px] text-muted">
-              {s.kind === 'sso' ? `IAM Identity Center${s.expiresAt ? ` · renews itself until ${new Date(s.expiresAt).toLocaleDateString()}` : ''}` : s.kind === 'keys' ? 'IAM access key' : 'A profile on this computer'}
+              {s.kind === 'sso' ? `IAM Identity Center${s.expiresAt ? ` · renews itself until ${new Date(s.expiresAt).toLocaleDateString()}` : ''}` : s.kind === 'keys' ? 'IAM access key' : s.kind === 'role' ? 'A role Tandem assumes, with your external ID' : 'A profile on this computer'}
             </p>
           </div>
           <Button size="sm" onClick={() => (s.error && s.kind === 'sso' ? setDialog('sso') : setChanging(true))}>
@@ -331,7 +422,8 @@ export function AwsConnect() {
   );
   return (
     <div className="flex flex-col gap-2">
-      {option(<BrandLogo brand="aws" size={18} />, "Sign in with your company's AWS", 'IAM Identity Center (single sign-on), in the browser', () => setDialog('sso'), true)}
+      {role.data?.available && option(<ShieldCheck aria-hidden className="size-[18px]" strokeWidth={1.8} />, 'Connect with a role', "A role in your account that only Tandem may assume; for teams", () => setDialog('role'), true)}
+      {option(<BrandLogo brand="aws" size={18} />, "Sign in with your company's AWS", 'IAM Identity Center (single sign-on), in the browser', () => setDialog('sso'), !role.data?.available)}
       {option(<KeyRound aria-hidden className="size-[18px]" strokeWidth={1.8} />, 'Use an access key', 'An IAM user without single sign-on', () => setDialog('keys'))}
       {s && s.profiles.length > 0 && (
         <div className="flex flex-wrap items-end gap-2 rounded-xl bg-surface px-3.5 py-3 shadow-[0_0_0_1px_var(--border)]">

@@ -59,6 +59,9 @@ may use.
 | `TANDEM_PORT` | set in the image | `8080` |
 | `TANDEM_LISTEN_HOST` | set in the image | `0.0.0.0` |
 | `TANDEM_GITHUB_WEBHOOK_SECRET` | recommended | The GitHub App's webhook secret. Keep it in your secret manager. |
+| `TANDEM_AWS_ROLE_SOURCE` | recommended | `on`: customers connect CodeCommit with a role in their account that trusts this server's AWS identity (see below). |
+| `TANDEM_AWS_ROLE_PRINCIPAL` | no | The ARN customers' roles trust, when the server's role has a path (`arn:aws:iam::<account>:role/<path>/<name>`). |
+| `TANDEM_AWS_TEMPLATE_URL` | no | The role template on S3, for CloudFormation's one-click "quick create" link (see below). |
 | `TANDEM_SANDBOX` | no | `on` (default): builds run isolated, and Tandem won't start if it can't isolate them. `off` only to try Tandem out without real users. |
 | `TANDEM_LOG_LEVEL` | no | `info` (default), `warn`, `debug` |
 | `TANDEM_MODEL`, `TANDEM_LIGHT_MODEL` | no | The default Copilot models for every workspace |
@@ -142,6 +145,30 @@ rest of this list:
 - **Non-root.** The container already runs as the `node` user. Don't add capabilities.
 
 Each workspace's clones live in its own folder and are reached only through its own cell.
+
+### CodeCommit through customers' roles
+
+With `TANDEM_AWS_ROLE_SOURCE=on`, Settings › AWS offers **Connect with a role**. The owner creates
+a role in their AWS account from Tandem's CloudFormation template. That role:
+
+- trusts this server's identity, only with that workspace's external ID;
+- may use CodeCommit only, and only in the repositories they choose.
+
+They then paste the role's ARN. No keys change hands, and deleting the role cuts access.
+
+For this, the server's own AWS identity (the instance or ECS task role) needs exactly one
+permission:
+
+```json
+{ "Effect": "Allow", "Action": "sts:AssumeRole", "Resource": "arn:aws:iam::*:role/TandemCodeCommit" }
+```
+
+That identity is used for nothing else. Tandem reads it at start and refuses to start if it can't.
+
+For a one-click "quick create" link, save the template once and upload it to an S3 bucket readable
+over HTTPS, then set `TANDEM_AWS_TEMPLATE_URL` to its URL. As a signed-in owner, save it from
+Settings › AWS › Connect with a role › Download the template. It is the same for every workspace;
+the principal and external ID are parameters.
 
 ## 6. Company runners
 
