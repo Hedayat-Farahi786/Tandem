@@ -4,7 +4,7 @@ import { statfs } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { CopilotRuntime, JiraTracker, type Tandem } from '@tandem/adapters';
+import { CopilotRuntime, type Tandem } from '@tandem/adapters';
 import { cacheSummary, type AgentRuntime, type PreflightCheck } from '@tandem/core';
 
 const pexec = promisify(execFile);
@@ -153,15 +153,15 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
   }
 
   // Jira
-  const token = settings.jira.baseUrl ? await t.secrets.get('jira-token') : undefined;
-  if (!settings.jira.baseUrl || !token) {
-    add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'skipped', message: 'Not configured (optional).', fix: 'Add the Jira URL and a token in Settings when you want to use Jira.' });
+  const jira = await t.jira.tracker().catch(() => undefined);
+  if (!jira) {
+    add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'skipped', message: 'Not connected (optional).', fix: 'Choose Connect Jira in Settings › Jira when you want to use Jira.' });
   } else {
     try {
-      const me = await new JiraTracker({ baseUrl: settings.jira.baseUrl, email: settings.jira.email, token }).myself();
-      add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'pass', message: `Signed in as ${me.name}.` });
+      const me = await jira.myself();
+      add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'pass', message: `Connected to ${new URL(settings.jira.baseUrl || 'https://jira').host} as ${me.name}.` });
     } catch (err) {
-      add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'fail', message: String((err as Error).message ?? err), fix: 'Check the Jira URL, email and token in Settings.' });
+      add({ id: 'jira', group: 'Jira', label: 'Jira', status: 'fail', message: String((err as Error).message ?? err), fix: 'Connect Jira again in Settings › Jira.' });
     }
   }
   return { at: new Date().toISOString(), ok: !checks.some((c) => c.status === 'fail'), checks };

@@ -140,6 +140,11 @@ spec:
               valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_DATABASE_URL } }
             - name: TANDEM_METRICS_TOKEN
               valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_METRICS_TOKEN } }
+            # Tandem's Atlassian app, for "Connect Jira" (optional: without it, Jira connects with a token).
+            - name: TANDEM_JIRA_CLIENT_ID
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_JIRA_CLIENT_ID, optional: true } }
+            - name: TANDEM_JIRA_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_JIRA_CLIENT_SECRET, optional: true } }
           securityContext:
             allowPrivilegeEscalation: false
             # Each build mounts its own view of the files; that needs /proc unmasked (with hostUsers: false).

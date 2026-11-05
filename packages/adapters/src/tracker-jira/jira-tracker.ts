@@ -6,11 +6,23 @@ import { adfToText, markdownToAdf } from './adf.js';
 export type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 export interface JiraConfig {
+  /** The Jira site (for links; with a token, the API too). */
   baseUrl: string;
   /** Jira Cloud: the account email (Basic auth with an API token). Empty = Data Center (Bearer PAT). */
-  email: string;
-  token: string;
+  email?: string;
+  token?: string;
+  /** Atlassian's sign-in: calls go through api.atlassian.com to this site, with a token that renews. */
+  oauth?: { cloudId: string; accessToken(renew?: boolean): Promise<string> };
   fetch?: Fetch;
+}
+
+export interface JiraProject {
+  key: string;
+  name: string;
+}
+export interface JiraPerson {
+  id: string;
+  name: string;
 }
 
 export class JiraError extends Error {
@@ -43,27 +55,40 @@ interface JiraComment {
 export class JiraTracker implements Tracker {
   readonly kind = 'jira' as const;
   private readonly base: string;
-  private readonly cloud: boolean;
+  /** Where the REST API answers: the site itself, or Atlassian's gateway for a signed-in site. */
+  private readonly root: string;
+  readonly cloud: boolean;
   private readonly api: string;
 
   constructor(private readonly c: JiraConfig) {
     this.base = c.baseUrl.replace(/\/+$/, '');
-    this.cloud = Boolean(c.email.trim());
+    this.root = c.oauth ? `https://api.atlassian.com/ex/jira/${encodeURIComponent(c.oauth.cloudId)}` : this.base;
+    this.cloud = Boolean(c.oauth) || Boolean(c.email?.trim());
     this.api = this.cloud ? '/rest/api/3' : '/rest/api/2';
-    redactor.register(c.token);
+    if (c.token) redactor.register(c.token);
   }
 
-  private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const auth = this.cloud ? `Basic ${Buffer.from(`${this.c.email}:${this.c.token}`).toString('base64')}` : `Bearer ${this.c.token}`;
+  private async authorization(renew = false): Promise<string> {
+    if (this.c.oauth) {
+      const t = await this.c.oauth.accessToken(renew);
+      redactor.register(t);
+      return `Bearer ${t}`;
+    }
+    return this.c.email?.trim() ? `Basic ${Buffer.from(`${this.c.email}:${this.c.token ?? ''}`).toString('base64')}` : `Bearer ${this.c.token ?? ''}`;
+  }
+
+  private async req<T>(method: string, path: string, body?: unknown, renewed = false): Promise<T> {
+    const auth = await this.authorization(renewed);
     const f = this.c.fetch ?? (globalThis.fetch as unknown as Fetch);
     let res: Awaited<ReturnType<Fetch>>;
     try {
-      await checkOutbound(this.base);
+      // A pasted address may lead anywhere; Atlassian's gateway is fixed.
+      if (!this.c.oauth) await checkOutbound(this.root);
     } catch (err) {
       throw new JiraError(`The Jira address can't be used: ${(err as Error).message}`, 400);
     }
     try {
-      res = await f(`${this.base}${path}`, {
+      res = await f(`${this.root}${path}`, {
         method,
         headers: { Authorization: auth, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -74,7 +99,9 @@ export class JiraTracker implements Tracker {
     }
     const text = await res.text();
     if (res.status === 429 || res.status >= 500) throw new RetryableError(`Jira returned ${res.status}; trying again later.`);
-    if (res.status === 401) throw new JiraError('Jira rejected the token. Check the email and API token in Settings (Jira Cloud tokens are created at id.atlassian.com).', 401);
+    // A signed-in site: the token may have just been revoked or expired early; renew it once.
+    if (res.status === 401 && this.c.oauth && !renewed) return this.req<T>(method, path, body, true);
+    if (res.status === 401) throw new JiraError(this.c.oauth ? 'Jira no longer accepts Tandem\'s sign-in. Connect Jira again in Settings.' : 'Jira rejected the token. Connect Jira again in Settings with a new token.', 401);
     if (res.status === 403) throw new JiraError(`Jira says this account may not ${method === 'GET' ? 'read' : 'change'} that (${path}).`, 403);
     if (res.status === 404) throw new JiraError(`Jira could not find ${path}. Check the issue key and project.`, 404);
     if (!res.ok) throw new JiraError(`Jira ${method} ${path} failed with ${res.status}: ${redactor.redact(text).slice(0, 300)}`, res.status);
@@ -93,6 +120,43 @@ export class JiraTracker implements Tracker {
   private toTask(i: { key: string; fields: { summary?: string; description?: unknown; status?: { name?: string } } }): TrackerTask {
     const d = i.fields.description;
     return { key: i.key, title: i.fields.summary ?? i.key, description: typeof d === 'string' ? d : adfToText(d), status: i.fields.status?.name ?? '', url: this.link(i.key) };
+  }
+
+  /** The projects this account can see, by name. */
+  async projects(): Promise<JiraProject[]> {
+    if (!this.cloud) return (await this.req<Array<{ key: string; name: string }>>('GET', `${this.api}/project`)).map((p) => ({ key: p.key, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
+    const out: JiraProject[] = [];
+    for (let startAt = 0, page = 0; page < 10; page++) {
+      const r = await this.req<{ values: Array<{ key: string; name: string }>; isLast?: boolean; total?: number }>('GET', `${this.api}/project/search?orderBy=name&maxResults=50&startAt=${startAt}`);
+      out.push(...r.values.map((p) => ({ key: p.key, name: p.name })));
+      startAt += r.values.length;
+      if (r.isLast || !r.values.length || (r.total !== undefined && startAt >= r.total)) break;
+    }
+    return out;
+  }
+
+  /** Status names, of one project or of the whole site: to do first, done last. */
+  async statuses(projectKey?: string): Promise<string[]> {
+    type S = { name: string; statusCategory?: { key?: string } };
+    const all: S[] = projectKey
+      ? (await this.req<Array<{ statuses: S[] }>>('GET', `${this.api}/project/${encodeURIComponent(projectKey)}/statuses`)).flatMap((t) => t.statuses)
+      : await this.req<S[]>('GET', `${this.api}/status`);
+    const order: Record<string, number> = { new: 0, indeterminate: 1, done: 2 };
+    const byName = new Map<string, number>();
+    for (const x of all) if (!byName.has(x.name)) byName.set(x.name, order[x.statusCategory?.key ?? ''] ?? 1);
+    return [...byName].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).map(([n]) => n);
+  }
+
+  /** People whose name (or email) matches, for choosing who approves in Jira. */
+  async people(query: string): Promise<JiraPerson[]> {
+    const q = encodeURIComponent(query.trim());
+    if (!q) return [];
+    type U = JiraUser & { accountType?: string; active?: boolean };
+    const found = await this.req<U[]>('GET', this.cloud ? `${this.api}/user/search?query=${q}&maxResults=20` : `${this.api}/user/search?username=${q}&maxResults=20`);
+    return found
+      .filter((u) => (u.accountType === undefined || u.accountType === 'atlassian') && u.active !== false)
+      .map((u) => ({ id: u.accountId ?? u.key ?? u.name ?? '', name: u.displayName ?? u.name ?? '' }))
+      .filter((u) => u.id);
   }
 
   async getTask(key: string): Promise<TrackerTask | undefined> {

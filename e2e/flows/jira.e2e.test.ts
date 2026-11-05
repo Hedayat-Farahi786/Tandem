@@ -41,15 +41,16 @@ describe.skipIf(!ON)('Jira flows (real Jira, scripted agent)', () => {
     await h.prepareRemotes(['fullstack']);
     await h.start();
     const settings = await h.api<{ jira: Record<string, unknown> }>('GET', '/api/settings');
-    await h.api('PUT', '/api/settings', { ...settings, jira: { ...settings.jira, baseUrl: URL, email: EMAIL, pollIntervalMin: 1 } });
-    await h.api('PUT', '/api/secrets/jira-token', { value: TOKEN });
+    await h.api('PUT', '/api/settings', { ...settings, jira: { ...settings.jira, pollIntervalMin: 1 } });
+    // As a person would: Settings › Jira › Connect Jira, with a token.
+    await h.api('POST', '/api/jira/token', { site: URL, email: EMAIL, token: TOKEN });
     const repo = await h.addRepo('fullstack');
     const project = await h.api<{ id: string }>('POST', '/api/projects', { name: 'Jira shop', repoIds: [repo.id], pmGate: 'jira', jiraPmAccountIds: [accountId], jiraProjectKey: ISSUE.split('-')[0], keyPrefix: 'JSHOP' });
     projectId = project.id;
   }, 300_000);
 
   afterAll(async () => {
-    await h.api('DELETE', '/api/secrets/jira-token').catch(() => undefined);
+    await h.api('DELETE', '/api/jira').catch(() => undefined);
     await h.stop();
     h.cleanup();
   });

@@ -46,7 +46,9 @@ Request ─▶ Readiness ─▶ Spec ─▶ Approvals ─▶ Build ─▶ Checks
 3. **Copilot and AWS**: your name (used on approvals), the Copilot host if
    your Copilot comes from a GitHub Enterprise host, and the AWS profile for
    CodeCommit.
-4. **Jira (optional)**: skip it, or see [Enable Jira](ENABLE_JIRA.md).
+4. **Jira (optional)**: skip it, or choose **Connect Jira**: sign in at
+   Atlassian, or paste a link from your Jira and a token. See
+   [Enable Jira](ENABLE_JIRA.md).
 5. **Check**: the doctor checks the tools, Copilot access and every
    repository. Fix anything marked red, then open chat.
 

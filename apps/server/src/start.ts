@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ChatService, loadConfig, type Logger } from '@tandem/core';
-import { ScriptedAgent, createTandem, defaultScript, plainAccess, type TandemOptions, type Tandem } from '@tandem/adapters';
+import { ScriptedAgent, atlassianOAuth, createTandem, defaultScript, plainAccess, type Fetch as JiraFetch, type JiraOAuth, type TandemOptions, type Tandem } from '@tandem/adapters';
 import { pathToFileURL } from 'node:url';
 import type { RuntimeConfig } from '@tandem/shared';
 import type { FastifyInstance } from 'fastify';
@@ -86,7 +86,7 @@ export interface Cell {
  * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
  * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
  */
-export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined }; sandbox?: TandemOptions['sandbox'] }): Promise<Cell> {
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined }; sandbox?: TandemOptions['sandbox']; jiraOAuth?: JiraOAuth | undefined; jiraFetch?: JiraFetch }): Promise<Cell> {
   const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
@@ -97,6 +97,7 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
     ...testSeams(),
     ...(o.hosted ? { hosted: o.hosted } : {}),
     ...(o.sandbox ? { sandbox: o.sandbox } : {}),
+    ...(o.jiraOAuth || o.jiraFetch ? { jira: { ...(o.jiraOAuth ? { oauth: o.jiraOAuth } : {}), ...(o.jiraFetch ? { fetch: o.jiraFetch } : {}) } } : {}),
     events: bus,
     logger,
   });
@@ -142,11 +143,11 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
         void (async () => {
           const tracker = await tandem.deps.tracker();
           if (tracker.kind !== 'jira') return;
-          // A project with its own query is polled with it. With one project, the Settings query is enough;
-          // with several, each needs its own query so an issue can't land in the wrong project.
+          // A project with its own Jira project (or query) is polled with it. With one project, the Settings
+          // status is enough; with several, each needs its own so an issue can't land in the wrong project.
           const projects = await tandem.store.projects.list();
           for (const p of projects) {
-            if (!p.jiraJql?.trim() && projects.length > 1) continue;
+            if (!p.jiraJql?.trim() && !p.jiraProjectKey?.trim() && projects.length > 1) continue;
             await tandem.service.importFromTracker(p).catch((err: unknown) => logger.warn('jira poll failed', { project: p.id, error: String(err) }));
           }
         })();
@@ -166,9 +167,22 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
 }
 
 /** Starts the local app on 127.0.0.1: one cell, its runner and pollers. */
-export async function startServer(config: RuntimeConfig, o: { webDir?: string | undefined; quiet?: boolean; trustActor?: boolean } = {}): Promise<Running> {
+/**
+ * The local app's "Connect Jira" with Atlassian's sign-in: only with an Atlassian app of its own
+ * (TANDEM_JIRA_CLIENT_ID and TANDEM_JIRA_CLIENT_SECRET, callback http://localhost:<port>/auth/jira/callback
+ * or TANDEM_JIRA_REDIRECT_URL). Without one, Jira connects with a token.
+ */
+export function localJiraOAuth(env: NodeJS.ProcessEnv, port: number): JiraOAuth | undefined {
+  const clientId = env.TANDEM_JIRA_CLIENT_ID?.trim();
+  const clientSecret = env.TANDEM_JIRA_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return undefined;
+  return atlassianOAuth({ clientId, clientSecret, redirectUri: env.TANDEM_JIRA_REDIRECT_URL?.trim() || `http://localhost:${port}/auth/jira/callback` });
+}
+
+export async function startServer(config: RuntimeConfig, o: { webDir?: string | undefined; quiet?: boolean; trustActor?: boolean; jiraOAuth?: JiraOAuth } = {}): Promise<Running> {
   const logger = createLogger(join(config.home, 'logs'), config.logLevel === 'silent' ? 'silent' : config.logLevel);
-  const cell = await openCell({ home: config.home, config, logger, webDir: 'webDir' in o ? o.webDir : WEB_DIR, port: config.port, ...(o.trustActor ? { trustActor: true } : {}) });
+  const jiraOAuth = o.jiraOAuth ?? localJiraOAuth(process.env, config.port);
+  const cell = await openCell({ home: config.home, config, logger, webDir: 'webDir' in o ? o.webDir : WEB_DIR, port: config.port, ...(o.trustActor ? { trustActor: true } : {}), ...(jiraOAuth ? { jiraOAuth } : {}) });
   const { app, tandem, token, bus } = cell;
   try {
     await app.listen({ host: '127.0.0.1', port: config.port });

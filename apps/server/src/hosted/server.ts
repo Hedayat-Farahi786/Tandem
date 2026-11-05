@@ -9,9 +9,10 @@ import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
-import { NamespaceSandbox, guardWorktrees, restrictOutbound, serverRoleSource, type RoleSource } from '@tandem/adapters';
+import { JiraError, NamespaceSandbox, atlassianOAuth, guardWorktrees, restrictOutbound, serverRoleSource, type Fetch as JiraFetch, type JiraOAuth, type RoleSource } from '@tandem/adapters';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
+import { JiraFrom, jiraBack } from '../routes/jira.js';
 import { Directory, type Session } from './directory.js';
 import { legalPage } from './legal-pages.js';
 import { signInPage } from './sign-in-page.js';
@@ -77,6 +78,8 @@ export const HostedConfig = z.object({
     .default({ workspacesPerPerson: 10, membersPerWorkspace: 100, invitesPerDay: 50 }),
   /** How many proxies in front add X-Forwarded-For (the load balancer: 1); a client's own entries are ignored. */
   trustProxy: z.number().int().min(0).max(5).default(1),
+  /** Tandem's Atlassian app, for "Connect Jira" with Atlassian's sign-in (callback <publicUrl>/auth/jira/callback). */
+  jira: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }).optional(),
   /** The `tandem` command as an npm package (scripts/pack-cli.mjs), offered at /download/tandem.tgz for company runners. */
   cliPackage: z.string().optional(),
   /** Bearer token for GET /metrics (Prometheus); without it, /metrics is off. */
@@ -112,6 +115,7 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     },
     ...(env.TANDEM_METRICS_TOKEN ? { metricsToken: env.TANDEM_METRICS_TOKEN } : {}),
     ...(env.TANDEM_CLI_PACKAGE ? { cliPackage: env.TANDEM_CLI_PACKAGE } : {}),
+    ...(env.TANDEM_JIRA_CLIENT_ID && env.TANDEM_JIRA_CLIENT_SECRET ? { jira: { clientId: env.TANDEM_JIRA_CLIENT_ID.trim(), clientSecret: env.TANDEM_JIRA_CLIENT_SECRET.trim() } } : {}),
     ...(env.TANDEM_TRUST_PROXY ? { trustProxy: Number(env.TANDEM_TRUST_PROXY) } : {}),
     replica: { id: env.TANDEM_REPLICA_ID || (env.TANDEM_DATABASE_URL ? hostname() : 'main'), ...(env.TANDEM_REPLICA_URL ? { url: env.TANDEM_REPLICA_URL } : {}) },
     aws: { roleSource: env.TANDEM_AWS_ROLE_SOURCE === 'on', ...(env.TANDEM_AWS_ROLE_PRINCIPAL ? { principal: env.TANDEM_AWS_ROLE_PRINCIPAL } : {}), ...(env.TANDEM_AWS_TEMPLATE_URL ? { templateUrl: env.TANDEM_AWS_TEMPLATE_URL } : {}) },
@@ -131,10 +135,11 @@ function operatorSettings(env: NodeJS.ProcessEnv): { overrides: Record<string, u
 
 const SESSION = 'tandem_session';
 const OAUTH = 'tandem_oauth';
+const JIRA = 'tandem_jira';
 const JOIN = 'tandem_join';
 const CELL_HOST = 'cell.tandem.internal';
 /** Changes only an owner makes: settings, and the workspace's connections and secrets. */
-const OWNER_ONLY = /^\/api\/(settings|secrets|aws|copilot)(\/|\?|$)/;
+const OWNER_ONLY = /^\/api\/(settings|secrets|aws|copilot|jira)(\/|\?|$)/;
 
 /** What a cloud workspace's builds see: their own workspace folder, without its database, logs or the git helper's key. */
 function cellSandbox(hostedHome: string, home: string) {
@@ -249,6 +254,11 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!dir.startsWith(workspacesRoot + sep)) throw new Error('Bad workspace id.');
     return dir;
   };
+  // Jira: Tandem's Atlassian app. The front starts the sign-in and takes Atlassian's answer; cells
+  // renew their tokens with it, and company runners ask the front to renew theirs.
+  const jiraApp = cfg.jira ? atlassianOAuth({ clientId: cfg.jira.clientId, clientSecret: cfg.jira.clientSecret, redirectUri: `${cfg.publicUrl}/auth/jira/callback`, ...(o.fetch ? { fetch: o.fetch as unknown as JiraFetch } : {}) }) : undefined;
+  const cellJira: JiraOAuth | undefined = jiraApp ? { available: () => true, refresh: (t) => jiraApp.refresh(t) } : undefined;
+
   const cellFor = (id: string): Promise<Cell> => {
     let c = cells.get(id);
     if (!c) {
@@ -261,7 +271,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       const accounts = new WorkspaceAccounts(directory, id, tokens);
       const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl, awsRoleSource, awsTemplateUrl: cfg.aws.templateUrl };
       const sandbox = cfg.sandbox === 'on' ? new NamespaceSandbox(cellSandbox(cfg.home, home)) : undefined;
-      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}) }).then(async (cell) => {
+      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}), ...(cellJira ? { jiraOAuth: cellJira } : {}), ...(o.fetch ? { jiraFetch: o.fetch as unknown as JiraFetch } : {}) }).then(async (cell) => {
         await cell.app.ready();
         await cell.start(listenPort, `/cells/${id}/git/credential`);
         return cell;
@@ -289,8 +299,8 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return r && r.seenAt > Date.now() - 45_000 ? r.url : undefined;
   };
   /** Sends a request to another replica's internal routes; resolves with its answer. */
-  const callReplica = async (url: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> => {
-    const res = await fetch(new URL(path, url), { method: 'POST', headers: { 'content-type': 'application/json', 'x-tandem-internal': internalKey }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(30_000) });
+  const callReplica = async (url: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<{ status: number; json: unknown }> => {
+    const res = await fetch(new URL(path, url), { method: 'POST', headers: { ...extra, 'content-type': 'application/json', 'x-tandem-internal': internalKey }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(30_000) });
     return { status: res.status, json: await res.json().catch(() => ({})) };
   };
 
@@ -353,7 +363,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       if (limiter.take(`runner:${ip}`, POLICIES.runner)) return 429;
       return (await directory.runnerByToken(token))?.workspaceId;
     },
-    welcome: async (id) => ({ workspace: (await directory.workspace(id))?.name ?? '' }),
+    welcome: async (id) => ({ workspace: (await directory.workspace(id))?.name ?? '', jiraSignIn: Boolean(jiraApp) }),
     seen: (id, machine) => directory.runnerSeen(id, machine),
     connected: (id, here) => directory.runnerConnected(id, here ? me : undefined, me),
     logger,
@@ -385,6 +395,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (/^\/(auth|join)\//.test(path)) policy = 'auth';
     else if (path === '/hooks/github') policy = 'hook';
     else if (path.startsWith('/download/')) policy = 'download';
+    else if (path.startsWith('/runner/')) policy = 'runner';
     else if (path.startsWith('/api/')) {
       const sid = cookies(req)[SESSION];
       if (sid) who = `s:${createHmac('sha256', internalKey).update(sid).digest('base64url').slice(0, 22)}`;
@@ -813,6 +824,117 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     });
   });
 
+  /* ---------------------------------------------------------------- Jira: Atlassian's sign-in */
+
+  /** The front asks a workspace itself, wherever it runs (here, another replica, its company runner): JSON in and out. */
+  const callWorkspace = async (id: string, path: string, body: unknown, actor?: string): Promise<{ status: number; json: unknown }> => {
+    const payload = JSON.stringify(body);
+    const headers: Record<string, string> = { 'content-type': 'application/json', ...(actor ? { 'x-tandem-actor': encodeURIComponent(actor) } : {}) };
+    const elsewhere = async (replica: string | undefined, offline: string) => {
+      const url = replica ? await replicaUrl(replica) : undefined;
+      return url ? callReplica(url, `/internal/ws/${id}${path}`, body, actor ? { 'x-tandem-actor': headers['x-tandem-actor']! } : {}) : { status: 503, json: { error: offline } };
+    };
+    if ((await directory.runnerMode(id)) === 'company') {
+      if (!hub.status(id)) {
+        const there = (await directory.runnerOf(id))?.connectedReplica;
+        return there && there !== me ? elsewhere(there, RUNNER_OFFLINE) : { status: 503, json: { error: RUNNER_OFFLINE } };
+      }
+      return new Promise((done) => {
+        let status = 502;
+        const chunks: Buffer[] = [];
+        const json = () => {
+          try {
+            return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+          } catch {
+            return {};
+          }
+        };
+        const cancel = hub.request(id, { method: 'POST', url: path, headers, body: payload }, {
+          onHead: (st) => void (status = st),
+          onData: (c) => void chunks.push(c),
+          onEnd: () => done({ status, json: json() }),
+          onError: (message) => done({ status: 502, json: { error: message } }),
+        });
+        if (!cancel) done({ status: 503, json: { error: RUNNER_OFFLINE } });
+      });
+    }
+    const there = (await directory.workspaceReplica(id)) ?? me;
+    if (there !== me) return elsewhere(there, OWNER_MOVED);
+    const cell = await cellFor(id);
+    const r = await cell.app.inject({ method: 'POST', url: path, headers: { ...headers, host: CELL_HOST, 'x-tandem-token': cell.token }, payload });
+    let json: unknown = {};
+    try {
+      json = r.json();
+    } catch {
+      // not JSON
+    }
+    return { status: r.statusCode, json };
+  };
+
+  /** A sign-in's state: which workspace and person it is for, until when; signed, so any replica can check it. */
+  const signJira = (body: string) => createHmac('sha256', internalKey).update(`jira|${body}`).digest('base64url');
+
+  /** An owner chooses "Connect Jira": the Atlassian page to open. */
+  app.post('/api/jira/oauth/start', async (req, reply) => {
+    const c = await inWorkspace(req, reply);
+    if (!ownerOnly(c, reply) || !c) return reply;
+    if (!jiraApp) return reply.code(409).send({ error: "Atlassian's sign-in isn't set up for this Tandem. Connect with a token instead." });
+    const { from } = JiraFrom.parse(req.body ?? {});
+    const nonce = randomBytes(18).toString('base64url');
+    const body = Buffer.from(JSON.stringify({ n: nonce, w: c.w.id, u: c.s.session.userId, e: Date.now() + 10 * 60_000, r: from })).toString('base64url');
+    return reply.header('Set-Cookie', cookie(JIRA, nonce, 600)).send({ url: jiraApp.authorizeUrl(`${body}.${signJira(body)}`) });
+  });
+
+  /** Atlassian sends the owner back, signed in: the workspace gets the sign-in. */
+  app.get('/auth/jira/callback', async (req, reply) => {
+    const q = z.object({ code: z.string().max(2000).optional(), state: z.string().max(1000).optional(), error: z.string().max(200).optional() }).parse(req.query);
+    const nonce = cookies(req)[JIRA];
+    reply.header('Set-Cookie', cookie(JIRA, '', 0));
+    const from = { at: 'settings' };
+    const fail = (message: string) => reply.redirect(jiraBack(from.at, 'failed', message));
+    if (!jiraApp) return fail("Atlassian's sign-in isn't set up for this Tandem.");
+    if (q.error || !q.code || !q.state) return fail(q.error === 'access_denied' ? 'You cancelled the sign-in at Atlassian.' : 'The sign-in at Atlassian was not completed.');
+    const [body = '', sig = ''] = q.state.split('.');
+    const want = signJira(body);
+    let st: { n?: string; w?: string; u?: string; e?: number; r?: string } = {};
+    try {
+      if (sig.length === want.length && timingSafeEqual(Buffer.from(sig), Buffer.from(want))) st = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as typeof st;
+    } catch {
+      st = {};
+    }
+    if (st.r === 'setup') from.at = 'setup';
+    if (!st.n || !st.w || !st.u || !nonce || st.n !== nonce || (st.e ?? 0) < Date.now()) return fail('That sign-in is no longer valid. Choose Connect Jira again.');
+    const s = await sessionOf(req);
+    if (!s || s.session.userId !== st.u) return fail('Sign in to Tandem, then choose Connect Jira again.');
+    if ((await directory.roleIn(st.w, st.u)) !== 'owner') return fail('Only an owner of the workspace can connect Jira.');
+    let grant;
+    try {
+      grant = await jiraApp.exchange(q.code);
+    } catch (err) {
+      return fail(err instanceof JiraError ? err.message : 'Atlassian did not complete the sign-in. Please try again.');
+    }
+    const person = await directory.user(st.u);
+    const r = await callWorkspace(st.w, '/api/jira/oauth', grant, person?.name || person?.login);
+    const answer = r.json as { connected?: boolean; error?: string };
+    if (r.status !== 200) return fail(answer.error ?? 'Jira could not be connected. Please try again.');
+    logger.info('jira connected', { workspace: st.w, sites: grant.sites.length });
+    return reply.redirect(jiraBack(from.at, answer.connected ? 'connected' : 'choose'));
+  });
+
+  /** A company runner renews its workspace's Jira sign-in through Tandem's Atlassian app. */
+  app.post('/runner/jira/refresh', async (req, reply) => {
+    const key = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1];
+    const runner = key ? await directory.runnerByToken(key) : undefined;
+    if (!runner) return reply.code(401).send({ error: 'Not a runner of this Tandem.' });
+    if (!jiraApp) return reply.code(404).send({ error: "Atlassian's sign-in isn't set up for this Tandem." });
+    const { refresh } = z.object({ refresh: z.string().min(1).max(8000) }).parse(req.body);
+    try {
+      return await jiraApp.refresh(refresh);
+    } catch (err) {
+      return reply.code(err instanceof JiraError && err.status === 401 ? 401 : 502).send({ error: err instanceof JiraError ? err.message : "Jira's sign-in could not be renewed." });
+    }
+  });
+
   /* ---------------------------------------------------------------- between replicas */
 
   app.post('/internal/hooks/pull-request', async (req) => {
@@ -859,6 +981,8 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const role = w ? await directory.roleIn(w.id, s.session.userId) : undefined;
     if (!w || !role) return reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
     if (writes(req) && OWNER_ONLY.test(req.url) && role !== 'owner') return reply.code(403).send({ error: 'Only an owner of the workspace can change its settings and connections.' });
+    // A finished Atlassian sign-in comes only from this server's own callback, never from a page.
+    if (req.url.split('?')[0] === '/api/jira/oauth') return reply.code(404).send({ error: 'Not found.' });
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !DROP.has(k)) headers[k] = v;
     const person = await directory.user(s.session.userId);

@@ -128,7 +128,7 @@ describe('Settings', () => {
     mockApi(routes({ 'GET /api/secrets': { keychain: { ok: false, reason: 'No Secret Service' }, jiraToken: false, githubToken: false } }));
     renderApp('/settings');
     expect(await screen.findByText('No OS keychain on this machine')).toBeTruthy();
-    expect((screen.getByLabelText('Jira API token') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Extra GitHub token') as HTMLInputElement).disabled).toBe(true);
   });
 });
 

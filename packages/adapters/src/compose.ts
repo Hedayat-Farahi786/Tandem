@@ -15,7 +15,7 @@ import {
   type Tracker,
   type WorkflowDeps,
 } from '@tandem/core';
-import type { Repo, Settings } from '@tandem/shared';
+import { Settings, type Repo } from '@tandem/shared';
 import { CopilotRuntime } from './agent-copilot/copilot-runtime.js';
 import { ScriptedAccounts, type CopilotAccounts } from './agent-copilot/accounts.js';
 import type { GitHubIdentity } from './agent-copilot/copilot-runtime.js';
@@ -30,7 +30,9 @@ import { KeychainSecrets, type SecretStore } from './secrets/keychain.js';
 import { CodeCommitHost, type CodeCommitHostOptions } from './source-codecommit/codecommit-host.js';
 import { GitHubHost, type GitHubHostOptions } from './source-github/github-host.js';
 import { SqliteStore } from './storage-sqlite/sqlite-store.js';
-import { JiraTracker } from './tracker-jira/jira-tracker.js';
+import type { Fetch as JiraFetch } from './tracker-jira/jira-tracker.js';
+import { JiraConnections } from './tracker-jira/jira-connections.js';
+import type { JiraOAuth } from './tracker-jira/jira-oauth.js';
 import { LocalTracker } from './tracker-local/local-tracker.js';
 
 export const systemClock: Clock = { now: () => Date.now(), iso: () => new Date().toISOString() };
@@ -54,6 +56,8 @@ export interface TandemOptions {
   bootId?: string;
   codecommit?: Partial<Pick<CodeCommitHostOptions, 'api' | 'sts' | 'accessOverride'>>;
   github?: Partial<Pick<GitHubHostOptions, 'fetch' | 'accountToken'>>;
+  /** Jira: Atlassian's sign-in, when this Tandem has an Atlassian app (see tracker-jira/jira-oauth.ts). */
+  jira?: { oauth?: JiraOAuth; fetch?: JiraFetch };
   /**
    * Hosted mode: one workspace of the web app. Its secrets live in the directory (not a keychain),
    * Copilot and GitHub use the workspace's GitHub identity, and nothing of the server's own is
@@ -81,6 +85,8 @@ export interface Tandem {
   accounts: CopilotAccounts;
   /** The AWS connection made in the app, for CodeCommit. */
   aws: AwsConnections;
+  /** The Jira connection made in the app. */
+  jira: JiraConnections;
   /** Answers git's credential requests for the remotes Tandem manages (see credential-helper.ts). */
   gitCredential(req: CredentialRequest): Promise<{ username: string; password: string } | undefined>;
   /** Once the server listens: install the helper (with its own key) and use it for HTTPS git from now on. */
@@ -116,16 +122,17 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   hostRef.current = hosts;
 
   const localTracker = new LocalTracker(store, clock, ids, async () => (await settings()).ownerName || 'Owner');
-  let jira: { key: string; tracker: JiraTracker } | undefined;
-  const tracker = async (): Promise<Tracker> => {
-    const s = await settings();
-    if (!s.jira.baseUrl) return localTracker;
-    const token = await secrets.get('jira-token');
-    if (!token) return localTracker;
-    const key = `${s.jira.baseUrl}|${s.jira.email}|${token.length}`;
-    if (jira?.key !== key) jira = { key, tracker: new JiraTracker({ baseUrl: s.jira.baseUrl, email: s.jira.email, token }) };
-    return jira.tracker;
-  };
+  const jira = new JiraConnections({
+    secrets,
+    settings,
+    saveJira: async (j) => {
+      const s = (await store.settings.get()) ?? Settings.parse({});
+      await store.settings.set({ ...s, jira: { ...s.jira, ...j } });
+    },
+    ...(o.jira?.oauth ? { oauth: o.jira.oauth } : {}),
+    ...(o.jira?.fetch ? { fetch: o.jira.fetch } : {}),
+  });
+  const tracker = async (): Promise<Tracker> => (await jira.tracker().catch(() => undefined)) ?? localTracker;
 
   // A Copilot sign-in or account switch keeps its host in Settings.
   const useHost = async (host: string) => {
@@ -182,6 +189,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     agent,
     accounts,
     aws,
+    jira,
     gitCredential: async (req) => {
       const host = (req.host ?? '').toLowerCase().replace(/:\d+$/, '');
       if (req.protocol && req.protocol !== 'https') return undefined;

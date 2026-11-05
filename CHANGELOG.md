@@ -27,6 +27,21 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Connect Jira in a few clicks.** Settings › Jira and the setup wizard
+  have one **Connect Jira** button:
+  - In the web app (with Tandem's Atlassian app, `TANDEM_JIRA_CLIENT_ID` and
+    `_SECRET`), it is Atlassian's own sign-in: allow Tandem, choose the site
+    if there are several, done. The sign-in renews itself; refresh tokens
+    rotate and are stored sealed per workspace. Company runners renew
+    through the web app, so the client secret stays there.
+  - Otherwise (Jira Data Center, or the local app without an Atlassian app),
+    a short form: paste any link from Jira and a token, with a link to the
+    page that makes it. Tandem checks it with Jira before keeping it.
+  - No JQL or account IDs to type: pick the "ready" and "in review"
+    statuses from Jira's own, each project's **Jira project** from a list,
+    and PMs by name. Writing JQL by hand stays available.
+  - Saving Settings no longer changes which Jira is connected.
+
 - **Install the company runner in one line.** The web app offers the
   `tandem` command at `/download/tandem.tgz`, and Settings › Workspace shows
   `npm install -g https://app.[domain]/download/tandem.tgz` above the runner

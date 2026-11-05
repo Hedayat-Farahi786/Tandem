@@ -10,7 +10,7 @@ import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { CopilotConnect } from '../ui/copilot-connect';
 import { RepoImporter } from '../ui/repo-importer';
-import { isCloud, secretsKept } from '../ui/account-menu';
+import { JiraConnect, useJira } from '../ui/jira-connect';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
 
@@ -18,7 +18,8 @@ const STEPS = ['Welcome', 'Copilot', 'Repositories', 'Project', 'Jira (optional)
 type Step = (typeof STEPS)[number];
 
 export function SetupScreen() {
-  const [step, setStep] = useState<Step>('Welcome');
+  // Back from Atlassian's sign-in: on the Jira step again.
+  const [step, setStep] = useState<Step>(() => (new URLSearchParams(window.location.search).has('jira') ? 'Jira (optional)' : 'Welcome'));
   const boot = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
   const i = STEPS.indexOf(step);
   const next = () => setStep(STEPS[Math.min(i + 1, STEPS.length - 1)]!);
@@ -265,21 +266,9 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
   );
 }
 
-function JiraStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
-  const qc = useQueryClient();
-  const [baseUrl, setBaseUrl] = useState(boot.settings.jira.baseUrl);
-  const [email, setEmail] = useState(boot.settings.jira.email);
-  const [token, setToken] = useState('');
-  const save = useMutation({
-    mutationFn: async () => {
-      await put('/api/settings', { ...boot.settings, jira: { ...boot.settings.jira, baseUrl: baseUrl.trim(), email: email.trim() } });
-      if (token.trim()) await put('/api/secrets/jira-token', { value: token.trim() });
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['bootstrap'] });
-      onNext();
-    },
-  });
+function JiraStep({ onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
+  const jira = useJira();
+  const connected = Boolean(jira.data?.connected);
   return (
     <Card
       title={
@@ -288,22 +277,14 @@ function JiraStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => voi
           Jira (optional)
         </h2>
       }
-      actions={<Pill>{boot.jiraConfigured ? 'Configured' : 'Not configured'}</Pill>}>
-      <p className="mb-4 text-[13px] text-muted">Tandem works fully without Jira. Skip this now and turn it on later in Settings by adding a token.</p>
-      <div className="flex flex-col gap-4">
-        <Input label="Jira URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://your-company.atlassian.net" />
-        <Input label="Account email (Jira Cloud)" value={email} onChange={(e) => setEmail(e.target.value)} help="Leave empty for Jira Data Center with a personal access token." />
-        <Input label="API token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} help={isCloud() ? 'Encrypted, and used only for this workspace.' : `Stored ${secretsKept()}, never in files or the database.`} />
-        {save.isError && <ErrorState error={save.error} />}
-      </div>
+      actions={<Pill tone={connected ? 'ok' : 'neutral'}>{connected ? 'Connected' : 'Not connected'}</Pill>}>
+      <p className="mb-4 text-[13px] text-muted">Tandem works fully without Jira. With it, Tandem turns issues into tasks, posts specs for the PM to approve, and reports the pull requests. You can connect it later in Settings.</p>
+      <JiraConnect from="setup" />
       <div className="mt-6 flex justify-between">
         <Button onClick={onBack}>Back</Button>
-        <div className="flex gap-2">
-          <Button onClick={onNext}>Skip for now</Button>
-          <Button variant="primary" busy={save.isPending} disabled={!baseUrl.trim() || !token.trim()} onClick={() => save.mutate()}>
-            Save Jira
-          </Button>
-        </div>
+        <Button variant={connected ? 'primary' : 'secondary'} onClick={onNext}>
+          {connected ? 'Continue' : 'Skip for now'}
+        </Button>
       </div>
     </Card>
   );

@@ -118,7 +118,7 @@ describe.skipIf(!REAL)('real CodeCommit (scripted agent, no Copilot)', () => {
     cleanup.push(() => t.close());
     const r = repo();
     await t.store.repos.upsert(r);
-    await t.store.projects.upsert({ id: 'p', name: 'Sandbox', repoIds: [r.id], contractOrder: [r.id], specRepoId: r.id, pmGate: 'tandem', pmNames: [], jiraPmAccountIds: [], keyPrefix: 'IT', createdAt: r.createdAt });
+    await t.store.projects.upsert({ id: 'p', name: 'Sandbox', repoIds: [r.id], contractOrder: [r.id], specRepoId: r.id, pmGate: 'tandem', pmNames: [], jiraPmAccountIds: [], jiraPmNames: {}, keyPrefix: 'IT', createdAt: r.createdAt });
     const task = await t.service.create({ projectId: 'p', title: `Health check ${id}`, requirement: Requirement.parse({ goal: 'Expose health', userStory: 'As an operator I want health', criteria: [{ given: 'the service runs', when: 'health() is called', then: 'it returns ok' }, { given: 'a test run', when: 'tests run', then: 'health is covered' }], exampleData: '{"status":"ok"}', affectedAreas: 'src/health.ts', outOfScope: 'HTTP route' }) });
     await t.service.submit(task.id);
     await t.runner.runUntilIdle();

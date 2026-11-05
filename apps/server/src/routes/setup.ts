@@ -20,7 +20,8 @@ const ProjectInput = z.object({
   pmGate: PmGate.default('tandem'),
   pmNames: z.array(z.string()).default([]),
   jiraPmAccountIds: z.array(z.string()).default([]),
-  jiraProjectKey: z.string().optional(),
+  jiraPmNames: z.record(z.string(), z.string().max(200)).default({}),
+  jiraProjectKey: z.string().max(100).optional(),
   jiraJql: z.string().optional(),
   keyPrefix: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/, 'Use 2-10 capital letters or digits, starting with a letter').default('TND'),
 });
@@ -68,7 +69,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
       /** Test mode: CodeCommit repos come from local copies (TANDEM_TEST_REMOTE_ROOT). */
       localRepoCopies: Boolean(process.env.TANDEM_TEST_REMOTE_ROOT),
       doctor: ctx.doctor.last ?? null,
-      jiraConfigured: Boolean(settings.jira.baseUrl && (await tandem.secrets.get('jira-token'))),
+      jiraConfigured: (await tandem.jira.state().catch(() => ({ connected: false }))).connected,
     };
   });
 
@@ -76,7 +77,11 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   /** Settings fixed by environment variables at start: shown read-only, with the variable's name. */
   app.get('/api/settings/locked', async () => tandem.lockedSettings);
   app.put('/api/settings', async (req) => {
-    const next = Settings.parse(req.body);
+    const given = Settings.parse(req.body);
+    // Which Jira, and as whom, is the Jira connection's (Settings › Jira › Connect Jira): a page
+    // opened before connecting must not undo it.
+    const stored = (await store.settings.get()) ?? given;
+    const next = { ...given, jira: { ...given.jira, baseUrl: stored.jira.baseUrl, email: stored.jira.email } };
     // A value set by an environment variable can't change here: saving it would do nothing.
     const current = await tandem.settings();
     const blocked = Object.entries(tandem.lockedSettings).filter(([path]) => JSON.stringify(settingAt(next, path)) !== JSON.stringify(settingAt(current, path)));
@@ -200,7 +205,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     const kept = (input.contractOrder ?? []).filter((id) => input.repoIds.includes(id));
     const contractOrder = [...kept, ...[...repos].sort((a, b) => rank(a) - rank(b)).map((r) => r.id).filter((id) => !kept.includes(id))];
     const specRepoId = input.specRepoId && input.repoIds.includes(input.specRepoId) ? input.specRepoId : (repos.find((r) => r.role === 'full-stack') ?? repos.find((r) => r.role === 'backend') ?? repos[0]!).id;
-    if (input.pmGate === 'jira' && input.jiraPmAccountIds.length === 0) throw new HttpError(400, 'Add the Jira account IDs of the PMs whose replies count, or pick another PM gate.');
+    if (input.pmGate === 'jira' && input.jiraPmAccountIds.length === 0) throw new HttpError(400, 'Choose the PMs whose replies in Jira count, or pick another way to approve.');
     return Project.parse({ ...base, ...input, contractOrder, specRepoId, id: base?.id ?? randomUUID(), createdAt: base?.createdAt ?? new Date().toISOString() });
   };
 

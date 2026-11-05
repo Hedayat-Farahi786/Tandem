@@ -2,6 +2,7 @@ import { createServer } from 'node:net';
 import { hostname } from 'node:os';
 import WebSocket, { type RawData } from 'ws';
 import type { RuntimeConfig } from '@tandem/shared';
+import { JiraError, type JiraOAuth, type JiraTokens } from '@tandem/adapters';
 import { VERSION, startServer, type Running } from './start.js';
 
 /*
@@ -49,7 +50,18 @@ const freePort = () =>
 export async function startRunner(o: RunnerOptions): Promise<Runner> {
   const log = o.log ?? ((l: string) => void process.stdout.write(`${l}\n`));
   const port = o.config.port || (await freePort());
-  const running = await startServer({ ...o.config, port }, { webDir: undefined, trustActor: true });
+  // Jira's sign-in is made in the web app; it holds Tandem's Atlassian app, so it renews the tokens too.
+  const jiraSignIn = { on: false };
+  const jiraOAuth: JiraOAuth = {
+    available: () => jiraSignIn.on,
+    refresh: async (refresh) => {
+      const res = await fetch(new URL('/runner/jira/refresh', o.url), { method: 'POST', headers: { authorization: `Bearer ${o.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ refresh }), signal: AbortSignal.timeout(30_000) });
+      const answer = (await res.json().catch(() => ({}))) as Partial<JiraTokens> & { error?: string };
+      if (!res.ok || !answer.access || !answer.expiresAt) throw new JiraError(answer.error ?? "Jira's sign-in could not be renewed through the web app.", res.status === 401 ? 401 : 502);
+      return { access: answer.access, ...(answer.refresh ? { refresh: answer.refresh } : {}), expiresAt: answer.expiresAt };
+    },
+  };
+  const running = await startServer({ ...o.config, port }, { webDir: undefined, trustActor: true, jiraOAuth });
   const local = `http://127.0.0.1:${port}`;
   const target = new URL('/runner/connect', o.url);
   target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -114,12 +126,13 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
     });
     sock.on('ping', () => alive(sock));
     sock.on('message', (data: RawData) => {
-      let f: { t?: string; id?: string; workspace?: string; method?: string; url?: string; headers?: Record<string, string>; body?: string };
+      let f: { t?: string; id?: string; workspace?: string; jiraSignIn?: boolean; method?: string; url?: string; headers?: Record<string, string>; body?: string };
       try {
         f = JSON.parse(String(data)) as typeof f;
       } catch {
         return;
       }
+      if (f.t === 'welcome') jiraSignIn.on = f.jiraSignIn === true;
       if (f.t === 'welcome') log(`Connected to ${o.url}${f.workspace ? ` for the workspace "${f.workspace}"` : ''}. Leave this running; stop it with Ctrl+C.`);
       else if (f.t === 'req' && f.id && f.method && f.url) void serve(sock, { id: f.id, method: f.method, url: f.url, ...(f.headers ? { headers: f.headers } : {}), ...(f.body !== undefined ? { body: f.body } : {}) });
       else if (f.t === 'cancel' && f.id) inflight.get(f.id)?.abort();

@@ -145,7 +145,7 @@ function contract(name: string, make: () => Promise<Store>) {
       await s.trackerComments.add({ id: 'c0', key: 'TND-1', authorId: 'a', authorName: 'A', body: 'zero', createdAt: '1' });
       expect((await s.trackerComments.list('TND-1')).map((c) => c.id)).toEqual(['c0', 'c1']);
 
-      await s.projects.upsert({ id: 'p1', name: 'P', repoIds: ['r1'], contractOrder: ['r1'], specRepoId: 'r1', pmGate: 'tandem', pmNames: [], jiraPmAccountIds: [], keyPrefix: 'TND', createdAt: '1' });
+      await s.projects.upsert({ id: 'p1', name: 'P', repoIds: ['r1'], contractOrder: ['r1'], specRepoId: 'r1', pmGate: 'tandem', pmNames: [], jiraPmAccountIds: [], jiraPmNames: {}, keyPrefix: 'TND', createdAt: '1' });
       expect((await s.projects.list()).map((p) => p.id)).toEqual(['p1']);
     });
 

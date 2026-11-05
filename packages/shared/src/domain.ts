@@ -64,7 +64,11 @@ export const Project = z.object({
   pmGate: PmGate,
   pmNames: z.array(z.string()).default([]),
   jiraPmAccountIds: z.array(z.string()).default([]),
+  /** The PMs' names, as Jira shows them (by account ID), for showing who approves. */
+  jiraPmNames: z.record(z.string(), z.string()).default({}),
+  /** The Jira project its issues come from (with the "ready" status from Settings). */
   jiraProjectKey: z.string().optional(),
+  /** A query of its own, written by hand (wins over the project). */
   jiraJql: z.string().optional(),
   keyPrefix: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/).default('TND'),
   createdAt: Iso,

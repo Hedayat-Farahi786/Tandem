@@ -133,6 +133,7 @@ async function setup(s: Scenario) {
     pmGate: 'tandem',
     pmNames: ['Pat'],
     jiraPmAccountIds: [],
+    jiraPmNames: {},
     keyPrefix: 'TND',
     createdAt: now,
   };

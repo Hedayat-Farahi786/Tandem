@@ -17,6 +17,7 @@ import { registerIconRoutes } from './routes/icons.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
 import { registerConnectionRoutes } from './routes/connections.js';
 import { registerExportRoutes } from './routes/export.js';
+import { registerJiraRoutes } from './routes/jira.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -60,7 +61,8 @@ function errorReply(err: unknown): { status: number; error: string } {
   if (err instanceof NotFoundError) return { status: 404, error: err.message };
   if (err instanceof ActionError || err instanceof TransitionError) return { status: 409, error: err.message };
   if (err instanceof ZodError) return { status: 400, error: `Some fields are not valid: ${err.issues.map((i) => `${i.path.join('.') || 'value'}: ${i.message}`).join('; ')}.` };
-  if (err instanceof JiraError) return { status: 502, error: err.message };
+  // Jira's own answers are a bad gateway; what Tandem checked before asking (an address, a choice) is the person's to fix.
+  if (err instanceof JiraError) return { status: err.status === 400 || err.status === 409 ? err.status : 502, error: err.message };
   const e = err as { statusCode?: number; validation?: unknown; message?: string };
   if (e?.statusCode && e.statusCode < 500) return { status: e.statusCode, error: e.message ?? 'Bad request.' };
   return { status: 500, error: `Something went wrong: ${String(e?.message ?? err).split('\n')[0]}. Details are in the Tandem log (~/.tandem/logs).` };
@@ -119,6 +121,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   registerTaskRoutes(app, ctx);
   registerCopilotRoutes(app, ctx);
   registerConnectionRoutes(app, ctx);
+  registerJiraRoutes(app, ctx);
   registerExportRoutes(app, ctx);
 
   /** git asks for the credentials of a remote Tandem manages (CodeCommit signature, GitHub token). Only the helper knows the key. */

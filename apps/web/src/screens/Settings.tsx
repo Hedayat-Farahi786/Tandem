@@ -12,6 +12,7 @@ import { CopilotConnect } from '../ui/copilot-connect';
 import { isCompanyRunner, isCloud, isHosted, secretsKept } from '../ui/account-menu';
 import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
+import { JiraConnect, queryOfStatus, statusOfQuery, useJira, useJiraStatuses } from '../ui/jira-connect';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
 import type { AuditVerification } from '../lib/types';
 
@@ -58,6 +59,40 @@ function Num({ id, value, onChange, min = 1, disabled }: { id: string; value: nu
         />
       </div>
     </div>
+  );
+}
+
+/** Once Jira is connected: which issues Tandem picks up, and where it moves them, chosen from Jira's own statuses. */
+function JiraPickers({ jira, onChange }: { jira: Settings['jira']; onChange: (j: Settings['jira']) => void }) {
+  const statuses = useJiraStatuses(true);
+  const names = statuses.data?.statuses ?? [];
+  const ready = statusOfQuery(jira.readyJql);
+  const [custom, setCustom] = useState(ready === undefined);
+  const options = (current?: string) => [...(current && !names.includes(current) ? [current] : []), ...names].map((n) => ({ value: n, label: n }));
+  const placeholder = statuses.isLoading ? 'Loading statuses…' : 'Choose a status';
+  return (
+    <>
+      <Row label="Tandem picks up issues in" htmlFor="set-jready" description={custom ? 'Your own query (JQL) decides which issues become tasks.' : 'Each issue in this status becomes a task, every few minutes. A project can keep to its own Jira project.'} wide>
+        <div className="flex flex-col gap-1.5">
+          {custom ? (
+            <Input id="set-jready" value={jira.readyJql} onChange={(e) => onChange({ ...jira, readyJql: e.target.value })} className="font-mono text-[13px]" />
+          ) : (
+            <Select id="set-jready" value={ready ?? ''} onChange={(v) => onChange({ ...jira, readyJql: queryOfStatus(v) })} options={options(ready)} placeholder={placeholder} />
+          )}
+          <button type="button" onClick={() => setCustom(!custom)} className="self-start text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
+            {custom ? 'Choose a status instead' : 'Write the query yourself (JQL)'}
+          </button>
+        </div>
+      </Row>
+      <Row label="When the pull requests are open, move the issue to" htmlFor="set-jstatus">
+        <Select id="set-jstatus" value={jira.inReviewStatus} onChange={(v) => onChange({ ...jira, inReviewStatus: v })} options={options(jira.inReviewStatus)} placeholder={placeholder} />
+      </Row>
+      {statuses.isError && (
+        <div className="py-3">
+          <ErrorState error={statuses.error} retry={() => void statuses.refetch()} />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -213,6 +248,7 @@ export function SettingsScreen() {
   const lock = (path: string) => locked.data?.[path];
   const note = (path: string, base?: string) => (lock(path) ? `Set by ${lock(path)} when Tandem started. Change it there and restart Tandem.` : base);
   const secrets = useQuery({ queryKey: ['secrets'], queryFn: () => api<Secrets>('/api/secrets') });
+  const jira = useJira();
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<Usage>('/api/usage') });
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), retry: false });
   const [s, setS] = useState<Settings | null>(null);
@@ -250,7 +286,7 @@ export function SettingsScreen() {
   ];
   const kcOk = secrets.data?.keychain.ok ?? false;
 
-  const jiraOn = Boolean(secrets.data?.jiraToken && s.jira.baseUrl);
+  const jiraOn = Boolean(jira.data?.connected);
 
   return (
     <div className="mx-auto w-full max-w-[1000px] pb-24">
@@ -391,7 +427,7 @@ export function SettingsScreen() {
         actions={
           <span className="flex items-center gap-1.5 text-[13px] text-muted">
             <span aria-hidden className={cx('size-1.5 rounded-full', jiraOn ? 'bg-ok' : 'bg-faint')} />
-            {jiraOn ? 'Enabled' : 'Not configured'}
+            {jiraOn ? 'Connected' : 'Not connected'}
           </span>
         }
       >
@@ -402,21 +438,10 @@ export function SettingsScreen() {
             </Callout>
           </div>
         )}
-        <Row label="Jira URL" htmlFor="set-jira">
-          <Input id="set-jira" value={s.jira.baseUrl} onChange={(e) => set('jira', { ...s.jira, baseUrl: e.target.value })} placeholder="https://company.atlassian.net" />
-        </Row>
-        <Row label="Account email" htmlFor="set-jmail" description="Jira Cloud only. Leave empty for Data Center.">
-          <Input id="set-jmail" value={s.jira.email} onChange={(e) => set('jira', { ...s.jira, email: e.target.value })} />
-        </Row>
-        <Row label="Jira API token" htmlFor="set-jtoken" description="Jira Cloud: create one at id.atlassian.com. Data Center: a personal access token." wide>
-          <SecretField id="set-jtoken" name="jira-token" present={secrets.data?.jiraToken ?? false} disabled={!kcOk} />
-        </Row>
-        <Row label="Ready query (JQL)" htmlFor="set-jql" description="Issues Tandem imports. A project's own query wins." wide>
-          <Input id="set-jql" value={s.jira.readyJql} onChange={(e) => set('jira', { ...s.jira, readyJql: e.target.value })} className="font-mono text-[13px]" />
-        </Row>
-        <Row label="Move to status after PRs" htmlFor="set-jstatus">
-          <Input id="set-jstatus" value={s.jira.inReviewStatus} onChange={(e) => set('jira', { ...s.jira, inReviewStatus: e.target.value })} />
-        </Row>
+        <div className="py-4">
+          <JiraConnect />
+        </div>
+        {jira.data?.connected && <JiraPickers jira={s.jira} onChange={(j) => set('jira', j)} />}
       </SettingsSection>
 
       <SettingsSection id="github" icon={<BrandTile brand="github" />} title="GitHub" description="GitHub repositories use the GitHub account you connected for Copilot: it reads, pushes and opens pull requests. Add a token only for repositories that account can't reach.">

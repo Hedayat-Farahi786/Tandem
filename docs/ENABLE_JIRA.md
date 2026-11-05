@@ -10,50 +10,57 @@ stay in Tandem. With Jira on, Tandem also:
   your review status
 - comments on an imported issue when every pull request is merged
 
-The only secret is the Jira token. It is stored in the OS keychain, never in
-a file.
+Connecting takes a few clicks, and nobody writes a query.
 
-## 1. Create a token
+## 1. Connect Jira
 
-- **Jira Cloud** (`yourcompany.atlassian.net`): create an API token at
-  <https://id.atlassian.com/manage-profile/security/api-tokens>. Tandem
-  signs in with your account email and this token.
-- **Jira Data Center / Server**: create a personal access token in your Jira
-  profile (Profile › Personal Access Tokens). No email is needed.
+Open **Settings › Jira** (or the setup wizard's **Jira** step) and choose
+**Connect Jira**.
 
-The token acts as you, so Tandem's comments appear under your name.
+- **Jira Cloud, in the web app:** you go to Atlassian, sign in, and choose
+  **Accept** to allow Tandem. If your account reaches several Jira sites,
+  Tandem asks which one. You come back connected. The sign-in renews itself;
+  nobody copies an address, an email or a token.
+- **Jira Data Center, or the local app:** a short form instead.
+  1. **Your Jira:** paste any link from your Jira (an issue, a board), or
+     just the site's name (`acme` for `acme.atlassian.net`).
+  2. Jira Cloud only: **your Atlassian email**.
+  3. **The token:** the form links to the page where you make one, at
+     Atlassian (**Create API token**) or in your Data Center profile
+     (**Personal access tokens**). Paste it.
 
-## 2. Settings › Jira
+  Tandem checks the token with Jira before keeping it, and says if Jira
+  turned it down.
 
-| Field | Value |
+Settings then shows the site, and whose name Tandem's comments in Jira carry
+(yours). Tokens are kept in the OS keychain (local app) or sealed for the
+workspace (web app), never in a file. **Disconnect** removes them.
+
+## 2. What Tandem picks up
+
+Once Jira is connected, Settings › Jira lists your Jira's own statuses:
+
+| Setting | What to choose |
 | --- | --- |
-| Jira URL | `https://yourcompany.atlassian.net`, or your Data Center URL |
-| Account email | your Atlassian email (Cloud only; empty for Data Center) |
-| Jira API token | the token from step 1, saved to the keychain |
-| Ready query (JQL) | which issues are ready for Tandem; default `status = "Ready for AI"` |
-| Move to status after PRs | the status to move an issue to once its pull requests are open; default `In Review` |
+| **Tandem picks up issues in** | the status of issues that are ready for Tandem, such as `Ready for AI` |
+| **When the pull requests are open, move the issue to** | the status for review, such as `In Review` |
 
-Save, then run the doctor: the Jira check signs in and shows your Jira name.
-The Jira card shows **Enabled**. Nothing else needs to change.
-
-The setup wizard's **Jira (optional)** step asks for the URL, the email and
-the token; the queries keep their defaults until you change them here.
+**Write the query yourself (JQL)** is still there for anything a status
+can't say.
 
 ## 3. Projects
 
 In **Projects**, edit a project:
 
-- **Import query (JQL)**: issues for this project, for example
-  `project = SHOP AND status = "Ready for AI"`. Empty means the Ready query
-  from Settings.
-- **PM approval › In Jira**: the PM approves by replying on the issue. Add
-  the **Jira account IDs of PMs**: only their replies count. (In Jira
-  Cloud, the account ID is the last part of the address of a person's
-  profile page.)
+- **Jira project:** choose it from the list. Its issues in the status from
+  step 2 become this project's tasks. **Write the query yourself (JQL)** is
+  there too.
+- **PM approval › Via Jira replies:** search for the PMs by name and add
+  them. Only their replies count.
 
-With one project, Tandem imports what the Ready query finds. With several,
-it imports automatically only into projects that have their own Import
-query, so an issue can't land in the wrong project.
+With one project, Tandem imports what the status finds anywhere. With
+several, it imports automatically only into projects that have a Jira
+project (or their own query), so an issue can't land in the wrong project.
 
 ## Using it
 
@@ -99,7 +106,18 @@ is encrypted with that password under `~/.local/share/keyrings/`.
 If no keychain is usable, Tandem refuses to save the token and says so;
 there is no file fallback by design.
 
+## Atlassian's sign-in for the local app
+
+The local app offers Atlassian's sign-in when it has an Atlassian app of its
+own: create an OAuth 2.0 (3LO) app at
+<https://developer.atlassian.com/console/myapps/> (as in
+[DEPLOYMENT.md](DEPLOYMENT.md#jira-connect-jira-with-atlassians-sign-in)),
+with the callback `http://localhost:<port>/auth/jira/callback`, and start
+Tandem with `TANDEM_JIRA_CLIENT_ID` and `TANDEM_JIRA_CLIENT_SECRET`
+(`TANDEM_JIRA_REDIRECT_URL` if the callback differs). Without them, the form
+with a token is used.
+
 ## Turning Jira off
 
-Clear the Jira URL, or **Remove** the token in Settings. Imported tasks keep
-working; new reports stay in Tandem.
+**Disconnect** in Settings › Jira. Imported tasks keep working; new reports
+stay in Tandem.

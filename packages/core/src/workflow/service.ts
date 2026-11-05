@@ -11,6 +11,16 @@ import { ownerNameOf, ownerOf } from '../audit.js';
 import { checkKey, stopCheck } from './live-checks.js';
 import { prTitle } from '../pr/description.js';
 
+/**
+ * The Jira query a project imports with: its own, written by hand; else its Jira project's issues in
+ * the "ready" status (Settings); else that status anywhere.
+ */
+export function jiraQuery(project: Pick<Project, 'jiraJql' | 'jiraProjectKey'>, readyJql: string): string {
+  if (project.jiraJql?.trim()) return project.jiraJql.trim();
+  if (project.jiraProjectKey?.trim()) return `project = "${project.jiraProjectKey.trim().replace(/"/g, '')}" AND (${readyJql})`;
+  return readyJql;
+}
+
 export class ActionError extends Error {
   override readonly name = 'ActionError';
 }
@@ -422,12 +432,11 @@ export class TaskService {
     return rule;
   }
 
-  /** Jira: import one issue by key, or every issue matching the project's JQL. */
+  /** Jira: import one issue by key, or every issue the project's query finds. */
   async importFromTracker(project: Project, keys?: readonly string[]): Promise<Task[]> {
     const tracker = await this.deps.tracker();
     if (tracker.kind !== 'jira') throw new ActionError('Jira is not configured. Add a token in Settings to import issues.');
-    // The project's own query wins; otherwise the "ready" query from Settings.
-    const jql = project.jiraJql?.trim() || (await this.deps.settings()).jira.readyJql;
+    const jql = jiraQuery(project, (await this.deps.settings()).jira.readyJql);
     const found = keys?.length ? (await Promise.all(keys.map((k) => tracker.getTask(k)))).filter((t): t is NonNullable<typeof t> => Boolean(t)) : await tracker.findReadyTasks(jql);
     const created: Task[] = [];
     for (const issue of found) {

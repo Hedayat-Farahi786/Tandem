@@ -46,6 +46,24 @@ Afterwards, keep:
 Members install the App on their account or organization to choose which repositories Tandem
 may use.
 
+### Jira: "Connect Jira" with Atlassian's sign-in
+
+So that members connect Jira Cloud in one click, register Tandem once as an Atlassian app, at
+<https://developer.atlassian.com/console/myapps/> → Create → **OAuth 2.0 integration**:
+
+| Step | Value |
+| --- | --- |
+| Permissions → Jira API | Add it, then the classic scopes `read:jira-work`, `write:jira-work` and `read:jira-user` |
+| Authorization → OAuth 2.0 (3LO) | Callback URL `https://app.[domain]/auth/jira/callback` |
+| Distribution | **Enable sharing**, so people outside your own Atlassian site can connect; fill in the vendor and privacy details |
+| Settings | Keep the **Client ID** → `TANDEM_JIRA_CLIENT_ID` and the **Secret** → `TANDEM_JIRA_CLIENT_SECRET` |
+
+Tandem asks for `offline_access` as well, so the sign-in renews itself. Atlassian's refresh
+tokens rotate: Tandem stores each new one at once, per workspace and sealed. Company runners renew
+theirs through the web app (`/runner/jira/refresh`, with their runner key), so the client
+secret stays on this server. Without the app, members connect Jira with a token (the form also
+covers Jira Data Center).
+
 ## 2. Settings
 
 | Variable | Required | Value |
@@ -61,6 +79,7 @@ may use.
 | `TANDEM_LISTEN_HOST` | set in the image | `0.0.0.0` |
 | `TANDEM_CLI_PACKAGE` | set in the image | `/app/cli/tandem.tgz`: the `tandem` command, offered at `/download/tandem.tgz` for company runners (section 6) |
 | `TANDEM_GITHUB_WEBHOOK_SECRET` | recommended | The GitHub App's webhook secret. Keep it in your secret manager. |
+| `TANDEM_JIRA_CLIENT_ID`, `TANDEM_JIRA_CLIENT_SECRET` | recommended | Tandem's Atlassian app, for "Connect Jira" (section 1). Keep the secret in your secret manager. |
 | `TANDEM_AWS_ROLE_SOURCE` | recommended | `on`: customers connect CodeCommit with a role in their account that trusts this server's AWS identity (see below). |
 | `TANDEM_AWS_ROLE_PRINCIPAL` | no | The ARN customers' roles trust, when the server's role has a path (`arn:aws:iam::<account>:role/<path>/<name>`). |
 | `TANDEM_AWS_TEMPLATE_URL` | no | The role template on S3, for CloudFormation's one-click "quick create" link (see below). |
@@ -257,6 +276,8 @@ cloud, or deletes it.
 - [ ] The host and runtime around the container are in place: metadata endpoint blocked, egress
       restricted.
 - [ ] The GitHub App's webhook points at `/hooks/github`, and its secret is set.
+- [ ] Tandem's Atlassian app has sharing on and the callback `/auth/jira/callback`, and
+      `TANDEM_JIRA_CLIENT_ID` and `TANDEM_JIRA_CLIENT_SECRET` are set. Connect a test Jira once.
 - [ ] The load balancer passes WebSocket upgrades on `/runner/connect` (see section 6).
 - [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,
       then export and delete a test account. Then move a test workspace to a company runner and

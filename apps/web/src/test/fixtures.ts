@@ -2,7 +2,7 @@ import type { Project, Repo, Settings, Task } from '@tandem/shared';
 import type { TaskDetail } from '../lib/types';
 
 export const repo: Repo = { id: 'r1', url: 'codecommit::eu-central-1://shop', host: { kind: 'codecommit', region: 'eu-central-1', name: 'shop' }, name: 'shop', defaultBranch: 'main', role: 'full-stack', language: 'TypeScript', framework: 'Fastify + React', commands: { install: 'npm ci', test: 'npm test' }, createdAt: '2026-11-03T00:00:00Z' };
-export const project: Project = { id: 'p1', name: 'Shop', repoIds: ['r1'], contractOrder: ['r1'], specRepoId: 'r1', pmGate: 'tandem', pmNames: ['Pat Lee'], jiraPmAccountIds: [], keyPrefix: 'TND', createdAt: '2026-11-03T00:00:00Z' };
+export const project: Project = { id: 'p1', name: 'Shop', repoIds: ['r1'], contractOrder: ['r1'], specRepoId: 'r1', pmGate: 'tandem', pmNames: ['Pat Lee'], jiraPmAccountIds: [], jiraPmNames: {}, keyPrefix: 'TND', createdAt: '2026-11-03T00:00:00Z' };
 export const settings: Settings = {
   ownerName: 'Sam',
   copilot: { host: '', buildModel: '', lightModel: '', cliPath: '' },

@@ -155,6 +155,7 @@ export function harness(o: HarnessOptions = {}) {
     pmGate: o.pmGate ?? 'tandem',
     pmNames: ['Pat'],
     jiraPmAccountIds: ['pm-1'],
+    jiraPmNames: {},
     keyPrefix: 'TND',
     createdAt: clock.iso(),
   };

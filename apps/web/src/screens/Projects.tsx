@@ -7,6 +7,7 @@ import type { Project, Repo, RepoCommands, RepoRole, Rule } from '@tandem/shared
 import { api, del, post, put } from '../lib/api';
 import type { Bootstrap, TaskListItem } from '../lib/types';
 import { ProjectAvatar } from '../ui/visual';
+import { JiraPeoplePicker, useJiraProjects } from '../ui/jira-connect';
 import { Button, IconButton, LinkButton, Dialog, EmptyState, ErrorState, Input, Loading, RadioCards, Select, Textarea, cx, useToast } from '../ui/kit';
 import { ROLE_LABEL } from './Setup';
 
@@ -85,7 +86,8 @@ function RepoDialog({ repo, onClose }: { repo: Repo; onClose: () => void }) {
 function ProjectDialog({ project, repos, jira, onClose }: { project: Project; repos: Repo[]; jira: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [d, setD] = useState({ ...project, pmNamesText: project.pmNames.join(', '), pmIdsText: project.jiraPmAccountIds.join(', ') });
+  const [d, setD] = useState({ ...project, pmNamesText: project.pmNames.join(', '), ownQuery: Boolean(project.jiraJql?.trim()) });
+  const jiraProjects = useJiraProjects(jira);
   const save = useMutation({
     mutationFn: () =>
       put<Project>(`/api/projects/${project.id}`, {
@@ -95,10 +97,12 @@ function ProjectDialog({ project, repos, jira, onClose }: { project: Project; re
         specRepoId: d.specRepoId,
         pmGate: d.pmGate,
         pmNames: d.pmNamesText.split(',').map((s) => s.trim()).filter(Boolean),
-        jiraPmAccountIds: d.pmIdsText.split(',').map((s) => s.trim()).filter(Boolean),
+        jiraPmAccountIds: d.jiraPmAccountIds,
+        jiraPmNames: d.jiraPmNames,
+        ...(d.jiraProjectKey ? { jiraProjectKey: d.jiraProjectKey } : {}),
         keyPrefix: d.keyPrefix,
         ...(d.integrationCommand?.trim() ? { integrationCommand: d.integrationCommand.trim() } : {}),
-        ...(d.jiraJql?.trim() ? { jiraJql: d.jiraJql.trim() } : {}),
+        ...(d.ownQuery && d.jiraJql?.trim() ? { jiraJql: d.jiraJql.trim() } : {}),
       }),
     onSuccess: () => {
       toast('Project saved.', 'ok');
@@ -140,8 +144,27 @@ function ProjectDialog({ project, repos, jira, onClose }: { project: Project; re
         ]}
       />
       {d.pmGate === 'tandem' && <Input label="PM names" value={d.pmNamesText} onChange={(e) => setD({ ...d, pmNamesText: e.target.value })} help="Comma-separated." />}
-      {d.pmGate === 'jira' && <Input label="Jira account IDs of PMs" value={d.pmIdsText} onChange={(e) => setD({ ...d, pmIdsText: e.target.value })} help="Only replies from these accounts count as approval." />}
-      {jira && <Input label="Import query (JQL)" optional value={d.jiraJql ?? ''} onChange={(e) => setD({ ...d, jiraJql: e.target.value })} placeholder='project = SHOP AND status = "Ready for AI"' />}
+      {d.pmGate === 'jira' && <JiraPeoplePicker ids={d.jiraPmAccountIds} names={d.jiraPmNames} onChange={(ids, names) => setD({ ...d, jiraPmAccountIds: ids, jiraPmNames: names })} />}
+      {jira && (
+        <div className="flex flex-col items-start gap-1.5">
+          {d.ownQuery ? (
+            <Input label="Issues for this project (JQL)" value={d.jiraJql ?? ''} onChange={(e) => setD({ ...d, jiraJql: e.target.value })} placeholder='project = SHOP AND status = "Ready for AI"' className="font-mono text-[13px]" />
+          ) : (
+            <Select
+              label="Jira project"
+              value={d.jiraProjectKey ?? ''}
+              onChange={(key) => setD({ ...d, jiraProjectKey: key || undefined })}
+              placeholder={jiraProjects.isLoading ? 'Loading Jira projects…' : 'Choose the Jira project'}
+              help="Its issues in the status chosen in Settings › Jira become tasks of this project."
+              options={[{ value: '', label: 'Any Jira project' }, ...(jiraProjects.data?.projects ?? []).map((p) => ({ value: p.key, label: p.name, description: p.key }))]}
+            />
+          )}
+          <button type="button" onClick={() => setD({ ...d, ownQuery: !d.ownQuery })} className="text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
+            {d.ownQuery ? 'Choose a Jira project instead' : 'Write the query yourself (JQL)'}
+          </button>
+          {jiraProjects.isError && <ErrorState error={jiraProjects.error} />}
+        </div>
+      )}
       {save.isError && <ErrorState error={save.error} />}
     </Dialog>
   );
