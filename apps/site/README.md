@@ -5,13 +5,22 @@ third-party requests (no external fonts, analytics or trackers), so no cookie ba
 
 * **Preview:** serve the folder (`python3 -m http.server -d apps/site 8000`) and open it, or open
   `index.html` directly.
-* **Files:** `index.html`, `site.css`, `site.js`; `fonts/inter-var.woff2` (Inter, SIL OFL, see
-  `fonts/OFL.txt`); `favicon.svg` and `social.png` from `docs/brand`; `llms.txt`, a plain summary
-  for AI agents.
+* **Files:** `index.html`, `site.css`, `site.js`; `fonts/` (Inter for text and Source Serif 4 for
+  display type, both SIL OFL, licences beside them); `favicon.svg` and `social.png` from
+  `docs/brand`; `llms.txt`, a plain summary for AI agents.
+* **Look:** a warm ivory canvas (warm near-black in dark mode), Tandem's deep teal and mint, an
+  editorial serif for headlines with the words that are yours in italic, Inter for everything
+  functional.
+* **Motion:** the headline rises out of a blur; the product window stands up as you scroll and
+  plays a task, with callouts on your three decisions; logos drift past; the problem cards'
+  pictures play once; a pulse runs along the "How it works" seam; the feature stage stays while
+  the words scroll; the guardrails log streams allowed and blocked commands; the runner's
+  terminal types itself. Mostly transforms and opacity, loops paused off screen, and none of it for
+  reduced motion.
 * **What's on it:** a product preview that plays one task from request to pull request (each
-  stage can be clicked; it pauses off screen and stands still for reduced motion), the two-lane
-  "How it works", feature deep dives with real-looking artifacts, guardrails, company runners,
-  security, FAQ. Light and dark follow the system, with a switch in the header.
+  stage can be clicked), the two-lane "How it works", features told beside a sticky stage,
+  guardrails, company runners, security, FAQ. Light and dark follow the system, with a switch in
+  the header.
 * **Brand:** the mark, wordmark and colours follow `docs/brand/BRAND.md`; service logos are the
   app's (`apps/web/src/ui/brand-data.ts`), inlined.
 * **Claims:** every statement on the page describes what Tandem does today. Change the page when

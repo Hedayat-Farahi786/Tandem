@@ -131,6 +131,240 @@
     } else seam.classList.add('drawn');
   }
 
+  /* ---------------------------------------------------------------- one scroll loop: progress, the window's tilt, the story line */
+  const bar = $('.progress');
+  const tilt = $('.window-tilt');
+  const demoEl = $('#demo');
+  const storySteps = $('.story-steps');
+  let ticking = false;
+  const onFrame = () => {
+    ticking = false;
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    bar?.style.setProperty('--p', String(max > 0 ? Math.min(1, window.scrollY / max) : 0));
+    const vh = window.innerHeight;
+    if (tilt && demoEl && !still) {
+      // The window lies back as it comes up, and stands upright by the time it is well in view.
+      const top = demoEl.getBoundingClientRect().top;
+      const t = Math.min(1, Math.max(0, (vh - top) / (vh * 0.62)));
+      const e = 1 - Math.pow(1 - t, 3);
+      tilt.style.setProperty('--tilt', `${(1 - e) * 22}deg`);
+      tilt.style.setProperty('--sc', String(0.94 + e * 0.06));
+      tilt.style.setProperty('--edge', String(1 - e));
+    }
+    if (storySteps) {
+      const r = storySteps.getBoundingClientRect();
+      const sp = Math.min(1, Math.max(0, (vh * 0.5 - r.top) / r.height));
+      storySteps.style.setProperty('--sp', String(sp));
+    }
+  };
+  const requestFrame = () => {
+    if (!ticking) {
+      ticking = true;
+      requestAnimationFrame(onFrame);
+    }
+  };
+  window.addEventListener('scroll', requestFrame, { passive: true });
+  window.addEventListener('resize', requestFrame, { passive: true });
+  onFrame();
+
+  /* ---------------------------------------------------------------- counting up */
+  const counters = $$('[data-count]');
+  const count = (el) => {
+    const to = Number(el.dataset.count);
+    const suffix = el.dataset.suffix ?? '';
+    if (still || to === 0) return void (el.textContent = `${to}${suffix}`);
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 1400);
+      const e = 1 - Math.pow(1 - t, 4);
+      el.textContent = `${Math.round(to * e)}${suffix}`;
+      if (t < 1) requestAnimationFrame(step);
+    };
+    el.textContent = `0${suffix}`;
+    requestAnimationFrame(step);
+  };
+  if ('IntersectionObserver' in window && !still) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        count(e.target);
+        io.unobserve(e.target);
+      }
+    }, { threshold: 0.6 });
+    counters.forEach((c) => io.observe(c));
+  }
+
+  /* ---------------------------------------------------------------- a light that follows the pointer over cards */
+  if (window.matchMedia('(hover: hover)').matches) {
+    document.addEventListener('pointermove', (e) => {
+      const card = e.target instanceof Element ? e.target.closest('.spot') : null;
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    }, { passive: true });
+  }
+
+  /* ---------------------------------------------------------------- the pulse along the seam */
+  const lanesEl = $('#lanes');
+  const seamPath = $('#seam');
+  const glow = $('#seam-glow');
+  const dot = $('#seam-dot');
+  const laneSteps = ['.s1', '.s2', '.s3', '.s4', '.s5'].map((s) => (lanesEl ? $(s, lanesEl) : null));
+  if (lanesEl && seamPath && glow && dot && !still) {
+    let on = false;
+    let raf = 0;
+    const PERIOD = 7000;
+    const tick = (now) => {
+      const len = seamPath.getTotalLength();
+      if (len > 0) {
+        const t = (now % PERIOD) / PERIOD;
+        const at = t * len;
+        const p = seamPath.getPointAtLength(at);
+        dot.setAttribute('cx', String(p.x));
+        dot.setAttribute('cy', String(p.y));
+        const tail = Math.min(140, at);
+        glow.setAttribute('d', seamPath.getAttribute('d') ?? '');
+        glow.style.strokeDasharray = `${tail} ${len + 200}`;
+        glow.style.strokeDashoffset = String(-(at - tail));
+        // Light the step the pulse is at: one per leg, the last as it arrives.
+        const lit = Math.min(4, Math.floor(t * 4.6));
+        laneSteps.forEach((s, i) => s?.classList.toggle('lit', i === lit));
+      }
+      if (on) raf = requestAnimationFrame(tick);
+    };
+    new IntersectionObserver((entries) => {
+      const vis = entries[0].isIntersecting && getComputedStyle(seamPath.ownerSVGElement).display !== 'none';
+      if (vis && !on) {
+        on = true;
+        setTimeout(() => {
+          lanesEl.classList.add('pulsing');
+          raf = requestAnimationFrame(tick);
+        }, 1600);
+      } else if (!vis && on) {
+        on = false;
+        cancelAnimationFrame(raf);
+        lanesEl.classList.remove('pulsing');
+        laneSteps.forEach((s) => s?.classList.remove('lit'));
+      }
+    }, { threshold: 0.3 }).observe(lanesEl);
+  }
+
+  /* ---------------------------------------------------------------- features: the stage follows the words */
+  const story = $('.story');
+  if (story) {
+    const stepsEls = $$('.story-step', story);
+    const arts = $$('.story-art', story);
+    const tabs = $$('.story-tabs span', story);
+    const stageArts = $('.story-arts', story);
+    const wide = window.matchMedia('(min-width: 901px)');
+    // Wide: every picture on the sticky stage. Narrow: each under its own words.
+    const place = () => {
+      arts.forEach((a, i) => {
+        const home = wide.matches ? stageArts : $('.story-slot', stepsEls[i]);
+        if (home && a.parentElement !== home) home.appendChild(a);
+      });
+    };
+    place();
+    wide.addEventListener('change', place);
+    const activate = (i) => {
+      stepsEls.forEach((s, n) => s.classList.toggle('active', n === i));
+      arts.forEach((a, n) => a.classList.toggle('active', n === i));
+      tabs.forEach((t, n) => t.classList.toggle('on', n === i));
+    };
+    activate(0);
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) if (e.isIntersecting) activate(Number(e.target.dataset.i));
+      }, { rootMargin: '-45% 0px -45% 0px' });
+      stepsEls.forEach((s) => io.observe(s));
+    }
+  }
+
+  /* ---------------------------------------------------------------- guardrails: the policy at work */
+  const log = $('#policy-log');
+  if (log && !still && 'IntersectionObserver' in window) {
+    let lines = [];
+    try {
+      lines = JSON.parse(log.dataset.log ?? '[]');
+    } catch {
+      lines = [];
+    }
+    let n = 6;
+    let timer;
+    const add = () => {
+      const [v, cmd, why] = lines[n % lines.length];
+      n += 1;
+      const li = document.createElement('li');
+      li.className = v;
+      const verdict = document.createElement('span');
+      verdict.className = 'verdict';
+      verdict.textContent = v === 'ok' ? 'Allowed' : 'Blocked';
+      const code = document.createElement('code');
+      code.textContent = cmd;
+      const small = document.createElement('small');
+      small.textContent = why;
+      li.append(verdict, code, small);
+      log.append(li);
+      const items = $$('li:not(.leaving)', log);
+      if (items.length > 7) {
+        const old = items[0];
+        old.classList.add('leaving');
+        setTimeout(() => old.remove(), 400);
+      }
+    };
+    new IntersectionObserver((entries) => {
+      clearInterval(timer);
+      if (entries[0].isIntersecting) timer = setInterval(add, 1700);
+    }, { threshold: 0.2 }).observe(log);
+  }
+
+  /* ---------------------------------------------------------------- the runner's terminal types itself */
+  const term = $('#term');
+  if (term) {
+    const steps = $$('[data-step]', term);
+    const typed = $$('code[data-type]', term);
+    const showAll = () => {
+      typed.forEach((c) => (c.textContent = c.dataset.type ?? ''));
+      steps.forEach((s) => s.classList.add('on'));
+    };
+    if (still || !('IntersectionObserver' in window)) showAll();
+    else {
+      typed.forEach((c) => (c.textContent = ''));
+      const type = (el, done) => {
+        const text = el.dataset.type ?? '';
+        el.classList.add('typing');
+        let i = 0;
+        const next = () => {
+          i += 1;
+          el.textContent = text.slice(0, i);
+          if (i < text.length) setTimeout(next, 18 + Math.random() * 26);
+          else {
+            el.classList.remove('typing');
+            setTimeout(done, 260);
+          }
+        };
+        next();
+      };
+      const io = new IntersectionObserver((entries) => {
+        if (!entries[0].isIntersecting) return;
+        io.disconnect();
+        const at = (k) => steps.find((s) => s.dataset.step === String(k));
+        type(typed[0], () => {
+          at(1)?.classList.add('on');
+          setTimeout(() => {
+            at(2)?.classList.add('on');
+            type(typed[1], () => {
+              at(3)?.classList.add('on');
+              setTimeout(() => at(4)?.classList.add('on'), 700);
+            });
+          }, 650);
+        });
+      }, { threshold: 0.5 });
+      io.observe(term);
+    }
+  }
+
   /* ---------------------------------------------------------------- the product preview */
   const demo = $('#demo');
   if (!demo) return;
@@ -176,6 +410,7 @@
     const strip = rail[i]?.closest('.rail');
     if (strip && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: Math.max(0, rail[i].offsetLeft - 12), behavior: still ? 'auto' : 'smooth' });
     if (stepLabel) stepLabel.textContent = `Step ${i + 1} of 8`;
+    $$('.callout', demo).forEach((c) => c.classList.toggle('on', Number(c.dataset.on) === i));
     if (credits) credits.textContent = CREDITS[i].toFixed(1);
 
     // The spec beside it: written at "Spec", approved at "Approvals", proven at "Checks".
