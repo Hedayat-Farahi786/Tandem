@@ -9,6 +9,7 @@ import { LEGAL_DIR, VERSION, WEB_DIR, readConfig, startServer } from './start.js
 import { readHostedConfig, startHosted } from './hosted/server.js';
 import { startRunner } from './runner.js';
 import { Directory } from './hosted/directory.js';
+import { backup, restore } from './backup.js';
 
 const ICON: Record<DoctorCheck['status'], string> = { pass: '✔', warn: '!', fail: '✖', skipped: '–' };
 
@@ -152,6 +153,26 @@ async function migrateDirectory(): Promise<void> {
   }
 }
 
+/** `tandem backup --to <folder>` and `tandem restore --from <folder> [--force]`, for TANDEM_HOME (or ~/.tandem). */
+async function backupOrRestore(kind: 'backup' | 'restore'): Promise<void> {
+  const flagValue = (name: string) => {
+    const i = args.indexOf(`--${name}`);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const home = (process.env.TANDEM_HOME ?? join(homedir(), '.tandem')).replace(/^~/, homedir());
+  if (kind === 'backup') {
+    const to = flagValue('to');
+    if (!to) throw new Error('Say where: tandem backup --to /backups/tandem-2026-11-05');
+    const m = await backup(home, to, VERSION);
+    console.log(`Backed up ${m.databases.length} database${m.databases.length === 1 ? '' : 's'} from ${home} to ${to}.`);
+  } else {
+    const from = flagValue('from');
+    if (!from) throw new Error('Say which: tandem restore --from /backups/tandem-2026-11-05 (with Tandem stopped)');
+    const m = restore(from, home, { force: args.includes('--force') });
+    console.log(`Restored ${m.databases.length} database${m.databases.length === 1 ? '' : 's'} from the backup of ${m.createdAt} into ${home}. Start Tandem.`);
+  }
+}
+
 const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith('-')) ?? 'start';
 try {
@@ -160,8 +181,9 @@ try {
   else if (cmd === 'start') await start(!args.includes('--no-open'));
   else if (cmd === 'runner') await runner();
   else if (cmd === 'migrate-directory') await migrateDirectory();
+  else if (cmd === 'backup' || cmd === 'restore') await backupOrRestore(cmd);
   else {
-    console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json] | tandem runner [--url <web app>] [--key <runner key>]`);
+    console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json] | tandem runner [--url <web app>] [--key <runner key>] | tandem backup --to <folder> | tandem restore --from <folder> [--force] | tandem migrate-directory --to postgres://…`);
     process.exitCode = 2;
   }
 } catch (err) {

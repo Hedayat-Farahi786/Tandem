@@ -65,6 +65,10 @@ may use.
 | `TANDEM_AWS_TEMPLATE_URL` | no | The role template on S3, for CloudFormation's one-click "quick create" link (see below). |
 | `TANDEM_DATABASE_URL` | for several replicas | `postgres://…`: the directory in Postgres, shared by the replicas (section 8). |
 | `TANDEM_REPLICA_ID`, `TANDEM_REPLICA_URL` | for several replicas | This replica's stable name and its address inside the cluster (section 8). |
+| `TANDEM_SIGNUP` | recommended at launch | `invite`: only people already here, people with an invitation link, and the GitHub logins in `TANDEM_SIGNUP_ALLOW` (comma-separated) can sign in. `open` (default): anyone with GitHub. |
+| `TANDEM_LIMIT_WORKSPACES_PER_PERSON`, `TANDEM_LIMIT_MEMBERS_PER_WORKSPACE`, `TANDEM_LIMIT_INVITES_PER_DAY` | no | Quotas: 10, 100 and 50 by default. |
+| `TANDEM_TRUST_PROXY` | no | How many proxies in front add `X-Forwarded-For` (default 1, the load balancer). Rate limits use the address the nearest trusted proxy saw. |
+| `TANDEM_METRICS_TOKEN` | recommended | A long random token; Prometheus scrapes `GET /metrics` with `Authorization: Bearer <token>`. Without it, `/metrics` is off. |
 | `TANDEM_SANDBOX` | no | `on` (default): builds run isolated, and Tandem won't start if it can't isolate them. `off` only to try Tandem out without real users. |
 | `TANDEM_LOG_LEVEL` | no | `info` (default), `warn`, `debug` |
 | `TANDEM_MODEL`, `TANDEM_LIGHT_MODEL` | no | The default Copilot models for every workspace |
@@ -88,7 +92,9 @@ docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.
 
 - **TLS.** Terminate HTTPS at your load balancer and forward to port 8080 with the original
   `Host` header. Cookies are set `Secure` when `TANDEM_PUBLIC_URL` is `https://`.
-- **Health check.** `GET /healthz` returns `{"ok":true}`. The image's `HEALTHCHECK` uses it.
+- **Health checks.** `GET /healthz` (liveness) answers while the process runs. `GET /readyz`
+  (readiness) also checks that the directory database answers. Both work on the pod's own
+  address. The image's `HEALTHCHECK` uses `/healthz`.
 - **Stop.** On SIGTERM the server stops gracefully. Tasks that were running continue from their
   last step after the next start.
 - **Upgrades.** Database migrations run by themselves at start. Take a backup first.
@@ -105,10 +111,25 @@ docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.
 | `workspaces/<id>/` | One workspace: its database (projects, tasks, chats, audit log), repository mirrors and worktrees |
 | `logs/` | Service logs |
 
-Back up the whole volume daily, using a snapshot while the container is stopped or a
-filesystem-consistent snapshot. Keep backups in the EU, encrypted, for as long as the privacy
-policy says. Deleting a workspace or an account removes its folder at once. Backups expire on
-their own schedule, and the privacy policy says so.
+Back up daily, with either:
+
+- **`tandem backup --to <folder>`** inside the container, while it runs. It copies every database
+  consistently: the directory on one replica, and each workspace's projects, tasks, chats,
+  approvals and audit log. It leaves out repository mirrors and task folders, which come back
+  from the repositories; a task that was building starts its step again.
+- **A snapshot of the whole volume,** filesystem-consistent or taken while the container is
+  stopped.
+
+With Postgres, back the directory up with the database's own backups as well.
+
+**Restore** with Tandem stopped: `tandem restore --from <folder>` into an empty `/data`, then
+start it with the same `TANDEM_SECRET_KEY`. Sign-ins, workspaces and their data come back as
+they were. Try a restore once before launch, and again after each upgrade that changes the data
+(the test suite runs this drill too).
+
+Keep backups in the EU, encrypted, for as long as the privacy policy says. Deleting a workspace
+or an account removes its folder at once. Backups expire on their own schedule, and the privacy
+policy says so. Expired sessions and invitations are deleted every hour.
 
 ## 5. Isolation of builds
 
@@ -210,6 +231,11 @@ cloud, or deletes it.
       the secret manager.
 - [ ] `TANDEM_PUBLIC_URL` matches the address users open, and HTTPS works end to end.
 - [ ] Tandem starts with `TANDEM_SANDBOX` on (the default). This means the startup self-test passed.
+- [ ] Sign-up is invite-only (`TANDEM_SIGNUP=invite`) until you open it on purpose.
+- [ ] `TANDEM_TRUST_PROXY` matches the proxies in front, and the load balancer sets `X-Forwarded-For`.
+- [ ] Prometheus scrapes `/metrics` with `TANDEM_METRICS_TOKEN`, and the alerts in section 10 are set.
+- [ ] A backup was restored once into an empty volume, and the app came back.
+- [ ] An external penetration test has been done, and its findings fixed.
 - [ ] The host and runtime around the container are in place: metadata endpoint blocked, egress
       restricted.
 - [ ] The GitHub App's webhook points at `/hooks/github`, and its secret is set.
@@ -257,3 +283,47 @@ Going from one replica to several:
    `tandem migrate-directory --to postgres://…`.
 3. Start it with `TANDEM_DATABASE_URL`, `TANDEM_REPLICA_ID` and `TANDEM_REPLICA_URL`.
 4. Add replicas. The first replica to start takes the workspaces it had.
+
+## 9. Abuse controls
+
+- **Rate limits** apply per replica:
+
+  | What | Limit |
+  | --- | --- |
+  | Sign-in and invitation links, per address | 30 a minute |
+  | Webhooks, per address | 600 a minute |
+  | Runner connections, per address | 20 a minute |
+  | The API, per session | 900 reads and 180 changes a minute |
+  | Chat messages, per session (each is a Copilot turn) | 20 a minute |
+
+  Over a limit, Tandem answers `429` with `Retry-After`.
+- **Quotas:** workspaces per person, members per workspace, and invitations per workspace per day.
+  Copilot use has its own budget per workspace (Settings › Budget).
+- **Sign-up:** at launch, `TANDEM_SIGNUP=invite` keeps Tandem to the people you let in.
+- **Addresses people type** (a Jira site, a repository host) may only lead to public services
+  over https. Private, loopback and link-local addresses, such as the metadata service, are
+  refused, and so are GitHub hosts other than github.com and `*.ghe.com`.
+- **Invitation links** show a confirmation page; joining needs the page's own token, so a link
+  alone never moves anyone into a workspace.
+
+## 10. Monitoring
+
+With `TANDEM_METRICS_TOKEN`, `GET /metrics` serves Prometheus metrics:
+
+- requests by route and status, and time per route;
+- requests refused by rate limits, sign-ins (including those turned away), and webhooks;
+- cloud workspaces running and company runners connected on each replica, and live replicas;
+- tasks by state, and memory.
+
+Alerts worth having:
+
+- `/readyz` failing;
+- `tandem_replicas_live` lower than the replicas you run;
+- many `tandem_tasks{state="FAILED"}`;
+- a rising rate of `tandem_rate_limited_total`;
+- 5xx answers in `tandem_http_requests_total`.
+
+Logs are JSON on stdout, one line per event, with secrets removed. Collect them in the EU.
+`pnpm audit` reports two moderate notes in `glob`/`minimatch` under `@fastify/static`. They don't
+apply here: that code only reads the app's own files once at start. They go away with the next
+`@fastify/static` update.

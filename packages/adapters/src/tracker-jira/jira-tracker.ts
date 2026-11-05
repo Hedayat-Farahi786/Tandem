@@ -1,4 +1,5 @@
 import { RetryableError, type Tracker, type TrackerComment, type TrackerTask } from '@tandem/core';
+import { checkOutbound } from '../net/outbound.js';
 import { redactor } from '@tandem/core';
 import { adfToText, markdownToAdf } from './adf.js';
 
@@ -56,6 +57,11 @@ export class JiraTracker implements Tracker {
     const auth = this.cloud ? `Basic ${Buffer.from(`${this.c.email}:${this.c.token}`).toString('base64')}` : `Bearer ${this.c.token}`;
     const f = this.c.fetch ?? (globalThis.fetch as unknown as Fetch);
     let res: Awaited<ReturnType<Fetch>>;
+    try {
+      await checkOutbound(this.base);
+    } catch (err) {
+      throw new JiraError(`The Jira address can't be used: ${(err as Error).message}`, 400);
+    }
     try {
       res = await f(`${this.base}${path}`, {
         method,

@@ -132,6 +132,12 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
     expect(await visit.text()).toContain('been invited to a workspace');
     const join = visit.headers.getSetCookie().find((c) => c.startsWith('tandem_join='))!.split(';')[0]!;
     hubot = await h.signIn('code-hubot', join);
+    // Signed in, the link asks first; joining takes the page's own token (a link alone moves nobody).
+    const ask = await fetch(invite.url, { headers: { cookie: hubot.cookie }, redirect: 'manual' });
+    expect(await ask.text()).toContain("Join Mona Lisa&#39;s workspace?");
+    expect((await raw(hubot, 'GET', '/api/workspace').then((r) => r.json())) as { name: string }).toMatchObject({ name: "Hubot's workspace" });
+    const confirm = await fetch(invite.url, { method: 'POST', headers: { cookie: hubot.cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: `csrf=${encodeURIComponent(hubot.token)}`, redirect: 'manual' });
+    expect(confirm.status).toBe(303);
     const ws = await as(hubot, () => h.api<{ name: string; role: string; members: Array<{ login: string; role: string }> }>('GET', '/api/workspace'));
     expect(ws).toMatchObject({ name: "Mona Lisa's workspace", role: 'member' });
     expect(ws.members.map((m) => [m.login, m.role])).toEqual([

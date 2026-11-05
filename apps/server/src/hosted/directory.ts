@@ -180,6 +180,11 @@ export class Directory {
     return this.toUser(row!);
   }
 
+  async userByGitHubId(githubId: number): Promise<User | undefined> {
+    const r = await this.sql.get('SELECT * FROM users WHERE github_id = ?', githubId);
+    return r ? this.toUser(r) : undefined;
+  }
+
   async user(id: string): Promise<User | undefined> {
     const r = await this.sql.get('SELECT * FROM users WHERE id = ?', id);
     return r ? this.toUser(r) : undefined;
@@ -343,6 +348,36 @@ export class Directory {
     await this.sql.run('INSERT INTO invites (token_hash, workspace_id, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)', hash(token), workspaceId, role, createdBy, this.now(), this.now() + 7 * 86_400_000);
     return token;
   }
+  /** The workspace an invitation link leads to, while it is valid (without joining it). */
+  async inviteTarget(token: string): Promise<string | undefined> {
+    return (await this.inviteInfo(token))?.workspaceId;
+  }
+  /** A valid invitation's workspace and who made it. */
+  async inviteInfo(token: string): Promise<{ workspaceId: string; createdBy: string } | undefined> {
+    const r = await this.sql.get('SELECT workspace_id, created_by, expires_at FROM invites WHERE token_hash = ?', hash(token));
+    return r && Number(r.expires_at) >= this.now() ? { workspaceId: String(r.workspace_id), createdBy: String(r.created_by) } : undefined;
+  }
+  /** Invitations made for a workspace since `since` (a time in ms). */
+  async invitesSince(workspaceId: string, since: number): Promise<number> {
+    return Number((await this.sql.get<{ n: number }>('SELECT COUNT(*) AS n FROM invites WHERE workspace_id = ? AND created_at >= ?', workspaceId, since))?.n ?? 0);
+  }
+  async memberCount(workspaceId: string): Promise<number> {
+    return Number((await this.sql.get<{ n: number }>('SELECT COUNT(*) AS n FROM members WHERE workspace_id = ?', workspaceId))?.n ?? 0);
+  }
+  /** Workspaces the person owns. */
+  async ownedBy(userId: string): Promise<number> {
+    return Number((await this.sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM members WHERE user_id = ? AND role = 'owner'", userId))?.n ?? 0);
+  }
+  /** Deletes expired sessions and invitations (kept no longer than they work). */
+  async purgeExpired(): Promise<{ sessions: number; invites: number }> {
+    const now = this.now();
+    return { sessions: await this.sql.run('DELETE FROM sessions WHERE expires_at < ?', now), invites: await this.sql.run('DELETE FROM invites WHERE expires_at < ?', now) };
+  }
+  /** The database answers (readiness). */
+  async ping(): Promise<void> {
+    await this.sql.get('SELECT 1 AS ok');
+  }
+
   /** Joins the workspace of an invitation; returns it, or undefined when the link is unknown or expired. */
   async acceptInvite(token: string, userId: string): Promise<Workspace | undefined> {
     const r = await this.sql.get('SELECT * FROM invites WHERE token_hash = ?', hash(token));

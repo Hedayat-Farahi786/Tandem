@@ -27,6 +27,31 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Ready for launch: brakes, monitoring and backups.**
+  - **Rate limits** per address (sign-in, invitations, webhooks, runner
+    connections) and per session (the API, and chat messages, which cost
+    Copilot turns), answered with `429` and `Retry-After`. Only the load
+    balancer's forwarded address counts (`TANDEM_TRUST_PROXY`).
+  - **Invite-only sign-up** for launch (`TANDEM_SIGNUP=invite`, with an
+    allow-list of GitHub logins), and quotas on workspaces per person,
+    members per workspace and invitations per day.
+  - **Invitation links ask first:** joining takes the page's own token, so a
+    link opened from an email or another site never moves anyone into a
+    workspace.
+  - **Public services only:** in the cloud, addresses people type (Jira,
+    repository hosts) must be public https services. The metadata service,
+    loopback and private networks are refused, and GitHub hosts are limited
+    to github.com and ghe.com.
+  - **Probes and metrics:** `/readyz` checks the database, and `/metrics`
+    serves Prometheus metrics behind a token (`TANDEM_METRICS_TOKEN`). The
+    probes answer on the pod's own address, and logs go to stdout as well.
+  - **Backups:** `tandem backup --to <folder>` copies every database
+    consistently while Tandem runs, and `tandem restore --from <folder>`
+    puts them back. The tests run a full restore drill.
+  - **Cleanup:** expired sessions and invitations are deleted every hour.
+  - **Dependencies:** `ws` was updated for two advisories, and the Copilot
+    SDK's `zod` is pinned to a patched release.
+
 - **More than one replica.** With `TANDEM_DATABASE_URL`, the web app's
   directory lives in Postgres and several replicas share it, each with its
   own volume and stable name (a StatefulSet).

@@ -9,13 +9,14 @@ import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
-import { NamespaceSandbox, guardWorktrees, serverRoleSource, type RoleSource } from '@tandem/adapters';
+import { NamespaceSandbox, guardWorktrees, restrictOutbound, serverRoleSource, type RoleSource } from '@tandem/adapters';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
 import { Directory, type Session } from './directory.js';
 import { legalPage } from './legal-pages.js';
 import { signInPage } from './sign-in-page.js';
 import { RunnerHub, safeRunnerHeaders } from './runner-hub.js';
+import { Metrics, RateLimiter, type Policy } from './limits.js';
 import { GitHubTokens, WorkspaceAccounts, WorkspaceSecrets } from './workspace.js';
 
 /*
@@ -68,6 +69,16 @@ export const HostedConfig = z.object({
   sandbox: z.enum(['on', 'off']).default('on'),
   /** Postgres for the directory, shared by every replica; without it, SQLite in `home` (one replica). */
   databaseUrl: z.string().regex(/^postgres(ql)?:\/\//, 'TANDEM_DATABASE_URL must be a postgres:// URL.').optional(),
+  /** Who may sign up: anyone with GitHub, or only people invited (and the GitHub logins listed). */
+  signup: z.object({ mode: z.enum(['open', 'invite']).default('open'), allow: z.array(z.string()).default([]) }).default({ mode: 'open', allow: [] }),
+  /** Quotas per person and workspace (abuse brakes; Copilot use has its own budget). */
+  limits: z
+    .object({ workspacesPerPerson: z.number().int().min(1).default(10), membersPerWorkspace: z.number().int().min(2).default(100), invitesPerDay: z.number().int().min(1).default(50) })
+    .default({ workspacesPerPerson: 10, membersPerWorkspace: 100, invitesPerDay: 50 }),
+  /** How many proxies in front add X-Forwarded-For (the load balancer: 1); a client's own entries are ignored. */
+  trustProxy: z.number().int().min(0).max(5).default(1),
+  /** Bearer token for GET /metrics (Prometheus); without it, /metrics is off. */
+  metricsToken: z.string().min(16).optional(),
   /** This replica: a stable name (a StatefulSet pod's), and where the other replicas reach it. */
   replica: z.object({ id: z.string().regex(/^[\w.-]{1,100}$/).default('main'), url: z.string().url().optional() }).default({ id: 'main' }),
 });
@@ -91,6 +102,14 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     agent: env.TANDEM_AGENT ?? 'copilot',
     sandbox: env.TANDEM_SANDBOX === 'off' ? 'off' : 'on',
     ...(env.TANDEM_DATABASE_URL ? { databaseUrl: env.TANDEM_DATABASE_URL } : {}),
+    signup: { mode: env.TANDEM_SIGNUP === 'invite' ? 'invite' : 'open', allow: (env.TANDEM_SIGNUP_ALLOW ?? '').split(',').map((x) => x.trim()).filter(Boolean) },
+    limits: {
+      ...(env.TANDEM_LIMIT_WORKSPACES_PER_PERSON ? { workspacesPerPerson: Number(env.TANDEM_LIMIT_WORKSPACES_PER_PERSON) } : {}),
+      ...(env.TANDEM_LIMIT_MEMBERS_PER_WORKSPACE ? { membersPerWorkspace: Number(env.TANDEM_LIMIT_MEMBERS_PER_WORKSPACE) } : {}),
+      ...(env.TANDEM_LIMIT_INVITES_PER_DAY ? { invitesPerDay: Number(env.TANDEM_LIMIT_INVITES_PER_DAY) } : {}),
+    },
+    ...(env.TANDEM_METRICS_TOKEN ? { metricsToken: env.TANDEM_METRICS_TOKEN } : {}),
+    ...(env.TANDEM_TRUST_PROXY ? { trustProxy: Number(env.TANDEM_TRUST_PROXY) } : {}),
     replica: { id: env.TANDEM_REPLICA_ID || (env.TANDEM_DATABASE_URL ? hostname() : 'main'), ...(env.TANDEM_REPLICA_URL ? { url: env.TANDEM_REPLICA_URL } : {}) },
     aws: { roleSource: env.TANDEM_AWS_ROLE_SOURCE === 'on', ...(env.TANDEM_AWS_ROLE_PRINCIPAL ? { principal: env.TANDEM_AWS_ROLE_PRINCIPAL } : {}), ...(env.TANDEM_AWS_TEMPLATE_URL ? { templateUrl: env.TANDEM_AWS_TEMPLATE_URL } : {}) },
     ...operatorSettings(env),
@@ -176,14 +195,28 @@ export interface Hosted {
 const DROP = new Set(['cookie', 'origin', 'host', 'x-tandem-token', 'x-tandem-actor', 'x-tandem-git-key', 'x-tandem-internal', 'content-length', 'authorization', 'connection', 'upgrade', 'keep-alive', 'transfer-encoding']);
 const HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-length']);
 const OWNER_MOVED = "This workspace's server is restarting. Try again in a moment.";
+/** Rate limits per replica: per address for sign-in, invitations, webhooks and runners; per session for the API. */
+const POLICIES = {
+  auth: { burst: 20, perMinute: 30 },
+  hook: { burst: 200, perMinute: 600 },
+  runner: { burst: 10, perMinute: 20 },
+  read: { burst: 300, perMinute: 900 },
+  write: { burst: 60, perMinute: 180 },
+  // Each chat message is a Copilot turn.
+  chat: { burst: 10, perMinute: 20 },
+} satisfies Record<string, Policy>;
 
 export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch; awsRoleSource?: RoleSource } = {}): Promise<Hosted> {
   const cfg = HostedConfig.parse(input);
   const http = o.fetch ?? fetch;
   mkdirSync(join(cfg.home, 'workspaces'), { recursive: true, mode: 0o700 });
-  const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel);
+  const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel, { stdout: cfg.logLevel !== 'silent' });
+  const metrics = new Metrics();
+  const limiter = new RateLimiter();
   const directory = await Directory.open(cfg.databaseUrl ?? join(cfg.home, 'directory.db'), cfg.secretKey);
   const workspacesRoot = resolve(cfg.home, 'workspaces');
+  // Addresses people type (Jira, repository hosts) may only lead to public services.
+  restrictOutbound(true);
   const awsRoleSource = o.awsRoleSource ?? (cfg.aws.roleSource ? await serverRoleSource(cfg.aws.principal) : undefined);
   if (awsRoleSource) logger.info('customers can connect CodeCommit with a role', { principal: awsRoleSource.principal });
   if (cfg.sandbox === 'on') {
@@ -282,6 +315,13 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       }
     }
   };
+  /** Joins an invitation's workspace, unless it has no room left. */
+  const joinInvite = async (token: string, userId: string) => {
+    const target = await directory.inviteTarget(token);
+    if (!target) return undefined;
+    if (!(await directory.roleIn(target, userId)) && (await directory.memberCount(target)) >= cfg.limits.membersPerWorkspace) return 'full' as const;
+    return directory.acceptInvite(token, userId);
+  };
   /** A new workspace goes to the replica running the fewest; that replica opens it. */
   const newWorkspace = async (name: string, ownerId: string) => {
     const w = await directory.createWorkspace(name, ownerId, await directory.quietestReplica(me));
@@ -294,11 +334,21 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
 
   /* ---------------------------------------------------------------- app */
 
-  const app = Fastify({ logger: false, bodyLimit: 5 * 1024 * 1024, trustProxy: true, forceCloseConnections: true });
+  const app = Fastify({ logger: false, bodyLimit: 5 * 1024 * 1024, trustProxy: (_addr: string, hop: number) => hop < cfg.trustProxy, forceCloseConnections: true });
+  /** The client's address as the trusted proxies saw it (for upgrades, which Fastify doesn't parse). */
+  const clientIp = (forwarded: string | string[] | undefined, socket: string | undefined) => {
+    const hops = String(forwarded ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    return (cfg.trustProxy && hops.length ? hops[Math.max(0, hops.length - cfg.trustProxy)] : undefined) ?? socket ?? '';
+  };
   const publicHost = new URL(cfg.publicUrl).host;
   const knownHost = (host: string | undefined) => host === publicHost || /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host ?? '');
   const hub = new RunnerHub({
-    authenticate: async (token, req) => (knownHost(req.headers.host) ? (await directory.runnerByToken(token))?.workspaceId : undefined),
+    authenticate: async (token, req) => {
+      if (!knownHost(req.headers.host)) return undefined;
+      const ip = clientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress);
+      if (limiter.take(`runner:${ip}`, POLICIES.runner)) return 429;
+      return (await directory.runnerByToken(token))?.workspaceId;
+    },
     welcome: async (id) => ({ workspace: (await directory.workspace(id))?.name ?? '' }),
     seen: (id, machine) => directory.runnerSeen(id, machine),
     connected: (id, here) => directory.runnerConnected(id, here ? me : undefined, me),
@@ -308,12 +358,38 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   app.addHook('onRequest', async (req, reply) => {
     // Replicas call each other by their own addresses, with the internal key; everyone else only on the public address.
     if (req.url.startsWith('/internal/')) return isInternal(req) ? undefined : reply.code(404).send({ error: 'Not found.' });
+    // Probes and the metrics scraper call the pod's own address.
+    if (/^\/(healthz|readyz|metrics)(\?|$)/.test(req.url)) return undefined;
     // Only the public address (and loopback, for health checks and the git helper).
     const host = req.headers.host ?? '';
     if (!knownHost(host)) return reply.code(421).send({ error: 'Unknown host.' });
     const origin = req.headers.origin;
     if (origin && origin !== cfg.publicUrl) return reply.code(403).send({ error: 'Requests from other sites are not allowed.' });
     return undefined;
+  });
+  // Rate limits, per address or session; and every answer counted (streamed ones too).
+  app.addHook('onRequest', async (req, reply) => {
+    const started = process.hrtime.bigint();
+    reply.raw.once('finish', () => {
+      const route = req.routeOptions.url ?? 'unmatched';
+      metrics.count('tandem_http_requests_total', 'Requests answered.', { method: req.method, route, status: String(reply.raw.statusCode) });
+      metrics.time(route, Number(process.hrtime.bigint() - started) / 1e9);
+    });
+    const path = req.url.split('?')[0]!;
+    let policy: keyof typeof POLICIES | undefined;
+    let who = `ip:${req.ip}`;
+    if (/^\/(auth|join)\//.test(path)) policy = 'auth';
+    else if (path === '/hooks/github') policy = 'hook';
+    else if (path.startsWith('/api/')) {
+      const sid = cookies(req)[SESSION];
+      if (sid) who = `s:${createHmac('sha256', internalKey).update(sid).digest('base64url').slice(0, 22)}`;
+      policy = req.method === 'POST' && /^\/api\/threads\/[^/]+\/messages$/.test(path) ? 'chat' : writes(req) ? 'write' : 'read';
+    }
+    if (!policy) return undefined;
+    const wait = limiter.take(`${policy}:${who}`, POLICIES[policy]);
+    if (!wait) return undefined;
+    metrics.count('tandem_rate_limited_total', 'Requests refused by a rate limit.', { policy });
+    return reply.code(429).header('Retry-After', String(wait)).send({ error: `Too many requests. Try again in ${wait} second${wait === 1 ? '' : 's'}.` });
   });
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer').header('X-Frame-Options', 'DENY').header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
@@ -352,7 +428,37 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return (await directory.workspacesOf(user.id)).find((x) => x.id === fresh.id);
   };
 
+  // The join page's form.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 4096 }, (_req, body, done) => done(null, Object.fromEntries(new URLSearchParams(String(body)))));
+
   app.get('/healthz', async () => ({ ok: true, replica: me }));
+  /** Ready for traffic: the directory answers. */
+  app.get('/readyz', async (_req, reply) => {
+    try {
+      await directory.ping();
+      return { ok: true, replica: me };
+    } catch {
+      return reply.code(503).send({ ok: false, replica: me, error: 'The directory database does not answer.' });
+    }
+  });
+  app.get('/metrics', async (req, reply) => {
+    const want = cfg.metricsToken;
+    const given = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '';
+    if (!want || given.length !== want.length || !timingSafeEqual(Buffer.from(given), Buffer.from(want))) return reply.code(404).send({ error: 'Not found.' });
+    return reply.type('text/plain; version=0.0.4').header('Cache-Control', 'no-store').send(await metrics.text());
+  });
+  metrics.gauge('tandem_workspaces_running', 'Cloud workspaces running on this replica.', async () => [[{ replica: me }, cells.size]]);
+  metrics.gauge('tandem_runners_connected', 'Company runners connected to this replica.', async () => [[{ replica: me }, hub.count()]]);
+  metrics.gauge('tandem_replicas_live', 'Replicas seen in the last 45 seconds.', async () => [[{}, (await directory.liveReplicas()).length]]);
+  metrics.gauge('tandem_tasks', "Tasks of this replica's cloud workspaces, by state.", async () => {
+    const by = new Map<string, number>();
+    for (const c of cells.values()) {
+      const cell = await c.catch(() => undefined);
+      for (const t of (await cell?.tandem.store.tasks.list().catch(() => [])) ?? []) by.set(t.state, (by.get(t.state) ?? 0) + 1);
+    }
+    return [...by].map(([state, n]) => [{ replica: me, state }, n]);
+  });
+  metrics.gauge('process_resident_memory_bytes', 'Memory in use.', async () => [[{ replica: me }, process.memoryUsage.rss()]]);
 
   /* ---------------------------------------------------------------- GitHub sign-in */
 
@@ -380,17 +486,27 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const userRes = await http(new URL('/user', cfg.github.apiUrl), { headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'tandem' } });
     if (!userRes.ok) return reply.code(502).type('text/html').send(signInPage({ error: 'GitHub is not answering right now. Please try again.' }));
     const gh = (await userRes.json()) as { id: number; login: string; name?: string | null; email?: string | null; avatar_url?: string | null };
+    const join = cookies(req)[JOIN];
+    // Invite-only: people already here, people with a valid invitation, and the logins listed.
+    if (cfg.signup.mode === 'invite') {
+      const known = await directory.userByGitHubId(gh.id);
+      const invited = join ? await directory.inviteTarget(join) : undefined;
+      if (!known && !invited && !cfg.signup.allow.some((l) => l.toLowerCase() === gh.login.toLowerCase())) {
+        metrics.count('tandem_signins_total', 'GitHub sign-ins.', { result: 'not-invited' });
+        return reply.code(403).type('text/html').send(signInPage({ error: 'Tandem is invite-only for now. Ask someone in a workspace for an invitation link.' }));
+      }
+    }
     const user = await directory.upsertGitHubUser({ id: gh.id, login: gh.login, name: gh.name ?? null, email: gh.email ?? null, avatarUrl: gh.avatar_url ?? null });
     const now = Date.now();
     await directory.saveGitHubTokens(user.id, { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), ...(tok.refresh_token ? { refresh: tok.refresh_token } : {}), ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) });
-    // Came from an invitation link: join that workspace first.
-    const join = cookies(req)[JOIN];
-    const joined = join ? await directory.acceptInvite(join, user.id) : undefined;
+    metrics.count('tandem_signins_total', 'GitHub sign-ins.', { result: 'ok' });
     const workspaces = await directory.workspacesOf(user.id);
-    const workspace = joined ?? workspaces[0] ?? (await newWorkspace(`${user.name}'s workspace`, user.id));
+    const workspace = workspaces[0] ?? (await newWorkspace(`${user.name}'s workspace`, user.id));
     const { id } = await directory.createSession(user.id, workspace.id);
-    logger.info('signed in', { user: user.id, joined: Boolean(joined) });
-    return reply.header('Set-Cookie', [cookie(SESSION, id, 14 * 86_400), cookie(OAUTH, '', 0), ...(join ? [cookie(JOIN, '', 0)] : [])]).redirect('/');
+    logger.info('signed in', { user: user.id });
+    // Came from an invitation link: they confirm joining on its page (a link alone never moves anyone).
+    const next = join && (await directory.inviteTarget(join)) ? `/join/${encodeURIComponent(join)}` : '/';
+    return reply.header('Set-Cookie', [cookie(SESSION, id, 14 * 86_400), cookie(OAUTH, '', 0), ...(join ? [cookie(JOIN, '', 0)] : [])]).redirect(next);
   });
 
   app.post('/auth/sign-out', async (req, reply) => {
@@ -414,6 +530,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const s = await signedIn(req, reply);
     if (!s) return reply;
     const { name } = z.object({ name: z.string().trim().min(1, 'Give the workspace a name.').max(80) }).parse(req.body);
+    if ((await directory.ownedBy(s.session.userId)) >= cfg.limits.workspacesPerPerson) return reply.code(409).send({ error: `You own ${cfg.limits.workspacesPerPerson} workspaces, the most one person can. Delete one first, or ask to have the limit raised.` });
     const w = await newWorkspace(name, s.session.userId);
     await directory.useWorkspace(s.id, w.id);
     return w;
@@ -500,6 +617,8 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const { role } = z.object({ role: z.enum(['owner', 'member']).default('member') }).parse(req.body ?? {});
+    if ((await directory.invitesSince(c!.w.id, Date.now() - 86_400_000)) >= cfg.limits.invitesPerDay) return reply.code(429).send({ error: `This workspace made ${cfg.limits.invitesPerDay} invitations in the last day, the most it can. Try again tomorrow.` });
+    if ((await directory.memberCount(c!.w.id)) >= cfg.limits.membersPerWorkspace) return reply.code(409).send({ error: `This workspace has ${cfg.limits.membersPerWorkspace} members, the most it can.` });
     const token = await directory.createInvite(c!.w.id, c!.s.session.userId, role);
     return { url: `${cfg.publicUrl}/join/${token}`, expiresInDays: 7 };
   });
@@ -580,15 +699,36 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return { ok: true };
   });
 
-  /** An invitation link: join (signing in first if needed). */
+  /**
+   * An invitation link shows what joining means and asks; joining is a POST with the session's
+   * token. A link alone (opened from an email or a page) never moves anyone into a workspace.
+   */
   app.get('/join/:token', async (req, reply) => {
     const { token } = z.object({ token: z.string().min(10).max(100) }).parse(req.params);
+    reply.type('text/html').header('Cache-Control', 'no-store').header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
     const s = await sessionOf(req);
-    if (!s) return reply.header('Set-Cookie', cookie(JOIN, token, 1800)).type('text/html').header('Cache-Control', 'no-store').send(signInPage({ note: "You've been invited to a workspace. Sign in with GitHub to join it." }));
-    const w = await directory.acceptInvite(token, s.session.userId);
+    if (!s) return reply.header('Set-Cookie', cookie(JOIN, token, 1800)).send(signInPage({ note: "You've been invited to a workspace. Sign in with GitHub to join it." }));
+    const info = await directory.inviteInfo(token);
+    const w = info ? await directory.workspace(info.workspaceId) : undefined;
+    if (!info || !w) return reply.code(410).send(signInPage({ error: 'This invitation has expired. Ask for a new link.', signedIn: true }));
+    if (await directory.roleIn(w.id, s.session.userId)) {
+      await directory.useWorkspace(s.id, w.id);
+      return reply.redirect('/');
+    }
+    const inviter = await directory.user(info.createdBy);
+    return reply.send(signInPage({ join: { workspace: w.name, inviter: inviter?.name, csrf: s.session.csrf, action: `/join/${encodeURIComponent(token)}` } }));
+  });
+  app.post('/join/:token', async (req, reply) => {
+    const { token } = z.object({ token: z.string().min(10).max(100) }).parse(req.params);
+    const s = await sessionOf(req);
+    const given = (req.body as { csrf?: string } | undefined)?.csrf ?? (req.headers['x-tandem-token'] as string | undefined);
+    if (!s || !Directory.csrfMatches(s.session, given)) return reply.code(403).type('text/html').send(signInPage({ error: 'That did not come from your Tandem page. Open the invitation link again.', ...(s ? { signedIn: true } : {}) }));
+    const w = await joinInvite(token, s.session.userId);
+    if (w === 'full') return reply.code(409).type('text/html').send(signInPage({ error: 'This workspace is full. Ask an owner to make room.', signedIn: true }));
     if (!w) return reply.code(410).type('text/html').send(signInPage({ error: 'This invitation has expired. Ask for a new link.', signedIn: true }));
     await directory.useWorkspace(s.id, w.id);
-    return reply.redirect('/');
+    logger.info('joined a workspace', { workspace: w.id });
+    return reply.code(303).redirect('/');
   });
 
   /* ---------------------------------------------------------------- GitHub webhooks */
@@ -640,6 +780,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       const want = `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}`;
       if (sig.length !== want.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return reply.code(401).send({ error: 'Bad signature.' });
       const event = String(req.headers['x-github-event'] ?? '');
+      metrics.count('tandem_webhooks_total', 'Signed GitHub webhooks received.', { event: event.slice(0, 40) });
       if (event === 'ping') return { ok: true };
       let body: Record<string, unknown>;
       try {
@@ -856,6 +997,14 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   await heartbeat();
   const beat = setInterval(() => void heartbeat(), 10_000);
   beat.unref();
+  // Sessions and invitations are kept no longer than they work.
+  const purge = async () => {
+    const gone = await directory.purgeExpired().catch(() => undefined);
+    if (gone && (gone.sessions || gone.invites)) logger.info('expired sessions and invitations deleted', gone);
+  };
+  void purge();
+  const tidy = setInterval(() => void purge(), 60 * 60_000);
+  tidy.unref();
   const claimed = await directory.claimUnassigned(me);
   for (const id of await directory.workspacesOn(me)) await actLocally(id, 'open');
   logger.info('tandem hosted started', { port, publicUrl: cfg.publicUrl, replica: me, claimed, database: cfg.databaseUrl ? 'postgres' : 'sqlite' });
@@ -868,6 +1017,8 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     replicaId: me,
     stop: async () => {
       clearInterval(beat);
+      clearInterval(tidy);
+      limiter.close();
       hub.close();
       await app.close();
       for (const c of cells.values()) await (await c.catch(() => undefined))?.stop();

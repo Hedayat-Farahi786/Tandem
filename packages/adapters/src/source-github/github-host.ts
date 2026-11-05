@@ -64,6 +64,8 @@ export class GitHubHost implements SourceHost {
   detect(url: string): DetectedRepo | undefined {
     const p = parseGitHubUrl(url);
     if (!p) return undefined;
+    // Tandem's cloud: GitHub.com and GitHub Enterprise Cloud only, never a host on a private network.
+    if (this.o.ambient === false && p.host !== 'github.com' && !/^[a-z0-9][a-z0-9-]{0,62}\.ghe\.com$/i.test(p.host)) throw new Error(`Tandem's cloud works with GitHub.com and GitHub Enterprise Cloud (ghe.com), not ${p.host}. For a GitHub Enterprise Server, use a company runner.`);
     return { host: { kind: 'github', owner: p.owner, name: p.name, ...(p.host !== 'github.com' ? { apiBase: githubApiBase(p.host) } : {}) }, name: p.name, gitUrl: url };
   }
 

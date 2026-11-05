@@ -23,7 +23,7 @@ export function pruneLogs(dir: string, days = LOG_DAYS, now = new Date()): strin
  * JSON logs under ~/.tandem/logs, one file per start day, every value passed through the
  * redactor. Files older than 14 days are deleted at start.
  */
-export function createLogger(dir: string, level: string): Logger & { pino: pino.Logger } {
+export function createLogger(dir: string, level: string, o: { stdout?: boolean } = {}): Logger & { pino: pino.Logger } {
   mkdirSync(dir, { recursive: true });
   pruneLogs(dir);
   const file = join(dir, `tandem-${new Date().toISOString().slice(0, 10)}.log`);
@@ -38,7 +38,8 @@ export function createLogger(dir: string, level: string): Logger & { pino: pino.
         },
       },
     },
-    pino.destination({ dest: file, mkdir: true, sync: false }),
+    // In a container the platform collects stdout; the file stays for `tandem` on a computer.
+    o.stdout ? pino.multistream([{ stream: pino.destination({ dest: file, mkdir: true, sync: false }) }, { stream: pino.destination({ dest: 1, sync: false }) }]) : pino.destination({ dest: file, mkdir: true, sync: false }),
   );
   return {
     pino: p,

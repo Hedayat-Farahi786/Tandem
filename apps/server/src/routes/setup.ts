@@ -45,6 +45,14 @@ export function consistent(p: Project): Project {
 
 export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
   const { tandem } = ctx;
+  /** GitHub or CodeCommit, from a clone URL; a host Tandem may not use here is a plain 400. */
+  const detectRepo = (url: string) => {
+    try {
+      return tandem.codecommit.detect(url) ?? tandem.github.detect(url);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  };
   const store = tandem.store;
 
   /* ------------------------------------------------------------------ bootstrap and settings */
@@ -108,7 +116,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
     const added = new Set((await store.repos.list()).map((r) => r.localPath).filter(Boolean));
     const found = await findLocalClones();
     return found.flatMap((c) => {
-      const d = tandem.codecommit.detect(c.remote) ?? tandem.github.detect(c.remote);
+      const d = detectRepo(c.remote);
       return d ? [{ path: c.path, name: d.name, remote: c.remote, host: d.host.kind, branch: c.branch, added: added.has(c.path) }] : [];
     });
   });
@@ -124,7 +132,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
       url = clone.remote;
       localPath = clone.path;
     }
-    const detected = tandem.codecommit.detect(url) ?? tandem.github.detect(url);
+    const detected = detectRepo(url);
     if (!detected) throw new HttpError(400, localPath ? `The origin of that clone (${url}) is not on GitHub or CodeCommit.` : 'That is not a CodeCommit or GitHub URL. Use the SSH, HTTPS or codecommit:: clone URL.');
     const draft: Repo = { id: randomUUID(), url, host: detected.host, name: detected.name, defaultBranch: '', role: 'other', commands: {}, ...(localPath ? { localPath } : {}), createdAt: new Date().toISOString() };
     const host = tandem.hostFor(draft);
@@ -143,7 +151,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
 
   app.post('/api/repos', async (req) => {
     const body = RepoInput.extend({ id: z.string().optional() }).parse(req.body);
-    const detected = tandem.codecommit.detect(body.url) ?? tandem.github.detect(body.url);
+    const detected = detectRepo(body.url);
     if (!detected) throw new HttpError(400, 'That is not a CodeCommit or GitHub URL.');
     const existing = (await store.repos.list()).find((r) => r.url === body.url && r.id !== body.id);
     if (existing) throw new HttpError(409, `${existing.name} is already added.`);

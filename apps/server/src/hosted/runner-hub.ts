@@ -63,8 +63,8 @@ export class RunnerHub {
 
   constructor(
     private readonly o: {
-      /** The workspace a runner key belongs to, or undefined to refuse it. */
-      authenticate(token: string | undefined, req: IncomingMessage): Promise<string | undefined>;
+      /** The workspace a runner key belongs to; undefined refuses it (401), a number refuses with that status (429: try later). */
+      authenticate(token: string | undefined, req: IncomingMessage): Promise<string | number | undefined>;
       welcome(workspaceId: string): Promise<Record<string, unknown>>;
       seen(workspaceId: string, machine: string): Promise<void>;
       /** A runner connected here, or the one connected here went away (where it is, for the other replicas). */
@@ -97,6 +97,7 @@ export class RunnerHub {
         .authenticate(token, req)
         .catch(() => undefined)
         .then((workspaceId) => {
+          if (typeof workspaceId === 'number') return refuse(workspaceId, workspaceId === 429 ? 'Too Many Requests' : 'Refused');
           if (!workspaceId) return refuse(401, 'Unauthorized');
           this.wss.handleUpgrade(req, socket, head, (ws) => void this.connected(workspaceId, ws));
           return undefined;
@@ -151,6 +152,11 @@ export class RunnerHub {
       conn.streams.delete(f.id);
       s.onError(String(f.message ?? 'The runner could not answer.').slice(0, 300));
     }
+  }
+
+  /** How many runners are connected here. */
+  count(): number {
+    return this.conns.size;
   }
 
   status(workspaceId: string): RunnerStatus | undefined {

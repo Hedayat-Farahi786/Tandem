@@ -122,7 +122,16 @@ Also built since then:
 * **Several replicas:** a shared Postgres directory, workspaces spread over replicas with their
   own volumes (a StatefulSet), and requests passed to the replica that runs each workspace.
 
-Still to come: the hardening of phase 5 (rate limits, quotas, monitoring, penetration test).
+Phase 5's hardening in the app is built: rate limits, quotas, invite-only sign-up, public-only
+outbound addresses, invitation links that ask before joining, readiness and Prometheus metrics,
+and `tandem backup` and `tandem restore` with a restore drill in the tests.
+
+Left for the launch itself:
+
+* an external penetration test;
+* the monitoring stack and alerts (EU-hosted);
+* a status page;
+* the legal review.
 
 1. **Foundations (≈3 weeks)**
    * `TANDEM_MODE=hosted|local`; hosted listens behind a load balancer with

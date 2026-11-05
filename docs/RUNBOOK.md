@@ -43,15 +43,23 @@ is kept by the Copilot runtime in the keychain, with its state in
 
 ### Backups
 
-Stop Tandem and copy `tandem.db`, or, if the `sqlite3` tool is installed,
-copy it while running with SQLite's online backup:
+Back up while Tandem runs; no extra tool is needed:
 
 ```sh
-sqlite3 ~/.tandem/tandem.db ".backup '/path/to/tandem-backup.db'"
+pnpm tandem backup --to ~/tandem-backups/2026-11-05
 ```
 
-To restore, stop Tandem and put the copy back as `tandem.db` (delete any
-`tandem.db-wal` and `tandem.db-shm` next to it first).
+The backup holds the database: projects, tasks, chats, approvals and the audit log. It doesn't
+hold repository copies, which come back from the repositories, or secrets, which stay in your
+keychain.
+
+To restore, stop Tandem, move `~/.tandem` aside, then run:
+
+```sh
+pnpm tandem restore --from ~/tandem-backups/2026-11-05
+```
+
+To restore over existing data instead, add `--force`.
 
 ## Disk space
 
