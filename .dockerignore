@@ -16,3 +16,4 @@ e2e
 **/__tests__
 **/*.test.ts
 **/*.test.tsx
+dist-cli

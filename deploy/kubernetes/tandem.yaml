@@ -1,0 +1,268 @@
+# Tandem's web app on Kubernetes: a StatefulSet of replicas sharing a Postgres directory, each with
+# its own volume (docs/DEPLOYMENT.md, sections 2, 5 and 8). A starting point for the cloud team:
+# replace every [placeholder], size the resources, and keep the security settings as they are.
+#
+# Not in this file, because they come from your platform:
+#   - the Secret "tandem-secrets" (from the secret manager; the keys are listed below);
+#   - the Postgres database (managed, in the EU) and its backups;
+#   - TLS for app.[domain] at the ingress or load balancer;
+#   - an egress proxy or FQDN policy for the allow-list of hosts in DEPLOYMENT.md section 5
+#     (the NetworkPolicy below only blocks private and metadata addresses).
+#
+# Needs Kubernetes 1.33 or later (user namespaces, hostUsers: false) on nodes kept for Tandem.
+# Check the file with: kubeconform -strict deploy/kubernetes/tandem.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tandem
+  labels:
+    # The pods need Unconfined seccomp and AppArmor and an unmasked /proc to isolate each build.
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tandem-config
+  namespace: tandem
+data:
+  TANDEM_PUBLIC_URL: "https://app.[domain]"
+  TANDEM_GITHUB_CLIENT_ID: "[GitHub App client ID]"
+  TANDEM_GITHUB_APP_SLUG: "[GitHub App slug]"
+  # Invite-only until you open sign-up on purpose (DEPLOYMENT.md section 9).
+  TANDEM_SIGNUP: "invite"
+  TANDEM_SIGNUP_ALLOW: "[your GitHub logins, comma separated]"
+  # Proxies in front that add X-Forwarded-For: the cloud load balancer and the ingress controller.
+  TANDEM_TRUST_PROXY: "2"
+  TANDEM_LOG_LEVEL: "info"
+  # CodeCommit through customers' roles (DEPLOYMENT.md section 5); remove when not offered.
+  TANDEM_AWS_ROLE_SOURCE: "on"
+---
+# Headless: every replica's own address, http://tandem-0.tandem.tandem.svc.cluster.local:8080, for
+# the replicas to reach each other. Not exposed outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tandem
+  namespace: tandem
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: tandem
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# What the ingress sends users to: any replica answers any request.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tandem-web
+  namespace: tandem
+spec:
+  selector:
+    app.kubernetes.io/name: tandem
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tandem
+  namespace: tandem
+spec:
+  serviceName: tandem
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tandem
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tandem
+    spec:
+      # Builds get their own user namespaces inside the pod's, which is itself unprivileged.
+      hostUsers: false
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Unfinished work resumes on the next start; this lets running steps reach a checkpoint.
+      terminationGracePeriodSeconds: 60
+      # Keep Tandem on nodes of its own (DEPLOYMENT.md section 5).
+      nodeSelector:
+        workload: tandem
+      tolerations:
+        - { key: workload, operator: Equal, value: tandem, effect: NoSchedule }
+      # A second wall around the container, if your runtime supports nested user namespaces.
+      # Tandem's startup self-test refuses to start when per-build isolation doesn't work.
+      # runtimeClassName: gvisor
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: Unconfined
+        appArmorProfile:
+          type: Unconfined
+      containers:
+        - name: tandem
+          image: "[registry]/tandem:[version]"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: tandem-config
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: TANDEM_REPLICA_ID
+              value: "$(POD_NAME)"
+            - name: TANDEM_REPLICA_URL
+              value: "http://$(POD_NAME).tandem.$(POD_NAMESPACE).svc.cluster.local:8080"
+            # From the secret manager. TANDEM_SECRET_KEY must be the same on every replica, and kept:
+            # without it, the stored GitHub tokens and secrets can't be read.
+            - name: TANDEM_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_SECRET_KEY } }
+            - name: TANDEM_GITHUB_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_GITHUB_CLIENT_SECRET } }
+            - name: TANDEM_GITHUB_WEBHOOK_SECRET
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_GITHUB_WEBHOOK_SECRET } }
+            - name: TANDEM_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_DATABASE_URL } }
+            - name: TANDEM_METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: tandem-secrets, key: TANDEM_METRICS_TOKEN } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Each build mounts its own view of the files; that needs /proc unmasked (with hostUsers: false).
+            procMount: Unmasked
+            capabilities:
+              drop: [ALL]
+          # Size for the builds you run at once (TANDEM_MAX_CONCURRENT_BUILDS): about 2 CPUs and 4 GB each.
+          resources:
+            requests: { cpu: "2", memory: 4Gi }
+            limits: { memory: 8Gi }
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        # An encrypted storage class in the EU region; its snapshots are one of the backups (section 4).
+        storageClassName: "[encrypted storage class]"
+        resources:
+          requests:
+            storage: 100Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tandem
+  namespace: tandem
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tandem
+---
+# Who may reach the pods, and where they may connect. Hostname allow-lists need an egress proxy
+# or your CNI's FQDN policies on top of this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tandem
+  namespace: tandem
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tandem
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The ingress controller, Prometheus, and the other replicas.
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: "[ingress namespace]" } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: "[monitoring namespace]" } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: tandem } }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # The other replicas.
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: tandem } }
+      ports:
+        - { port: 8080, protocol: TCP }
+    # The directory's Postgres.
+    - to:
+        - ipBlock: { cidr: "[Postgres address]/32" }
+      ports:
+        - { port: 5432, protocol: TCP }
+    # Public services over https only: never the private network or the metadata endpoint.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
+        - ipBlock:
+            cidr: ::/0
+            except: ["fc00::/7", "fe80::/10", "::1/128"]
+      ports:
+        - { port: 443, protocol: TCP }
+---
+# An ingress-nginx example; other controllers need the same three things: TLS, WebSocket
+# upgrades on /runner/connect, and long read timeouts for live updates (DEPLOYMENT.md section 6).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tandem
+  namespace: tandem
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # GitHub webhooks can be up to 25 MB; everything else is limited to 5 MB by Tandem itself.
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["app.[domain]"]
+      secretName: tandem-tls
+  rules:
+    - host: "app.[domain]"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tandem-web
+                port:
+                  name: http

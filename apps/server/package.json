@@ -30,6 +30,7 @@
   "devDependencies": {
     "@types/pdfkit": "0.17.7",
     "@types/pg": "8.11.10",
-    "@types/ws": "8.18.1"
+    "@types/ws": "8.18.1",
+    "esbuild": "0.28.2"
   }
 }

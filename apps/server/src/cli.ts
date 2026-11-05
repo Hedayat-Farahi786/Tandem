@@ -173,17 +173,31 @@ async function backupOrRestore(kind: 'backup' | 'restore'): Promise<void> {
   }
 }
 
+const USAGE = `Tandem ${VERSION}
+
+  tandem [start] [--no-open]        Tandem on this computer, in your browser
+  tandem doctor [--json]            Check this computer: git, Copilot, repositories
+  tandem runner [--url <web app>] [--key <runner key>]
+                                    Run a web app workspace on this computer (a company runner)
+  tandem backup --to <folder>       Copy Tandem's databases while it runs
+  tandem restore --from <folder> [--force]
+                                    Put a backup back (with Tandem stopped)
+  tandem migrate-directory --to postgres://…
+                                    Move the web app's directory to Postgres
+  tandem --version | --help`;
+
 const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith('-')) ?? 'start';
 try {
   if (args.includes('--version') || args.includes('-v')) console.log(VERSION);
+  else if (args.includes('--help') || args.includes('-h') || cmd === 'help') console.log(USAGE);
   else if (cmd === 'doctor') process.exitCode = await doctor(args.includes('--json'));
   else if (cmd === 'start') await start(!args.includes('--no-open'));
   else if (cmd === 'runner') await runner();
   else if (cmd === 'migrate-directory') await migrateDirectory();
   else if (cmd === 'backup' || cmd === 'restore') await backupOrRestore(cmd);
   else {
-    console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json] | tandem runner [--url <web app>] [--key <runner key>] | tandem backup --to <folder> | tandem restore --from <folder> [--force] | tandem migrate-directory --to postgres://…`);
+    console.error(`Unknown command "${cmd}".\n\n${USAGE}`);
     process.exitCode = 2;
   }
 } catch (err) {

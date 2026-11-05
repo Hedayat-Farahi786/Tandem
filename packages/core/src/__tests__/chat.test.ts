@@ -495,7 +495,7 @@ describe('chat: the request chat writes the spec once', () => {
     const t = await c.createThread({ projectId: 'p1', mode: 'request' });
     await c.send(t.id, 'Add a GET /health endpoint.');
     const th = await c.thread(t.id);
-    await h.store.threads.upsert({ ...th, pendingQuestions: { questions: [{ header: 'Status', question: 'Which status?', options: [{ label: 'ok', description: 'x' }, { label: 'up', description: 'y' }], multiSelect: false }], askedAt: th.updatedAt } });
+    await h.store.threads.upsert({ ...th, pendingQuestions: { questions: [{ id: 'q1', header: 'Status', question: 'Which status?', options: [{ label: 'ok', description: 'x' }, { label: 'up', description: 'y' }], multiSelect: false }], askedAt: th.updatedAt } });
     await expect(c.createTask(t.id)).rejects.toThrow(/Answer its questions first/);
     // Answering changes the requirement: the old spec goes, and a new one is written.
     const firstAt = th.draftSpec!.at;

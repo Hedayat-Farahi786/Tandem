@@ -59,15 +59,23 @@ function RunnerStatus({ r }: { r: RunnerInfo }) {
 }
 
 /** The command to start the runner, shown once with its new key; it waits there for the runner. */
-function NewKey({ command, onDone }: { command: string; onDone: () => void }) {
+function NewKey({ command, install, onDone }: { command: string; install?: string; onDone: () => void }) {
   const q = useWorkspaceRunner(true);
   const connected = q.data?.runner.connected;
   return (
     <div className="mt-3 flex flex-col gap-3 rounded-xl bg-accent-soft/40 p-4">
-      <p className="text-[13.5px] font-medium">On the company computer, run:</p>
+      {install && (
+        <>
+          <p className="text-[13.5px] font-medium">On the company computer, install Tandem once:</p>
+          <Command text={install} />
+        </>
+      )}
+      <p className="text-[13.5px] font-medium">{install ? 'Then start the runner:' : 'On the company computer, run:'}</p>
       <Command text={command} />
       <ul className="flex list-disc flex-col gap-1 pl-5 text-[12.5px] text-muted">
-        <li>It needs Node.js 22 and a copy of Tandem (the same one your team runs locally), git, and access to your repositories.</li>
+        <li>
+          It needs Node.js 22.13 or later, git, and access to your repositories{install ? '' : ', and a copy of Tandem (the same one your team runs locally)'}. <code className="font-mono">tandem doctor</code> checks that computer.
+        </li>
         <li>The key is shown only now. The runner keeps it in that computer's keychain, so the next start is just <code className="font-mono">tandem runner</code>.</li>
         <li>Only outgoing connections: nothing on that computer is opened to the network.</li>
       </ul>
@@ -90,13 +98,13 @@ export function RunnerControls() {
   const toast = useToast();
   const q = useWorkspaceRunner();
   const [ask, setAsk] = useState<'company' | 'key' | 'cloud' | null>(null);
-  const [command, setCommand] = useState<string | null>(null);
+  const [command, setCommand] = useState<{ command: string; install?: string } | null>(null);
   const fail = (e: unknown) => toast((e as Error).message, 'danger');
   const toCompany = useMutation({
-    mutationFn: () => post<{ command: string }>('/api/workspace/runner', {}),
+    mutationFn: () => post<{ command: string; install?: string }>('/api/workspace/runner', {}),
     onSuccess: (r) => {
       setAsk(null);
-      setCommand(r.command);
+      setCommand({ command: r.command, ...(r.install ? { install: r.install } : {}) });
       void qc.invalidateQueries({ queryKey: ['workspace'] });
     },
     onError: fail,
@@ -144,7 +152,7 @@ export function RunnerControls() {
           </div>
         )}
       </div>
-      {command && <NewKey command={command} onDone={() => window.location.reload()} />}
+      {command && <NewKey command={command.command} {...(command.install ? { install: command.install } : {})} onDone={() => window.location.reload()} />}
       <Dialog
         open={ask === 'company' || ask === 'key'}
         onClose={() => setAsk(null)}

@@ -27,6 +27,21 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Install the company runner in one line.** The web app offers the
+  `tandem` command at `/download/tandem.tgz`, and Settings › Workspace shows
+  `npm install -g https://app.[domain]/download/tandem.tgz` above the runner
+  command. `pnpm pack:cli` builds the package: Tandem's own code in one file,
+  with every library pinned to the tested versions (`npm-shrinkwrap.json`,
+  patched zod included). The Docker image builds it in. The end-to-end flows
+  pass on the installed package (`TANDEM_E2E_CLI`).
+- **`tandem --help`.** Before, `--help` started the app.
+- **Kubernetes and monitoring, ready to use.** `deploy/kubernetes/tandem.yaml`:
+  a StatefulSet with per-replica volumes, the security settings for build
+  isolation (checked to work with no privilege escalation and no
+  capabilities), probes, a NetworkPolicy and an ingress example.
+  `deploy/monitoring/tandem-alerts.yml`: nine Prometheus alerts, with a
+  `promtool` test.
+
 - **Ready for launch: brakes, monitoring and backups.**
   - **Rate limits** per address (sign-in, invitations, webhooks, runner
     connections) and per session (the API, and chat messages, which cost

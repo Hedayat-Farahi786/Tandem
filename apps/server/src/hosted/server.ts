@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -77,6 +77,8 @@ export const HostedConfig = z.object({
     .default({ workspacesPerPerson: 10, membersPerWorkspace: 100, invitesPerDay: 50 }),
   /** How many proxies in front add X-Forwarded-For (the load balancer: 1); a client's own entries are ignored. */
   trustProxy: z.number().int().min(0).max(5).default(1),
+  /** The `tandem` command as an npm package (scripts/pack-cli.mjs), offered at /download/tandem.tgz for company runners. */
+  cliPackage: z.string().optional(),
   /** Bearer token for GET /metrics (Prometheus); without it, /metrics is off. */
   metricsToken: z.string().min(16).optional(),
   /** This replica: a stable name (a StatefulSet pod's), and where the other replicas reach it. */
@@ -109,6 +111,7 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
       ...(env.TANDEM_LIMIT_INVITES_PER_DAY ? { invitesPerDay: Number(env.TANDEM_LIMIT_INVITES_PER_DAY) } : {}),
     },
     ...(env.TANDEM_METRICS_TOKEN ? { metricsToken: env.TANDEM_METRICS_TOKEN } : {}),
+    ...(env.TANDEM_CLI_PACKAGE ? { cliPackage: env.TANDEM_CLI_PACKAGE } : {}),
     ...(env.TANDEM_TRUST_PROXY ? { trustProxy: Number(env.TANDEM_TRUST_PROXY) } : {}),
     replica: { id: env.TANDEM_REPLICA_ID || (env.TANDEM_DATABASE_URL ? hostname() : 'main'), ...(env.TANDEM_REPLICA_URL ? { url: env.TANDEM_REPLICA_URL } : {}) },
     aws: { roleSource: env.TANDEM_AWS_ROLE_SOURCE === 'on', ...(env.TANDEM_AWS_ROLE_PRINCIPAL ? { principal: env.TANDEM_AWS_ROLE_PRINCIPAL } : {}), ...(env.TANDEM_AWS_TEMPLATE_URL ? { templateUrl: env.TANDEM_AWS_TEMPLATE_URL } : {}) },
@@ -204,6 +207,7 @@ const POLICIES = {
   write: { burst: 60, perMinute: 180 },
   // Each chat message is a Copilot turn.
   chat: { burst: 10, perMinute: 20 },
+  download: { burst: 10, perMinute: 10 },
 } satisfies Record<string, Policy>;
 
 export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch; awsRoleSource?: RoleSource } = {}): Promise<Hosted> {
@@ -380,6 +384,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     let who = `ip:${req.ip}`;
     if (/^\/(auth|join)\//.test(path)) policy = 'auth';
     else if (path === '/hooks/github') policy = 'hook';
+    else if (path.startsWith('/download/')) policy = 'download';
     else if (path.startsWith('/api/')) {
       const sid = cookies(req)[SESSION];
       if (sid) who = `s:${createHmac('sha256', internalKey).update(sid).digest('base64url').slice(0, 22)}`;
@@ -659,6 +664,10 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return { mode, connected: Boolean(local || elsewhere), ...(machine ? { machine } : {}), ...(local?.version ? { version: local.version } : {}), ...(connectedAt ? { connectedAt: new Date(connectedAt).toISOString() } : {}), ...(key?.lastSeenAt ? { lastSeenAt: new Date(key.lastSeenAt).toISOString() } : {}) };
   };
   const runnerCommand = (token: string) => `tandem runner --url ${cfg.publicUrl} --key ${token}`;
+  /** How a company computer gets the `tandem` command: from this web app, when it offers the package. */
+  const cliPackage = cfg.cliPackage && existsSync(cfg.cliPackage) ? cfg.cliPackage : undefined;
+  if (cfg.cliPackage && !cliPackage) logger.warn('TANDEM_CLI_PACKAGE does not exist; /download/tandem.tgz is off', { cliPackage: cfg.cliPackage });
+  const installCommand = cliPackage ? `npm install -g ${cfg.publicUrl}/download/tandem.tgz` : undefined;
 
   /**
    * An owner moves the workspace to a company computer (or gives its runner a new key): from now on
@@ -673,7 +682,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const token = await directory.useCompanyRunner(id, c!.s.session.userId);
     await act(id, 'close');
     logger.info('workspace uses a company runner', { workspace: id });
-    return { key: token, command: runnerCommand(token), runner: await runnerInfo(id) };
+    return { key: token, command: runnerCommand(token), ...(installCommand ? { install: installCommand } : {}), runner: await runnerInfo(id) };
   });
 
   /** An owner moves the workspace back to Tandem's cloud; the runner's key stops working. */
@@ -982,6 +991,18 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const html = legalPage(o.legalDir, doc);
     if (!html) return reply.code(404).type('text/html').send(signInPage({ error: 'There is no such page.' }));
     return reply.header('Content-Security-Policy', csp).header('Cache-Control', 'public, max-age=300').type('text/html').send(html);
+  });
+  // The `tandem` command for company runners: public, since the computer has no session yet.
+  app.get('/download/tandem.tgz', async (_req, reply) => {
+    if (!cliPackage) return reply.code(404).send({ error: 'Not found.' });
+    const { size, mtime } = statSync(cliPackage);
+    return reply
+      .type('application/gzip')
+      .header('Content-Length', String(size))
+      .header('Content-Disposition', 'attachment; filename="tandem.tgz"')
+      .header('Last-Modified', mtime.toUTCString())
+      .header('Cache-Control', 'public, max-age=300')
+      .send(createReadStream(cliPackage));
   });
   app.setNotFoundHandler(async (req, reply) => {
     if (req.method === 'GET' && !req.url.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(req.url.split('?')[0]!)) return page(req, reply);

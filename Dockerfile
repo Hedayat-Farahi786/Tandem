@@ -25,6 +25,11 @@ COPY packages packages
 COPY apps/server apps/server
 COPY apps/web apps/web
 RUN pnpm exec tsc -b apps/server && pnpm --filter @tandem/web build
+# The `tandem` command as one npm package, which the web app offers to company runners.
+COPY scripts/pack-cli.mjs scripts/
+COPY THIRD_PARTY_NOTICES.md ./
+COPY docs/legal docs/legal
+RUN node scripts/pack-cli.mjs --out /src/cli && mv /src/cli/tandem-*.tgz /src/cli/tandem.tgz
 # Only what runs: production dependencies of the server and its packages.
 RUN rm -rf node_modules apps/*/node_modules packages/*/node_modules \
  && pnpm install --frozen-lockfile --prod --filter "@tandem/server..."
@@ -44,6 +49,7 @@ COPY --from=build /src/packages packages
 COPY --from=build /src/apps/server apps/server
 COPY --from=build /src/apps/web/dist apps/web/dist
 COPY docs/legal docs/legal
+COPY --from=build /src/cli/tandem.tgz cli/tandem.tgz
 
 RUN mkdir -p /data && chown node:node /data
 USER node
@@ -51,7 +57,8 @@ ENV NODE_ENV=production \
     TANDEM_MODE=hosted \
     TANDEM_HOME=/data \
     TANDEM_PORT=8080 \
-    TANDEM_LISTEN_HOST=0.0.0.0
+    TANDEM_LISTEN_HOST=0.0.0.0 \
+    TANDEM_CLI_PACKAGE=/app/cli/tandem.tgz
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

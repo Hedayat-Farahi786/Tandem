@@ -59,7 +59,7 @@ test('setup: project and check', async () => {
   await page.getByRole('button', { name: 'Create project' }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Run doctor' }).click();
-  await expect(page.getByText(/Everything (required )?passes|need attention/)).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText(/Everything (required )?passes|needs? attention/)).toBeVisible({ timeout: 90_000 });
   await checkScreen(page, '05-setup-check', { fullPage: true });
   await page.getByRole('button', { name: 'Finish and open chat' }).click();
   await expect(page).toHaveURL(/\/chat/);
@@ -204,7 +204,7 @@ test('tasks, projects, settings and doctor screens', async () => {
   await expect(page.getByRole('button', { name: 'Running checks…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run checks' })).toBeVisible({ timeout: 90_000 });
   await expect(page.getByText(/checks pass · last run just now/)).toBeVisible();
-  await expect(page.getByText(/Everything (required )?passes|need attention/)).toBeVisible();
+  await expect(page.getByText(/Everything (required )?passes|needs? attention/)).toBeVisible();
   await checkScreen(page, '20-doctor', { fullPage: true });
 });
 

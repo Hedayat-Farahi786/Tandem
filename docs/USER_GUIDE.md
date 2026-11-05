@@ -80,12 +80,13 @@ Some companies don't want their code cloned anywhere else. A workspace can work 
 the company's instead of Tandem's cloud: a work laptop, a VM or a server that already has the
 repositories, the git and SSH access, the AWS sign-in and the Copilot account.
 
-1. An owner chooses Settings › Workspace › **Use a company computer**, and copies the command it
+1. An owner chooses Settings › Workspace › **Use a company computer**, and copies the commands it
    shows.
-2. On that computer, with Node.js 22 and a copy of Tandem, run the command:
-   `tandem runner --url https://app.[domain] --key tdr_…`. The key is saved in that computer's
-   keychain, so the next start is just `tandem runner`.
-3. Everyone keeps using the web app as before. Tandem now works on that computer: it adds
+2. On that computer, which needs Node.js 22.13 or later and git, install Tandem once:
+   `npm install -g https://app.[domain]/download/tandem.tgz`. `tandem doctor` checks the computer.
+3. Start the runner: `tandem runner --url https://app.[domain] --key tdr_…`. The key is saved in
+   that computer's keychain, so the next start is just `tandem runner`.
+4. Everyone keeps using the web app as before. Tandem now works on that computer: it adds
    repositories from clones already there (**On the runner's computer**), signs in to Copilot
    there, and pushes with that computer's own access.
 

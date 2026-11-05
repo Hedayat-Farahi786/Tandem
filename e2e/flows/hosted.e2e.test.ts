@@ -70,7 +70,7 @@ const as = async <T>(s: Session, fn: () => Promise<T>): Promise<T> => {
 const raw = (s: Session, method: string, path: string, body?: unknown) =>
   fetch(`${h.url}${path}`, { method, redirect: 'manual', headers: { cookie: s.cookie, ...(method !== 'GET' ? { 'x-tandem-token': s.token } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 
-const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'server', 'dist', 'cli.js');
+const CLI = process.env.TANDEM_E2E_CLI || join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'server', 'dist', 'cli.js');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Request mode as a person uses it: the request, Tandem's questions as choices, the answers, then the task. */
@@ -147,7 +147,7 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
     // A member can't invite or rename; the owner can't be demoted while she is the only one.
     expect((await raw(hubot, 'POST', '/api/workspace/invites', {})).status).toBe(403);
     expect((await raw(hubot, 'PATCH', '/api/workspace', { name: 'Mine now' })).status).toBe(403);
-    const monaId = (ws.members as Array<{ id: string; login: string }>).find((m) => m.login === 'mona')!.id;
+    const monaId = (ws.members as unknown as Array<{ id: string; login: string }>).find((m) => m.login === 'mona')!.id;
     expect((await raw(mona, 'POST', `/api/workspace/members/${monaId}/role`, { role: 'member' })).status).toBe(409);
     // Settings and connections are an owner's; the Copilot program and GitHub's address are the operator's.
     const settings = await h.api<{ copilot: Record<string, string>; github: Record<string, string> }>('GET', '/api/settings');

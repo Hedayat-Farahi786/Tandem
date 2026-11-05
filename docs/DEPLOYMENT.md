@@ -59,6 +59,7 @@ may use.
 | `TANDEM_HOME` | set in the image | `/data` |
 | `TANDEM_PORT` | set in the image | `8080` |
 | `TANDEM_LISTEN_HOST` | set in the image | `0.0.0.0` |
+| `TANDEM_CLI_PACKAGE` | set in the image | `/app/cli/tandem.tgz`: the `tandem` command, offered at `/download/tandem.tgz` for company runners (section 6) |
 | `TANDEM_GITHUB_WEBHOOK_SECRET` | recommended | The GitHub App's webhook secret. Keep it in your secret manager. |
 | `TANDEM_AWS_ROLE_SOURCE` | recommended | `on`: customers connect CodeCommit with a role in their account that trusts this server's AWS identity (see below). |
 | `TANDEM_AWS_ROLE_PRINCIPAL` | no | The ARN customers' roles trust, when the server's role has a path (`arn:aws:iam::<account>:role/<path>/<name>`). |
@@ -102,6 +103,13 @@ docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.
   redacted before writing.
 - **Resources.** Builds run here, so size for them: about 2 vCPU and 4 GB of memory per concurrent
   build, plus room on `/data` for the clones and dependencies of every workspace.
+
+**On Kubernetes,** start from [deploy/kubernetes/tandem.yaml](../deploy/kubernetes/tandem.yaml):
+a StatefulSet with a volume per replica, the headless Service the replicas use, probes, the
+security settings of section 5, a NetworkPolicy that keeps the pods off private and metadata
+addresses, and an ingress example with WebSocket and live-update timeouts. Replace its
+`[placeholders]` and create the Secret `tandem-secrets` from your secret manager. It needs
+Kubernetes 1.33 or later, for user namespaces. Check it with `kubeconform -strict`.
 
 ## 4. Data and backups
 
@@ -153,7 +161,9 @@ in its own Linux namespaces: user, mount and process.
 
 It needs user namespaces and permission to mount inside them. Docker's defaults block both, hence
 the three `--security-opt` flags in section 3. On Kubernetes, use `seccompProfile: Unconfined`,
-`appArmorProfile: Unconfined` and `procMount: Unmasked` (with `hostUsers: false`). These loosen
+`appArmorProfile: Unconfined` and `procMount: Unmasked` (with `hostUsers: false`), as the example
+manifest does. It works with `allowPrivilegeEscalation: false` and every capability dropped, so
+keep those. These loosen
 the container's own confinement in exchange for the per-build isolation, so pair them with the
 rest of this list:
 
@@ -198,11 +208,19 @@ the principal and external ID are parameters.
 
 When a company does not want its code in the cloud, an owner moves the workspace to a computer of
 the company's: Settings › Workspace › **Use a company computer**. That shows a runner key once,
-and the command to run there:
+and the commands to run there:
 
 ```sh
+npm install -g https://app.[domain]/download/tandem.tgz
 tandem runner --url https://app.[domain] --key tdr_…
 ```
+
+The first line installs the `tandem` command from the web app itself; that computer needs Node.js
+22.13 or later and git, and `tandem doctor` checks it. The package is built into the image
+(`pnpm pack:cli` builds the same one). It bundles Tandem's own code and pins every library to the
+versions Tandem was tested with (an `npm-shrinkwrap.json`), so each company computer gets the
+same tree. Without `TANDEM_CLI_PACKAGE`, the app shows only the second line, and the company
+installs Tandem as for the local app.
 
 The runner opens **one outbound WebSocket** to `wss://app.[domain]/runner/connect`. The web app
 sends the workspace's API requests over it, after its own checks, and streams the answers back.
@@ -234,12 +252,11 @@ cloud, or deletes it.
 - [ ] Sign-up is invite-only (`TANDEM_SIGNUP=invite`) until you open it on purpose.
 - [ ] `TANDEM_TRUST_PROXY` matches the proxies in front, and the load balancer sets `X-Forwarded-For`.
 - [ ] Prometheus scrapes `/metrics` with `TANDEM_METRICS_TOKEN`, and the alerts in section 10 are set.
-- [ ] A backup was restored once into an empty volume, and the app came back.
+- [ ] Backups are taken daily, and one was restored into an empty volume and the app came back.
 - [ ] An external penetration test has been done, and its findings fixed.
 - [ ] The host and runtime around the container are in place: metadata endpoint blocked, egress
       restricted.
 - [ ] The GitHub App's webhook points at `/hooks/github`, and its secret is set.
-- [ ] Backups are taken and a restore has been tried once.
 - [ ] The load balancer passes WebSocket upgrades on `/runner/connect` (see section 6).
 - [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,
       then export and delete a test account. Then move a test workspace to a company runner and
@@ -315,13 +332,26 @@ With `TANDEM_METRICS_TOKEN`, `GET /metrics` serves Prometheus metrics:
 - cloud workspaces running and company runners connected on each replica, and live replicas;
 - tasks by state, and memory.
 
-Alerts worth having:
+The alerts are ready in [deploy/monitoring/tandem-alerts.yml](../deploy/monitoring/tandem-alerts.yml),
+with a scrape job example at its end:
 
-- `/readyz` failing;
-- `tandem_replicas_live` lower than the replicas you run;
-- many `tandem_tasks{state="FAILED"}`;
-- a rising rate of `tandem_rate_limited_total`;
-- 5xx answers in `tandem_http_requests_total`.
+| Alert | When | Severity |
+| --- | --- | --- |
+| `TandemReplicaDown` | a replica doesn't answer `/metrics` for 2 minutes | page |
+| `TandemReplicaNotInDirectory` | fewer replicas in the shared directory than are running (its database) | page |
+| `TandemServerErrors` | more than 2% of answers are 5xx for 10 minutes | page |
+| `TandemNotReady` | a pod fails `/readyz` for 5 minutes (needs kube-state-metrics) | page |
+| `TandemDiskFilling` | a replica's `/data` has less than 15% free (needs kubelet metrics) | page |
+| `TandemTasksFailing` | more than 5 tasks failed in the last hour | ticket |
+| `TandemRateLimited` | a rate limit refuses more than one request a second for 10 minutes | ticket |
+| `TandemWebhooksRejected` | GitHub webhooks keep failing their signature | ticket |
+| `TandemMemoryHigh` | a container near its memory limit (needs cAdvisor metrics) | ticket |
+
+`promtool check rules` and `promtool test rules deploy/monitoring/tandem-alerts.test.yml` check
+them; the test feeds sample series and expects the alerts to fire, or stay quiet.
+
+A status page belongs outside this deployment, so it still answers when Tandem doesn't: point an
+external uptime check at `https://app.[domain]/readyz`.
 
 Logs are JSON on stdout, one line per event, with secrets removed. Collect them in the EU.
 `pnpm audit` reports two moderate notes in `glob`/`minimatch` under `@fastify/static`. They don't

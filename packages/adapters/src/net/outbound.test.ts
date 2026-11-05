@@ -33,13 +33,13 @@ describe("Tandem's cloud reaches public services only", () => {
   });
 
   it('adds GitHub.com and GitHub Enterprise Cloud repositories only', () => {
-    const cloud = new GitHubHost({ settings: async () => DEFAULT_SETTINGS, secrets: new MemorySecrets(), ambient: false });
+    const cloud = new GitHubHost({ home: '/nonexistent', settings: async () => DEFAULT_SETTINGS, secrets: new MemorySecrets(), ambient: false });
     expect(cloud.detect('https://github.com/acme/shop.git')?.name).toBe('shop');
     expect(cloud.detect('https://acme.ghe.com/acme/shop.git')?.name).toBe('shop');
     expect(() => cloud.detect('https://github.internal.acme.local/acme/shop.git')).toThrow(/GitHub Enterprise Server, use a company runner/);
     expect(() => cloud.detect('https://github.169.254.169.254.nip.io/a/b.git')).toThrow(/not github\.169/);
     // The local app and company runners use whatever GitHub their computer reaches.
-    const local = new GitHubHost({ settings: async () => DEFAULT_SETTINGS, secrets: new MemorySecrets() });
+    const local = new GitHubHost({ home: '/nonexistent', settings: async () => DEFAULT_SETTINGS, secrets: new MemorySecrets() });
     expect(local.detect('https://github.internal.acme.local/acme/shop.git')?.name).toBe('shop');
   });
 });

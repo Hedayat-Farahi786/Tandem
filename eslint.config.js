@@ -37,6 +37,11 @@ export default tseslint.config(
     },
   },
   {
+    // The landing page runs in the browser.
+    files: ['apps/site/**/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     // Spikes, scripts and the command line print to the terminal.
     files: ['spikes/src/**/*.ts', 'scripts/**/*.ts', '**/*.test.ts', 'apps/server/src/cli.ts', 'e2e/**/*.{ts,mjs}'],
     rules: { 'no-console': 'off' },

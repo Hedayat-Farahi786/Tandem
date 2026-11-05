@@ -1,0 +1,64 @@
+# promtool test rules deploy/monitoring/tandem-alerts.test.yml
+rule_files: [tandem-alerts.yml]
+evaluation_interval: 1m
+tests:
+  # Two replicas running, one stops writing its heartbeat to the directory.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="tandem",instance="tandem-0"}'
+        values: '1x10'
+      - series: 'up{job="tandem",instance="tandem-1"}'
+        values: '1x10'
+      - series: 'tandem_replicas_live{job="tandem",instance="tandem-0"}'
+        values: '2 2 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - { eval_time: 1m, alertname: TandemReplicaNotInDirectory, exp_alerts: [] }
+      - alertname: TandemReplicaNotInDirectory
+        eval_time: 6m
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations:
+              summary: "1 replicas are live in the directory, fewer than are running"
+              description: "Check the database connection (TANDEM_DATABASE_URL) and /readyz of each replica."
+
+  # 5% of answers are server errors for a quarter of an hour; 1% is not enough to page.
+  - interval: 1m
+    input_series:
+      - series: 'tandem_http_requests_total{job="tandem",method="GET",route="/api/*",status="200"}'
+        values: '0+95x20'
+      - series: 'tandem_http_requests_total{job="tandem",method="GET",route="/api/*",status="502"}'
+        values: '0+5x20'
+      - series: 'tandem_http_requests_total{job="tandem",method="GET",route="/",status="500"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - alertname: TandemServerErrors
+        eval_time: 18m
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations:
+              summary: "5% of Tandem's answers are server errors"
+              description: "The JSON logs on stdout name the failing route and error."
+  - interval: 1m
+    input_series:
+      - series: 'tandem_http_requests_total{job="tandem",method="GET",route="/api/*",status="200"}'
+        values: '0+99x20'
+      - series: 'tandem_http_requests_total{job="tandem",method="GET",route="/api/*",status="502"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - { eval_time: 18m, alertname: TandemServerErrors, exp_alerts: [] }
+
+  # Failed tasks: six in an hour across two replicas.
+  - interval: 5m
+    input_series:
+      - series: 'tandem_tasks{job="tandem",replica="tandem-0",state="FAILED"}'
+        values: '1 1 2 2 3 3 4 4 4 4 4 4 5'
+      - series: 'tandem_tasks{job="tandem",replica="tandem-1",state="FAILED"}'
+        values: '0 0 0 1 1 1 1 2 2 2 2 2 2'
+    alert_rule_test:
+      - alertname: TandemTasksFailing
+        eval_time: 60m
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations:
+              summary: "6 tasks failed in the last hour"
+              description: "One workspace's repositories can fail often; many workspaces failing at once points to Copilot, GitHub or the sandbox."

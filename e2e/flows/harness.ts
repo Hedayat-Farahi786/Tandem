@@ -19,7 +19,8 @@ export const REAL = process.env.TANDEM_E2E_REAL === '1';
 /** Hosted mode: the GitHub App's webhook secret the test server uses. */
 export const WEBHOOK_SECRET = 'e2e-webhook-secret-0123456789';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const CLI = join(ROOT, 'apps', 'server', 'dist', 'cli.js');
+/** The `tandem` under test: the repository's build, or an installed package (TANDEM_E2E_CLI=…/bin/tandem). */
+const CLI = process.env.TANDEM_E2E_CLI || join(ROOT, 'apps', 'server', 'dist', 'cli.js');
 const REGION = process.env.TANDEM_AWS_REGION || 'eu-central-1';
 const PROFILE = process.env.TANDEM_AWS_PROFILE ?? '';
 const PREFIX = process.env.TANDEM_E2E_REPO_PREFIX ?? 'tandem-sandbox';

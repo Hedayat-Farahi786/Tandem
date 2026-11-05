@@ -41,7 +41,7 @@ built, and both share the same core.
 | Copilot | The signed-in user's GitHub App user token (`ghu_…`) is passed to each Copilot SDK session as `gitHubToken` | The SDK's documented way for multi-user apps; each person uses their own Copilot plan, so Tandem never resells or pools Copilot |
 | GitHub repos | The same GitHub App, **installed** on the user's account or org with the repositories they choose. Installation tokens for clone, push and pull requests; webhooks for merges and reviews instead of polling | The standard pattern (Vercel, Netlify); least privilege; admins control access |
 | CodeCommit | A **cross-account IAM role** the customer creates with one click (CloudFormation quick-create link with an External ID), assumed with STS. The in-app IAM Identity Center sign-in stays for individuals | The AWS-recommended way for SaaS to reach a customer account: no long-lived keys, revocable by the customer |
-| Company code stays home | The **company runner**: `npx tandem runner --token …` on a laptop, VM or Kubernetes. Outbound HTTPS only (no inbound ports), enrolled per workspace, uses the machine's own git, SSH and AWS sign-in | Meets "don't copy company code elsewhere": the code is built where it already lives |
+| Company code stays home | The **company runner**: `tandem runner --url … --key …` on a laptop, VM or Kubernetes. Outbound HTTPS only (no inbound ports), enrolled per workspace, uses the machine's own git, SSH and AWS sign-in | Meets "don't copy company code elsewhere": the code is built where it already lives |
 | Hosted runner | One sandbox per task: a container on ECS Fargate (Firecracker microVMs later), 2 vCPU and 8 GB, network limited to GitHub, CodeCommit and package registries, deleted when the task ends | Isolation between customers; nothing kept after the task |
 | Database | Postgres (RDS, encrypted), every row carries `workspace_id`, enforced with row-level security; a new `PostgresStore` beside `SqliteStore` | Multi-tenant isolation in depth |
 | Secrets | Envelope encryption with AWS KMS, one data key per workspace; tokens never sent to the browser | Contains a breach to one workspace |
@@ -126,12 +126,16 @@ Phase 5's hardening in the app is built: rate limits, quotas, invite-only sign-u
 outbound addresses, invitation links that ask before joining, readiness and Prometheus metrics,
 and `tandem backup` and `tandem restore` with a restore drill in the tests.
 
+Ready for the cloud team: a Kubernetes example (`deploy/kubernetes`), Prometheus alerts with a
+test (`deploy/monitoring`), and the `tandem` command as one npm package that the web app offers,
+so a company computer installs the runner in one line.
+
 Left for the launch itself:
 
 * an external penetration test;
-* the monitoring stack and alerts (EU-hosted);
-* a status page;
-* the legal review.
+* the EU monitoring stack running those alerts, and an external uptime check as the status page;
+* the legal review;
+* the GitHub App, the domain, and the cluster.
 
 1. **Foundations (≈3 weeks)**
    * `TANDEM_MODE=hosted|local`; hosted listens behind a load balancer with

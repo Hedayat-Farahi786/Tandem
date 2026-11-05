@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -28,6 +28,8 @@ const home = mkdtempSync(join(tmpdir(), 'tandem-hardening-'));
 const METRICS = 'metrics-token-0123456789abcdef';
 const secretKey = randomBytes(32).toString('base64');
 const H = { host: 'tandem.test' };
+const cliPackage = join(home, 'tandem.tgz');
+writeFileSync(cliPackage, Buffer.from([0x1f, 0x8b, 8, 0, 1, 2, 3, 4]));
 const cookieOf = (setCookie: string | string[] | undefined, name: string) => ([] as string[]).concat(setCookie ?? []).find((x) => x.startsWith(`${name}=`))?.split(';')[0] ?? '';
 
 /** The GitHub sign-in; returns the answer of the callback and the session (when there is one). */
@@ -54,6 +56,7 @@ beforeAll(async () => {
       signup: { mode: 'invite', allow: ['Founder'] },
       limits: { workspacesPerPerson: 2, membersPerWorkspace: 2, invitesPerDay: 3 },
       metricsToken: METRICS,
+      cliPackage,
     },
     { fetch: fakeFetch },
   );
@@ -154,5 +157,19 @@ describe('the web app, hardened', () => {
       rmSync(home2, { recursive: true, force: true });
       rmSync(to, { recursive: true, force: true });
     }
+  });
+
+  it('offers the tandem command to company computers, and says how to install it', async () => {
+    const dl = await h.app.inject({ method: 'GET', url: '/download/tandem.tgz', headers: H });
+    expect(dl.statusCode).toBe(200);
+    expect(dl.headers['content-type']).toBe('application/gzip');
+    expect(dl.rawPayload).toEqual(Buffer.from([0x1f, 0x8b, 8, 0, 1, 2, 3, 4]));
+    const late = await signIn('late');
+    const made = await h.app.inject({ method: 'POST', url: '/api/workspace/runner', headers: { ...H, cookie: late.cookie, 'x-tandem-token': late.csrf, 'content-type': 'application/json' }, payload: '{}' });
+    expect(made.json()).toMatchObject({ install: 'npm install -g http://tandem.test/download/tandem.tgz', command: expect.stringMatching(/^tandem runner --url http:\/\/tandem\.test --key tdr_/) });
+    // Downloads have their own brake.
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) statuses.push((await h.app.inject({ method: 'GET', url: '/download/tandem.tgz', headers: { ...H, 'x-forwarded-for': '203.0.113.50' } })).statusCode);
+    expect(statuses.filter((x) => x === 429).length).toBeGreaterThan(0);
   });
 });
