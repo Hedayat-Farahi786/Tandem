@@ -111,13 +111,18 @@ workspace on the company's computer, so data and code never reach the cloud, and
 passes requests to it over one outbound WebSocket. Workspace data export (Settings › Audit log ›
 All data) is built too.
 
-Still to come:
+Also built since then:
 
-* one sandbox per task for cloud workspaces;
-* the CloudFormation role connection;
-* GitHub webhooks;
-* Postgres, for more than one replica;
-* the hardening of phase 5.
+* **Isolated builds in the cloud.** Every command runs in its own Linux namespaces with only its
+  workspace visible. This is per workspace rather than a container per task, and gVisor or Kata
+  around the container add a second wall.
+* **CodeCommit through a role** in the customer's account, made from a CloudFormation template,
+  with their external ID.
+* **GitHub webhooks.**
+* **Several replicas:** a shared Postgres directory, workspaces spread over replicas with their
+  own volumes (a StatefulSet), and requests passed to the replica that runs each workspace.
+
+Still to come: the hardening of phase 5 (rate limits, quotas, monitoring, penetration test).
 
 1. **Foundations (≈3 weeks)**
    * `TANDEM_MODE=hosted|local`; hosted listens behind a load balancer with

@@ -14,8 +14,9 @@ One container (see the [Dockerfile](../Dockerfile)) holds:
 - **The runner.** It clones the workspace's repositories, runs Copilot and the project's checks
   (install, lint, typecheck, build, test), pushes the branch and opens the pull request.
 
-State lives in one volume, `/data`. Run **exactly one replica**: the databases are SQLite files on
-that volume, so two containers on the same data would corrupt it.
+State lives in one volume, `/data`. On one replica, everything is there, including the directory
+(SQLite). To run several replicas, give them a shared Postgres for the directory and each its own
+volume; see [section 8](#8-more-than-one-replica).
 
 ## 1. Create the GitHub App
 
@@ -62,6 +63,8 @@ may use.
 | `TANDEM_AWS_ROLE_SOURCE` | recommended | `on`: customers connect CodeCommit with a role in their account that trusts this server's AWS identity (see below). |
 | `TANDEM_AWS_ROLE_PRINCIPAL` | no | The ARN customers' roles trust, when the server's role has a path (`arn:aws:iam::<account>:role/<path>/<name>`). |
 | `TANDEM_AWS_TEMPLATE_URL` | no | The role template on S3, for CloudFormation's one-click "quick create" link (see below). |
+| `TANDEM_DATABASE_URL` | for several replicas | `postgres://…`: the directory in Postgres, shared by the replicas (section 8). |
+| `TANDEM_REPLICA_ID`, `TANDEM_REPLICA_URL` | for several replicas | This replica's stable name and its address inside the cluster (section 8). |
 | `TANDEM_SANDBOX` | no | `on` (default): builds run isolated, and Tandem won't start if it can't isolate them. `off` only to try Tandem out without real users. |
 | `TANDEM_LOG_LEVEL` | no | `info` (default), `warn`, `debug` |
 | `TANDEM_MODEL`, `TANDEM_LIGHT_MODEL` | no | The default Copilot models for every workspace |
@@ -98,7 +101,7 @@ docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.
 
 | Path in `/data` | Holds |
 | --- | --- |
-| `directory.db` | People, sessions, workspaces, members, invitations, sealed GitHub tokens and workspace secrets |
+| `directory.db` | People, sessions, workspaces, members, invitations, sealed GitHub tokens and workspace secrets. With several replicas this is in Postgres instead: back it up with your database's backups. |
 | `workspaces/<id>/` | One workspace: its database (projects, tasks, chats, audit log), repository mirrors and worktrees |
 | `logs/` | Service logs |
 
@@ -189,7 +192,7 @@ For the load balancer, this means:
 
 - **Allow WebSocket upgrades** on `/runner/connect`.
 - **Idle timeout of at least 120 seconds.** The web app pings every 25 seconds.
-- **Sticky routing is not needed** with the single replica.
+- **Sticky routing is not needed**, with one replica or several.
 
 Answers from a runner are passed on only with safe content types, and are sandboxed (`CSP:
 sandbox`), so a runner can never serve a page or a script on the app's address. A runner key is
@@ -215,3 +218,42 @@ cloud, or deletes it.
 - [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,
       then export and delete a test account. Then move a test workspace to a company runner and
       run a task there too.
+
+## 8. More than one replica
+
+A workspace is more than rows in a database: it has git mirrors, task folders, a dependency cache
+and a running engine. So a workspace runs on one replica at a time, with its files on that
+replica's volume, and the replicas share a Postgres directory. That is how a Kubernetes
+StatefulSet runs things:
+
+- **Postgres (EU, managed):** `TANDEM_DATABASE_URL=postgres://…`, the same for every replica. It
+  holds what the SQLite `directory.db` holds on one replica, plus which replica runs each workspace
+  and which replica each company runner is connected to.
+- **One volume per replica**, mounted at `/data`, and a stable name: `TANDEM_REPLICA_ID` (the pod's
+  name, e.g. `tandem-0`). A replica that restarts keeps its name and volume, so it runs the same
+  workspaces again.
+- **Each replica's address inside the cluster:** `TANDEM_REPLICA_URL`, e.g.
+  `http://tandem-0.tandem.svc:8080` through a headless Service. The replicas reach each other there.
+- **The same `TANDEM_SECRET_KEY`** on every replica. Replicas prove themselves to each other with a
+  key derived from it, on `/internal/*`, which answers nothing without that key. You may keep
+  `/internal/*` off the public load balancer.
+
+How it behaves:
+
+- **Any replica answers any request.** The load balancer needs no sticky sessions. If a request
+  is for a workspace that runs elsewhere, the replica passes it to the one that runs it and
+  streams the answer back, live updates included. Company runners can connect to any replica.
+- **New workspaces go to the replica that runs the fewest.** Workspaces made while there was one
+  replica stay where they are.
+- **GitHub webhooks reach every replica.**
+- **GitHub token renewal happens once,** even when two replicas need it at the same moment.
+- **When a replica is down,** the workspaces it runs answer "restarting" until it is back. The
+  others keep working.
+
+Going from one replica to several:
+
+1. Stop the one replica.
+2. Copy its directory into Postgres with the same `TANDEM_HOME` and `TANDEM_SECRET_KEY`:
+   `tandem migrate-directory --to postgres://…`.
+3. Start it with `TANDEM_DATABASE_URL`, `TANDEM_REPLICA_ID` and `TANDEM_REPLICA_URL`.
+4. Add replicas. The first replica to start takes the workspaces it had.

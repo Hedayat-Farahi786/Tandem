@@ -115,7 +115,7 @@ describe('hosted Tandem', () => {
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ ownerName: 'Mona' });
     // Tokens are stored sealed, never in the clear.
-    expect(h.directory.gitHubTokens(me.user.id)).toMatchObject({ access: 'ghu_code-mona', refresh: 'ghr_code-mona' });
+    expect(await h.directory.gitHubTokens(me.user.id)).toMatchObject({ access: 'ghu_code-mona', refresh: 'ghr_code-mona' });
   });
 
   it('keeps workspaces apart: nobody reaches a workspace they are not a member of', async () => {

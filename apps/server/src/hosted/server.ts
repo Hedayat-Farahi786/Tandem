@@ -1,6 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { join, resolve, sep } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -64,6 +66,10 @@ export const HostedConfig = z.object({
     .default({ roleSource: false }),
   /** Builds in the cloud run isolated ('on'); 'off' only for trying Tandem out, never with real users. */
   sandbox: z.enum(['on', 'off']).default('on'),
+  /** Postgres for the directory, shared by every replica; without it, SQLite in `home` (one replica). */
+  databaseUrl: z.string().regex(/^postgres(ql)?:\/\//, 'TANDEM_DATABASE_URL must be a postgres:// URL.').optional(),
+  /** This replica: a stable name (a StatefulSet pod's), and where the other replicas reach it. */
+  replica: z.object({ id: z.string().regex(/^[\w.-]{1,100}$/).default('main'), url: z.string().url().optional() }).default({ id: 'main' }),
 });
 export type HostedConfig = z.infer<typeof HostedConfig>;
 
@@ -84,6 +90,8 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     logLevel: env.TANDEM_LOG_LEVEL ?? 'info',
     agent: env.TANDEM_AGENT ?? 'copilot',
     sandbox: env.TANDEM_SANDBOX === 'off' ? 'off' : 'on',
+    ...(env.TANDEM_DATABASE_URL ? { databaseUrl: env.TANDEM_DATABASE_URL } : {}),
+    replica: { id: env.TANDEM_REPLICA_ID || (env.TANDEM_DATABASE_URL ? hostname() : 'main'), ...(env.TANDEM_REPLICA_URL ? { url: env.TANDEM_REPLICA_URL } : {}) },
     aws: { roleSource: env.TANDEM_AWS_ROLE_SOURCE === 'on', ...(env.TANDEM_AWS_ROLE_PRINCIPAL ? { principal: env.TANDEM_AWS_ROLE_PRINCIPAL } : {}), ...(env.TANDEM_AWS_TEMPLATE_URL ? { templateUrl: env.TANDEM_AWS_TEMPLATE_URL } : {}) },
     ...operatorSettings(env),
   });
@@ -125,11 +133,13 @@ function cellSandbox(hostedHome: string, home: string) {
 /** Before any build: isolation works on this server, or Tandem doesn't start. */
 async function provesIsolation(hostedHome: string, workspacesRoot: string): Promise<void> {
   const probe = join(workspacesRoot, `.probe-${randomBytes(6).toString('hex')}`);
+  const hidden = join(hostedHome, `.probe-hidden-${randomBytes(6).toString('hex')}`);
   mkdirSync(join(probe, 'mirrors'), { recursive: true });
   writeFileSync(join(probe, 'tandem.db'), 'probe');
+  writeFileSync(hidden, 'hidden');
   try {
     const sbx = new NamespaceSandbox(cellSandbox(hostedHome, probe));
-    const r = await sbx.selfTest({ hidden: join(hostedHome, 'directory.db'), kept: probe, readOnly: join(probe, 'mirrors'), masked: join(probe, 'tandem.db') });
+    const r = await sbx.selfTest({ hidden, kept: probe, readOnly: join(probe, 'mirrors'), masked: join(probe, 'tandem.db') });
     if (!r.ok) throw new Error(r.message);
   } catch (err) {
     throw new Error(
@@ -138,6 +148,7 @@ async function provesIsolation(hostedHome: string, workspacesRoot: string): Prom
     );
   } finally {
     rmSync(probe, { recursive: true, force: true });
+    rmSync(hidden, { force: true });
   }
 }
 const RUNNER_OFFLINE = "This workspace works on a company computer, and its runner isn't connected right now. Start it there with: tandem runner";
@@ -157,15 +168,21 @@ export interface Hosted {
   directory: Directory;
   cells: Map<string, Promise<Cell>>;
   hub: RunnerHub;
+  replicaId: string;
   stop(): Promise<void>;
 }
+
+/** Headers never passed on to a workspace (or between replicas): the person's own, and the connection's. */
+const DROP = new Set(['cookie', 'origin', 'host', 'x-tandem-token', 'x-tandem-actor', 'x-tandem-git-key', 'x-tandem-internal', 'content-length', 'authorization', 'connection', 'upgrade', 'keep-alive', 'transfer-encoding']);
+const HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-length']);
+const OWNER_MOVED = "This workspace's server is restarting. Try again in a moment.";
 
 export async function startHosted(input: z.input<typeof HostedConfig>, o: { webDir?: string; legalDir?: string; fetch?: typeof fetch; awsRoleSource?: RoleSource } = {}): Promise<Hosted> {
   const cfg = HostedConfig.parse(input);
   const http = o.fetch ?? fetch;
   mkdirSync(join(cfg.home, 'workspaces'), { recursive: true, mode: 0o700 });
   const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel);
-  const directory = await Directory.open(join(cfg.home, 'directory.db'), cfg.secretKey);
+  const directory = await Directory.open(cfg.databaseUrl ?? join(cfg.home, 'directory.db'), cfg.secretKey);
   const workspacesRoot = resolve(cfg.home, 'workspaces');
   const awsRoleSource = o.awsRoleSource ?? (cfg.aws.roleSource ? await serverRoleSource(cfg.aws.principal) : undefined);
   if (awsRoleSource) logger.info('customers can connect CodeCommit with a role', { principal: awsRoleSource.principal });
@@ -177,16 +194,22 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   const installUrl = cfg.github.appSlug ? `${cfg.github.webUrl}/apps/${cfg.github.appSlug}/installations/new` : undefined;
   const secure = cfg.publicUrl.startsWith('https://');
   const cookie = (name: string, value: string, maxAgeSec: number) => `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+  const me = cfg.replica.id;
+  /** Replicas prove themselves to each other with a key derived from the shared secret. */
+  const internalKey = createHmac('sha256', Buffer.from(cfg.secretKey, 'base64')).update('tandem-internal-v1').digest('base64url');
+  const isInternal = (req: FastifyRequest) => {
+    const given = String(req.headers['x-tandem-internal'] ?? '');
+    return given.length === internalKey.length && timingSafeEqual(Buffer.from(given), Buffer.from(internalKey));
+  };
 
-  /* ---------------------------------------------------------------- cells */
+  /* ---------------------------------------------------------------- cells (the workspaces this replica runs) */
 
   const cells = new Map<string, Promise<Cell>>();
   // Known once the server listens (the git helper of each cell calls back on it).
   let listenPort = cfg.port;
   const cellHome = (id: string) => {
-    const root = resolve(cfg.home, 'workspaces');
-    const dir = resolve(root, id);
-    if (!dir.startsWith(root + sep)) throw new Error('Bad workspace id.');
+    const dir = resolve(workspacesRoot, id);
+    if (!dir.startsWith(workspacesRoot + sep)) throw new Error('Bad workspace id.');
     return dir;
   };
   const cellFor = (id: string): Promise<Cell> => {
@@ -214,15 +237,59 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     }
     return c;
   };
-
-  /** A workspace on a company computer has no cell here: its runner holds its data. */
-  const openIfCloud = (id: string) => {
-    if (directory.runnerMode(id) === 'cloud') void cellFor(id);
-  };
   const closeCell = async (id: string) => {
     const cell = cells.get(id);
     cells.delete(id);
     if (cell) await (await cell.catch(() => undefined))?.stop();
+  };
+
+  /* ---------------------------------------------------------------- replicas */
+
+  /** Where to reach a replica, when it is alive. */
+  const replicaUrl = async (id: string): Promise<string | undefined> => {
+    if (id === me) return undefined;
+    const r = await directory.replica(id);
+    return r && r.seenAt > Date.now() - 45_000 ? r.url : undefined;
+  };
+  /** Sends a request to another replica's internal routes; resolves with its answer. */
+  const callReplica = async (url: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> => {
+    const res = await fetch(new URL(path, url), { method: 'POST', headers: { 'content-type': 'application/json', 'x-tandem-internal': internalKey }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(30_000) });
+    return { status: res.status, json: await res.json().catch(() => ({})) };
+  };
+
+  /** Things done to a workspace where it runs: open it, close it, delete its files, let its runner go. */
+  type Action = 'open' | 'close' | 'purge' | 'disconnect';
+  const actLocally = async (id: string, action: Action, reason = '') => {
+    if (action === 'open') {
+      if ((await directory.runnerMode(id)) === 'cloud' && (await directory.workspaceReplica(id)) === me) void cellFor(id);
+    } else if (action === 'close') await closeCell(id);
+    else if (action === 'purge') {
+      hub.disconnect(id, 'This workspace was deleted.');
+      await closeCell(id);
+      rmSync(cellHome(id), { recursive: true, force: true });
+    } else hub.disconnect(id, reason);
+  };
+  /** Does `action` on the replica that runs the workspace (and, for its runner, wherever it is connected). */
+  const act = async (id: string, action: Action, reason = '') => {
+    const owner = (await directory.workspaceReplica(id)) ?? me;
+    const runnerAt = action === 'disconnect' || action === 'purge' ? (await directory.runnerOf(id))?.connectedReplica : undefined;
+    const targets = new Set([owner, ...(runnerAt ? [runnerAt] : [])]);
+    for (const t of targets) {
+      if (t === me) await actLocally(id, action, reason);
+      else {
+        const url = await replicaUrl(t);
+        if (url) await callReplica(url, `/internal/workspaces/${id}/${action}`, { reason }).catch((err: unknown) => logger.warn('replica did not answer', { replica: t, action, error: String(err) }));
+      }
+    }
+  };
+  /** A new workspace goes to the replica running the fewest; that replica opens it. */
+  const newWorkspace = async (name: string, ownerId: string) => {
+    const w = await directory.createWorkspace(name, ownerId, await directory.quietestReplica(me));
+    await act(w.id, 'open');
+    return w;
+  };
+  const heartbeat = async () => {
+    await directory.replicaSeen(me, cfg.replica.url ?? `http://127.0.0.1:${listenPort}`).catch((err: unknown) => logger.warn('could not record this replica', { error: String(err) }));
   };
 
   /* ---------------------------------------------------------------- app */
@@ -231,13 +298,16 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   const publicHost = new URL(cfg.publicUrl).host;
   const knownHost = (host: string | undefined) => host === publicHost || /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host ?? '');
   const hub = new RunnerHub({
-    authenticate: (token, req) => (knownHost(req.headers.host) ? directory.runnerByToken(token)?.workspaceId : undefined),
-    welcome: (id) => ({ workspace: directory.allWorkspaces().find((w) => w.id === id)?.name ?? '' }),
+    authenticate: async (token, req) => (knownHost(req.headers.host) ? (await directory.runnerByToken(token))?.workspaceId : undefined),
+    welcome: async (id) => ({ workspace: (await directory.workspace(id))?.name ?? '' }),
     seen: (id, machine) => directory.runnerSeen(id, machine),
+    connected: (id, here) => directory.runnerConnected(id, here ? me : undefined, me),
     logger,
   });
   hub.attach(app.server);
   app.addHook('onRequest', async (req, reply) => {
+    // Replicas call each other by their own addresses, with the internal key; everyone else only on the public address.
+    if (req.url.startsWith('/internal/')) return isInternal(req) ? undefined : reply.code(404).send({ error: 'Not found.' });
     // Only the public address (and loopback, for health checks and the git helper).
     const host = req.headers.host ?? '';
     if (!knownHost(host)) return reply.code(421).send({ error: 'Unknown host.' });
@@ -251,15 +321,15 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return payload;
   });
 
-  const sessionOf = (req: FastifyRequest): { id: string; session: Session } | undefined => {
+  const sessionOf = async (req: FastifyRequest): Promise<{ id: string; session: Session } | undefined> => {
     const id = cookies(req)[SESSION];
-    const session = directory.session(id);
+    const session = await directory.session(id);
     return id && session ? { id, session } : undefined;
   };
   const writes = (req: FastifyRequest) => req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
   /** Signed in, and for a change, carrying the session's CSRF token. */
-  const signedIn = (req: FastifyRequest, reply: FastifyReply) => {
-    const s = sessionOf(req);
+  const signedIn = async (req: FastifyRequest, reply: FastifyReply) => {
+    const s = await sessionOf(req);
     if (!s) {
       void reply.code(401).send({ error: 'Sign in to continue.', signIn: true });
       return undefined;
@@ -271,19 +341,18 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return s;
   };
   /** The workspace the session is in; someone removed from their last one gets a new one of their own. */
-  const currentWorkspace = (s: { id: string; session: Session }) => {
-    const mine = directory.workspacesOf(s.session.userId);
+  const currentWorkspace = async (s: { id: string; session: Session }) => {
+    const mine = await directory.workspacesOf(s.session.userId);
     const w = mine.find((x) => x.id === s.session.workspaceId) ?? mine[0];
     if (w) return w;
-    const user = directory.user(s.session.userId);
+    const user = await directory.user(s.session.userId);
     if (!user) return undefined;
-    const fresh = directory.createWorkspace(`${user.name}'s workspace`, user.id);
-    directory.useWorkspace(s.id, fresh.id);
-    openIfCloud(fresh.id);
-    return directory.workspacesOf(user.id).find((x) => x.id === fresh.id);
+    const fresh = await newWorkspace(`${user.name}'s workspace`, user.id);
+    await directory.useWorkspace(s.id, fresh.id);
+    return (await directory.workspacesOf(user.id)).find((x) => x.id === fresh.id);
   };
 
-  app.get('/healthz', async () => ({ ok: true }));
+  app.get('/healthz', async () => ({ ok: true, replica: me }));
 
   /* ---------------------------------------------------------------- GitHub sign-in */
 
@@ -311,74 +380,70 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     const userRes = await http(new URL('/user', cfg.github.apiUrl), { headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'tandem' } });
     if (!userRes.ok) return reply.code(502).type('text/html').send(signInPage({ error: 'GitHub is not answering right now. Please try again.' }));
     const gh = (await userRes.json()) as { id: number; login: string; name?: string | null; email?: string | null; avatar_url?: string | null };
-    const user = directory.upsertGitHubUser({ id: gh.id, login: gh.login, name: gh.name ?? null, email: gh.email ?? null, avatarUrl: gh.avatar_url ?? null });
+    const user = await directory.upsertGitHubUser({ id: gh.id, login: gh.login, name: gh.name ?? null, email: gh.email ?? null, avatarUrl: gh.avatar_url ?? null });
     const now = Date.now();
-    directory.saveGitHubTokens(user.id, { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), ...(tok.refresh_token ? { refresh: tok.refresh_token } : {}), ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) });
+    await directory.saveGitHubTokens(user.id, { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), ...(tok.refresh_token ? { refresh: tok.refresh_token } : {}), ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) });
     // Came from an invitation link: join that workspace first.
     const join = cookies(req)[JOIN];
-    const joined = join ? directory.acceptInvite(join, user.id) : undefined;
-    const workspaces = directory.workspacesOf(user.id);
-    const workspace = joined ?? workspaces[0] ?? directory.createWorkspace(`${user.name}'s workspace`, user.id);
-    openIfCloud(workspace.id);
-    const { id } = directory.createSession(user.id, workspace.id);
+    const joined = join ? await directory.acceptInvite(join, user.id) : undefined;
+    const workspaces = await directory.workspacesOf(user.id);
+    const workspace = joined ?? workspaces[0] ?? (await newWorkspace(`${user.name}'s workspace`, user.id));
+    const { id } = await directory.createSession(user.id, workspace.id);
     logger.info('signed in', { user: user.id, joined: Boolean(joined) });
     return reply.header('Set-Cookie', [cookie(SESSION, id, 14 * 86_400), cookie(OAUTH, '', 0), ...(join ? [cookie(JOIN, '', 0)] : [])]).redirect('/');
   });
 
   app.post('/auth/sign-out', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
-    directory.endSession(s.id);
+    await directory.endSession(s.id);
     return reply.header('Set-Cookie', cookie(SESSION, '', 0)).send({ ok: true });
   });
 
   /* ---------------------------------------------------------------- account and workspaces */
 
   app.get('/api/me', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
-    const user = directory.user(s.session.userId)!;
-    const current = currentWorkspace(s);
-    return { user: { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl }, workspaces: directory.workspacesOf(user.id), current: current?.id ?? null };
+    const user = (await directory.user(s.session.userId))!;
+    const current = await currentWorkspace(s);
+    return { user: { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl }, workspaces: await directory.workspacesOf(user.id), current: current?.id ?? null };
   });
 
   app.post('/api/workspaces', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
     const { name } = z.object({ name: z.string().trim().min(1, 'Give the workspace a name.').max(80) }).parse(req.body);
-    const w = directory.createWorkspace(name, s.session.userId);
-    directory.useWorkspace(s.id, w.id);
-    openIfCloud(w.id);
+    const w = await newWorkspace(name, s.session.userId);
+    await directory.useWorkspace(s.id, w.id);
     return w;
   });
 
   app.post('/api/workspaces/:id/use', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    if (!directory.roleIn(id, s.session.userId)) return reply.code(404).send({ error: 'No such workspace.' });
-    directory.useWorkspace(s.id, id);
+    if (!(await directory.roleIn(id, s.session.userId))) return reply.code(404).send({ error: 'No such workspace.' });
+    await directory.useWorkspace(s.id, id);
     return { ok: true };
   });
 
   /** GDPR: what Tandem keeps about the person in the directory (workspace data has its own export). */
   app.get('/api/me/export', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
-    const user = directory.user(s.session.userId)!;
-    return reply.header('Content-Disposition', 'attachment; filename="tandem-account.json"').send({ exportedAt: new Date().toISOString(), user, workspaces: directory.workspacesOf(user.id) });
+    const user = (await directory.user(s.session.userId))!;
+    return reply.header('Content-Disposition', 'attachment; filename="tandem-account.json"').send({ exportedAt: new Date().toISOString(), user, workspaces: await directory.workspacesOf(user.id) });
   });
 
   /** GDPR: delete the account; workspaces the person alone owned are deleted with all their data. */
   app.delete('/api/me', async (req, reply) => {
-    const s = signedIn(req, reply);
+    const s = await signedIn(req, reply);
     if (!s) return reply;
-    const orphans = directory.deleteUser(s.session.userId);
+    const orphans = await directory.deleteUser(s.session.userId);
     for (const w of orphans) {
-      hub.disconnect(w, 'This workspace was deleted.');
-      await closeCell(w);
-      directory.deleteWorkspace(w);
-      rmSync(cellHome(w), { recursive: true, force: true });
+      await act(w, 'purge');
+      await directory.deleteWorkspace(w);
     }
     logger.info('account deleted', { workspacesDeleted: orphans.length });
     return reply.header('Set-Cookie', cookie(SESSION, '', 0)).send({ ok: true, workspacesDeleted: orphans.length });
@@ -387,11 +452,11 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   /* ---------------------------------------------------------------- the workspace: Copilot plan, members, invitations */
 
   /** The signed-in person and their role in the workspace they are in. */
-  const inWorkspace = (req: FastifyRequest, reply: FastifyReply) => {
-    const s = signedIn(req, reply);
+  const inWorkspace = async (req: FastifyRequest, reply: FastifyReply) => {
+    const s = await signedIn(req, reply);
     if (!s) return undefined;
-    const w = currentWorkspace(s);
-    const role = w ? directory.roleIn(w.id, s.session.userId) : undefined;
+    const w = await currentWorkspace(s);
+    const role = w ? await directory.roleIn(w.id, s.session.userId) : undefined;
     if (!w || !role) {
       void reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
       return undefined;
@@ -408,65 +473,71 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
 
   /** Copilot (and GitHub) in this workspace from now on run on the signed-in person's plan. */
   app.post('/api/copilot/use-mine', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!c) return reply;
     if (!(await tokens.identity(c.s.session.userId))) return reply.code(409).send({ error: 'Your GitHub sign-in has expired. Sign out and in again first.' });
-    directory.setCopilotUser(c.w.id, c.s.session.userId);
+    await directory.setCopilotUser(c.w.id, c.s.session.userId);
     return { ok: true };
   });
 
   app.get('/api/workspace', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!c) return reply;
-    const copilot = directory.copilotUser(c.w.id);
-    return { id: c.w.id, name: c.w.name, role: c.role, me: c.s.session.userId, copilotUserId: copilot ?? null, runner: runnerInfo(c.w.id), members: directory.members(c.w.id).map((m) => ({ id: m.id, login: m.login, name: m.name, avatarUrl: m.avatarUrl, role: m.role })) };
+    const copilot = await directory.copilotUser(c.w.id);
+    const members = await directory.members(c.w.id);
+    return { id: c.w.id, name: c.w.name, role: c.role, me: c.s.session.userId, copilotUserId: copilot ?? null, runner: await runnerInfo(c.w.id), members: members.map((m) => ({ id: m.id, login: m.login, name: m.name, avatarUrl: m.avatarUrl, role: m.role })) };
   });
 
   app.patch('/api/workspace', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const { name } = z.object({ name: z.string().trim().min(1, 'Give the workspace a name.').max(80) }).parse(req.body);
-    directory.renameWorkspace(c!.w.id, name);
+    await directory.renameWorkspace(c!.w.id, name);
     return { ok: true };
   });
 
   app.post('/api/workspace/invites', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const { role } = z.object({ role: z.enum(['owner', 'member']).default('member') }).parse(req.body ?? {});
-    const token = directory.createInvite(c!.w.id, c!.s.session.userId, role);
+    const token = await directory.createInvite(c!.w.id, c!.s.session.userId, role);
     return { url: `${cfg.publicUrl}/join/${token}`, expiresInDays: 7 };
   });
 
   app.post('/api/workspace/members/:userId/role', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
     const { role } = z.object({ role: z.enum(['owner', 'member']) }).parse(req.body);
-    if (!directory.roleIn(c!.w.id, userId)) return reply.code(404).send({ error: 'Not a member.' });
-    if (role === 'member' && directory.roleIn(c!.w.id, userId) === 'owner' && directory.owners(c!.w.id) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner.' });
-    directory.setRole(c!.w.id, userId, role);
+    const current = await directory.roleIn(c!.w.id, userId);
+    if (!current) return reply.code(404).send({ error: 'Not a member.' });
+    if (role === 'member' && current === 'owner' && (await directory.owners(c!.w.id)) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner.' });
+    await directory.setRole(c!.w.id, userId, role);
     return { ok: true };
   });
 
   /** An owner removes a member, or a member leaves. */
   app.delete('/api/workspace/members/:userId', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!c) return reply;
     const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
     if (userId !== c.s.session.userId && c.role !== 'owner') return reply.code(403).send({ error: 'Only an owner can remove others.' });
-    if (directory.roleIn(c.w.id, userId) === 'owner' && directory.owners(c.w.id) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner. Make someone else an owner first, or delete the workspace.' });
-    directory.removeMember(c.w.id, userId);
+    if ((await directory.roleIn(c.w.id, userId)) === 'owner' && (await directory.owners(c.w.id)) <= 1) return reply.code(409).send({ error: 'A workspace needs at least one owner. Make someone else an owner first, or delete the workspace.' });
+    await directory.removeMember(c.w.id, userId);
     return { ok: true };
   });
 
   /* ---------------------------------------------------------------- where the workspace works */
 
-  const runnerInfo = (id: string) => {
-    const mode = directory.runnerMode(id);
-    const key = directory.runnerOf(id);
-    const live = hub.status(id);
-    return { mode, connected: Boolean(live), ...(live ? { machine: live.machine, version: live.version, connectedAt: new Date(live.connectedAt).toISOString() } : key?.machine ? { machine: key.machine } : {}), ...(key?.lastSeenAt ? { lastSeenAt: new Date(key.lastSeenAt).toISOString() } : {}) };
+  /** Whether the workspace's runner is connected, to this replica or another live one. */
+  const runnerInfo = async (id: string) => {
+    const mode = await directory.runnerMode(id);
+    const key = await directory.runnerOf(id);
+    const local = hub.status(id);
+    const elsewhere = !local && key?.connectedReplica && key.connectedReplica !== me && (await replicaUrl(key.connectedReplica)) ? key : undefined;
+    const connectedAt = local ? local.connectedAt : elsewhere?.connectedAt;
+    const machine = local?.machine ?? key?.machine;
+    return { mode, connected: Boolean(local || elsewhere), ...(machine ? { machine } : {}), ...(local?.version ? { version: local.version } : {}), ...(connectedAt ? { connectedAt: new Date(connectedAt).toISOString() } : {}), ...(key?.lastSeenAt ? { lastSeenAt: new Date(key.lastSeenAt).toISOString() } : {}) };
   };
   const runnerCommand = (token: string) => `tandem runner --url ${cfg.publicUrl} --key ${token}`;
 
@@ -476,37 +547,35 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
    * untouched, for when it moves back.
    */
   app.post('/api/workspace/runner', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const id = c!.w.id;
-    hub.disconnect(id, 'This runner key was replaced.');
-    const token = directory.useCompanyRunner(id, c!.s.session.userId);
-    await closeCell(id);
+    await act(id, 'disconnect', 'This runner key was replaced.');
+    const token = await directory.useCompanyRunner(id, c!.s.session.userId);
+    await act(id, 'close');
     logger.info('workspace uses a company runner', { workspace: id });
-    return { key: token, command: runnerCommand(token), runner: runnerInfo(id) };
+    return { key: token, command: runnerCommand(token), runner: await runnerInfo(id) };
   });
 
   /** An owner moves the workspace back to Tandem's cloud; the runner's key stops working. */
   app.delete('/api/workspace/runner', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const id = c!.w.id;
-    directory.useCloudRunner(id);
-    hub.disconnect(id, 'This workspace works in the cloud again.');
-    openIfCloud(id);
+    await act(id, 'disconnect', 'This workspace works in the cloud again.');
+    await directory.useCloudRunner(id);
+    await act(id, 'open');
     logger.info('workspace back in the cloud', { workspace: id });
-    return { runner: runnerInfo(id) };
+    return { runner: await runnerInfo(id) };
   });
 
   /** An owner deletes the workspace with everything in it. */
   app.delete('/api/workspace', async (req, reply) => {
-    const c = inWorkspace(req, reply);
+    const c = await inWorkspace(req, reply);
     if (!ownerOnly(c, reply)) return reply;
     const id = c!.w.id;
-    hub.disconnect(id, 'This workspace was deleted.');
-    await closeCell(id);
-    directory.deleteWorkspace(id);
-    rmSync(cellHome(id), { recursive: true, force: true });
+    await act(id, 'purge');
+    await directory.deleteWorkspace(id);
     logger.info('workspace deleted', { workspace: id });
     return { ok: true };
   });
@@ -514,12 +583,11 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   /** An invitation link: join (signing in first if needed). */
   app.get('/join/:token', async (req, reply) => {
     const { token } = z.object({ token: z.string().min(10).max(100) }).parse(req.params);
-    const s = sessionOf(req);
+    const s = await sessionOf(req);
     if (!s) return reply.header('Set-Cookie', cookie(JOIN, token, 1800)).type('text/html').header('Cache-Control', 'no-store').send(signInPage({ note: "You've been invited to a workspace. Sign in with GitHub to join it." }));
-    const w = directory.acceptInvite(token, s.session.userId);
+    const w = await directory.acceptInvite(token, s.session.userId);
     if (!w) return reply.code(410).type('text/html').send(signInPage({ error: 'This invitation has expired. Ask for a new link.', signedIn: true }));
-    directory.useWorkspace(s.id, w.id);
-    openIfCloud(w.id);
+    await directory.useWorkspace(s.id, w.id);
     return reply.redirect('/');
   });
 
@@ -532,7 +600,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
    */
   const secret = cfg.github.webhookSecret;
   const prUrlOf = (event: string, body: Record<string, unknown>): string | undefined => {
-    const get = (o: unknown, ...path: string[]) => path.reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), o);
+    const get = (obj: unknown, ...path: string[]) => path.reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), obj);
     const url =
       event === 'pull_request' || event === 'pull_request_review' || event === 'pull_request_review_comment' || event === 'pull_request_review_thread'
         ? get(body, 'pull_request', 'html_url')
@@ -547,18 +615,19 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
             : undefined;
     return typeof url === 'string' ? url : undefined;
   };
-  const notifyWorkspaces = async (url: string) => {
+  /** The workspaces this replica runs (and the runners connected to it) look at the pull request. */
+  const notifyLocal = async (url: string) => {
     let woken = 0;
     const payload = JSON.stringify({ url });
-    for (const w of directory.allWorkspaces()) {
-      if (directory.runnerMode(w.id) === 'company') {
-        hub.request(w.id, { method: 'POST', url: '/api/hooks/pull-request', headers: { 'content-type': 'application/json' }, body: payload }, { onHead: () => undefined, onData: () => undefined, onEnd: () => undefined, onError: () => undefined });
-        continue;
-      }
-      const cell = await cells.get(w.id)?.catch(() => undefined);
+    for (const c of cells.values()) {
+      const cell = await c.catch(() => undefined);
       if (!cell) continue;
       const r = await cell.app.inject({ method: 'POST', url: '/api/hooks/pull-request', headers: { host: CELL_HOST, 'content-type': 'application/json', 'x-tandem-token': cell.token }, payload });
       woken += (r.json() as { woken?: number }).woken ?? 0;
+    }
+    for (const w of await directory.allWorkspaces()) {
+      if (!hub.status(w.id)) continue;
+      hub.request(w.id, { method: 'POST', url: '/api/hooks/pull-request', headers: { 'content-type': 'application/json' }, body: payload }, { onHead: () => undefined, onData: () => undefined, onEnd: () => undefined, onError: () => undefined });
     }
     return woken;
   };
@@ -580,12 +649,42 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       }
       const url = prUrlOf(event, body);
       if (!url) return reply.code(202).send({ ignored: event });
-      // Answer GitHub at once (it waits 10 seconds at most); the workspaces look in the background.
-      void notifyWorkspaces(url)
-        .then((woken) => logger.info('webhook', { event, woken }))
-        .catch((err: unknown) => logger.warn('webhook could not be delivered', { event, error: String(err) }));
+      // Answer GitHub at once (it waits 10 seconds at most); every replica's workspaces look in the background.
+      void (async () => {
+        let woken = await notifyLocal(url);
+        for (const r of await directory.liveReplicas()) {
+          if (r.id === me) continue;
+          const answer = await callReplica(r.url, '/internal/hooks/pull-request', { url }).catch(() => undefined);
+          woken += Number((answer?.json as { woken?: number } | undefined)?.woken ?? 0);
+        }
+        logger.info('webhook', { event, woken });
+      })().catch((err: unknown) => logger.warn('webhook could not be delivered', { event, error: String(err) }));
       return reply.code(202).send({ accepted: true });
     });
+  });
+
+  /* ---------------------------------------------------------------- between replicas */
+
+  app.post('/internal/hooks/pull-request', async (req) => {
+    const { url } = z.object({ url: z.string().url().max(500) }).parse(req.body);
+    return { woken: await notifyLocal(url) };
+  });
+  app.post('/internal/workspaces/:id/:action', async (req) => {
+    const { id, action } = z.object({ id: z.string().uuid(), action: z.enum(['open', 'close', 'purge', 'disconnect']) }).parse(req.params);
+    const { reason } = z.object({ reason: z.string().max(200).default('') }).parse(req.body ?? {});
+    await actLocally(id, action, reason);
+    return { ok: true };
+  });
+  /** Another replica passes on a member's request (already checked there) to a workspace that runs here. */
+  app.all('/internal/ws/:id/*', async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const inner = req.url.slice(`/internal/ws/${id}`.length);
+    if (!inner.startsWith('/api/')) return reply.code(404).send({ error: 'Not found.' });
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !DROP.has(k)) headers[k] = v;
+    const actor = req.headers['x-tandem-actor'];
+    if (typeof actor === 'string') headers['x-tandem-actor'] = actor;
+    return serveHere(req, reply, id, inner, headers);
   });
 
   /* ---------------------------------------------------------------- into the workspace */
@@ -600,34 +699,83 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return reply.code(r.statusCode).type('application/json').send(r.body);
   });
 
-  const toCell = async (req: FastifyRequest, reply: FastifyReply) => {
-    const s = signedIn(req, reply);
+  const bodyOf = (req: FastifyRequest) => (writes(req) && req.body !== undefined ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined);
+
+  /** A member's request, checked: to the workspace where it runs (this replica, another one, or a company runner). */
+  const toWorkspace = async (req: FastifyRequest, reply: FastifyReply) => {
+    const s = await signedIn(req, reply);
     if (!s) return reply;
-    const w = currentWorkspace(s);
-    if (!w || !directory.roleIn(w.id, s.session.userId)) return reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
-    if (writes(req) && OWNER_ONLY.test(req.url) && directory.roleIn(w.id, s.session.userId) !== 'owner') return reply.code(403).send({ error: "Only an owner of the workspace can change its settings and connections." });
+    const w = await currentWorkspace(s);
+    const role = w ? await directory.roleIn(w.id, s.session.userId) : undefined;
+    if (!w || !role) return reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
+    if (writes(req) && OWNER_ONLY.test(req.url) && role !== 'owner') return reply.code(403).send({ error: 'Only an owner of the workspace can change its settings and connections.' });
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !['cookie', 'origin', 'host', 'x-tandem-token', 'x-tandem-actor', 'x-tandem-git-key', 'content-length', 'authorization', 'connection', 'upgrade'].includes(k)) headers[k] = v;
-    const person = directory.user(s.session.userId);
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !DROP.has(k)) headers[k] = v;
+    const person = await directory.user(s.session.userId);
     if (person) headers['x-tandem-actor'] = encodeURIComponent(person.name || person.login);
-    if (directory.runnerMode(w.id) === 'company') return toRunner(req, reply, w.id, headers);
-    const cell = await cellFor(w.id);
-    headers.host = CELL_HOST;
-    headers['x-tandem-token'] = cell.token;
+    // Where it runs: a company workspace where its runner is connected; a cloud one on its replica.
+    const company = (await directory.runnerMode(w.id)) === 'company';
+    const there = company ? (hub.status(w.id) ? me : (await directory.runnerOf(w.id))?.connectedReplica) : ((await directory.workspaceReplica(w.id)) ?? me);
+    if (!there || there === me) return serveHere(req, reply, w.id, req.url, headers);
+    const url = await replicaUrl(there);
+    if (!url) return reply.code(503).send(company ? { error: RUNNER_OFFLINE, runnerOffline: true } : { error: OWNER_MOVED });
+    return forward(req, reply, url, `/internal/ws/${w.id}${req.url}`, headers);
+  };
+
+  /** Serves a workspace request on this replica: its cell, or its runner connected here. */
+  const serveHere = async (req: FastifyRequest, reply: FastifyReply, id: string, url: string, headers: Record<string, string>) => {
+    if ((await directory.runnerMode(id)) === 'company') return toRunner(req, reply, id, url, headers);
+    if (((await directory.workspaceReplica(id)) ?? me) !== me) return reply.code(503).send({ error: OWNER_MOVED });
+    const cell = await cellFor(id);
+    const h = { ...headers, host: CELL_HOST, 'x-tandem-token': cell.token };
     if (!writes(req)) {
       // Reads stream straight through (server-sent events, files).
-      req.raw.headers = { ...headers };
+      req.raw.headers = { ...h };
+      req.raw.url = url;
       reply.hijack();
       cell.app.routing(req.raw, reply.raw);
       return reply;
     }
-    const r = await cell.app.inject({ method: req.method as 'POST', url: req.url, headers, ...(req.body !== undefined ? { payload: typeof req.body === 'string' ? req.body : JSON.stringify(req.body) } : {}) });
-    for (const [k, v] of Object.entries(r.headers)) if (v !== undefined && !['content-length', 'connection', 'transfer-encoding'].includes(k.toLowerCase())) reply.header(k, v as string);
+    const body = bodyOf(req);
+    const r = await cell.app.inject({ method: req.method as 'POST', url, headers: h, ...(body !== undefined ? { payload: body } : {}) });
+    for (const [k, v] of Object.entries(r.headers)) if (v !== undefined && !HOP.has(k.toLowerCase())) reply.header(k, v as string);
     return reply.code(r.statusCode).send(r.rawPayload);
   };
+
+  /** Passes a request to another replica and streams its answer back (live updates included). */
+  const forward = (req: FastifyRequest, reply: FastifyReply, base: string, path: string, headers: Record<string, string>) => {
+    const target = new URL(path, base);
+    const body = bodyOf(req);
+    reply.hijack();
+    const res = reply.raw;
+    const out = (target.protocol === 'https:' ? httpsRequest : httpRequest)(
+      target,
+      { method: req.method, headers: { ...headers, 'x-tandem-internal': internalKey, ...(body !== undefined ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) } : {}) }, timeout: 15 * 60_000 },
+      (answer) => {
+        const h: IncomingHttpHeaders = {};
+        for (const [k, v] of Object.entries(answer.headers)) if (v !== undefined && !HOP.has(k)) h[k] = v;
+        res.writeHead(answer.statusCode ?? 502, h);
+        answer.pipe(res);
+      },
+    );
+    out.on('timeout', () => out.destroy(new Error('timed out')));
+    out.on('error', () => {
+      if (res.headersSent) res.destroy();
+      else {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: OWNER_MOVED }));
+      }
+    });
+    res.on('close', () => {
+      if (!res.writableEnded) out.destroy();
+    });
+    out.end(body);
+    return reply;
+  };
+
   /** A company workspace: the request goes to its runner, and the answer streams back. */
-  const toRunner = (req: FastifyRequest, reply: FastifyReply, workspaceId: string, headers: Record<string, string>) => {
-    const body = writes(req) && req.body !== undefined ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined;
+  const toRunner = (req: FastifyRequest, reply: FastifyReply, workspaceId: string, url: string, headers: Record<string, string>) => {
+    const body = bodyOf(req);
     const res = reply.raw;
     let started = false;
     const wait: { timer?: NodeJS.Timeout } = {};
@@ -637,7 +785,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify({ error, runnerOffline: true }));
     };
-    const cancel = hub.request(workspaceId, { method: req.method, url: req.url, headers, ...(body !== undefined ? { body } : {}) }, {
+    const cancel = hub.request(workspaceId, { method: req.method, url, headers, ...(body !== undefined ? { body } : {}) }, {
       onHead: (status, h) => {
         if (started) return;
         started = true;
@@ -670,7 +818,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     });
     return reply;
   };
-  app.all('/api/*', toCell);
+  app.all('/api/*', toWorkspace);
 
   /* ---------------------------------------------------------------- the page */
 
@@ -678,12 +826,12 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   const indexHtml = webDir && existsSync(join(webDir, 'index.html')) ? readFileSync(join(webDir, 'index.html'), 'utf8') : undefined;
   const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
   if (webDir && indexHtml) await app.register(fastifyStatic, { root: webDir, index: false, wildcard: false, serve: true });
-  const page = (req: FastifyRequest, reply: FastifyReply) => {
-    const s = sessionOf(req);
+  const page = async (req: FastifyRequest, reply: FastifyReply) => {
+    const s = await sessionOf(req);
     reply.header('Content-Security-Policy', csp).header('Cache-Control', 'no-store').type('text/html');
     if (!s || !indexHtml) return reply.send(signInPage({}));
-    const w = currentWorkspace(s);
-    const runner = w && directory.runnerMode(w.id) === 'company' ? '<meta name="tandem-runner" content="company">' : '';
+    const w = await currentWorkspace(s);
+    const runner = w && (await directory.runnerMode(w.id)) === 'company' ? '<meta name="tandem-runner" content="company">' : '';
     return reply.send(indexHtml.replace('<meta name="tandem-token" content="">', `<meta name="tandem-token" content="${s.session.csrf}"><meta name="tandem-mode" content="hosted">${runner}`));
   };
   app.get('/', page);
@@ -694,7 +842,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!html) return reply.code(404).type('text/html').send(signInPage({ error: 'There is no such page.' }));
     return reply.header('Content-Security-Policy', csp).header('Cache-Control', 'public, max-age=300').type('text/html').send(html);
   });
-  app.setNotFoundHandler((req, reply) => {
+  app.setNotFoundHandler(async (req, reply) => {
     if (req.method === 'GET' && !req.url.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(req.url.split('?')[0]!)) return page(req, reply);
     return reply.code(404).send({ error: 'Not found.' });
   });
@@ -703,20 +851,27 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : cfg.port;
   listenPort = port;
-  // Every workspace's runner keeps working while nobody is signed in.
-  for (const w of directory.allWorkspaces()) openIfCloud(w.id);
-  logger.info('tandem hosted started', { port, publicUrl: cfg.publicUrl });
+  // This replica is alive; it takes the workspaces nobody runs yet, and opens its own: their
+  // runners keep working while nobody is signed in.
+  await heartbeat();
+  const beat = setInterval(() => void heartbeat(), 10_000);
+  beat.unref();
+  const claimed = await directory.claimUnassigned(me);
+  for (const id of await directory.workspacesOn(me)) await actLocally(id, 'open');
+  logger.info('tandem hosted started', { port, publicUrl: cfg.publicUrl, replica: me, claimed, database: cfg.databaseUrl ? 'postgres' : 'sqlite' });
   return {
     url: `http://127.0.0.1:${port}`,
     app,
     directory,
     cells,
     hub,
+    replicaId: me,
     stop: async () => {
+      clearInterval(beat);
       hub.close();
       await app.close();
       for (const c of cells.values()) await (await c.catch(() => undefined))?.stop();
-      directory.close();
+      await directory.close();
     },
   };
 }

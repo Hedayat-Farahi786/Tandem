@@ -1,5 +1,5 @@
 import type { AccountState, CopilotAccounts, GitHubIdentity, SecretStore, SignInStep } from '@tandem/adapters';
-import type { Directory } from './directory.js';
+import type { Directory, GitHubTokens as GitHubTokenSet } from './directory.js';
 
 /*
  * What a workspace's cell gets from the hosted app: its secrets (sealed in the directory, not a
@@ -15,31 +15,34 @@ export interface GitHubAppConfig {
   slug?: string | undefined;
 }
 
-/** Renews GitHub App user tokens (8 hours) with their refresh token (6 months); one renewal at a time per person. */
+/**
+ * Renews GitHub App user tokens (8 hours) with their refresh token (6 months). GitHub replaces the
+ * refresh token on every use, so a renewal runs once at a time per person, across replicas too.
+ */
 export class GitHubTokens {
-  private readonly inflight = new Map<string, Promise<GitHubIdentity | undefined>>();
   constructor(
     private readonly directory: Directory,
     private readonly app: GitHubAppConfig,
     private readonly http: typeof fetch = fetch,
   ) {}
 
+  private fresh = (t: { accessExpiresAt?: number | undefined }) => !t.accessExpiresAt || t.accessExpiresAt - 10 * 60_000 > Date.now();
+
   async identity(userId: string): Promise<GitHubIdentity | undefined> {
-    const user = this.directory.user(userId);
-    const t = this.directory.gitHubTokens(userId);
+    const user = await this.directory.user(userId);
+    const t = await this.directory.gitHubTokens(userId);
     if (!user || !t) return undefined;
-    const now = Date.now();
-    if (!t.accessExpiresAt || t.accessExpiresAt - 10 * 60_000 > now) return { token: t.access, host: 'github.com', login: user.login, expiresAt: t.accessExpiresAt };
-    if (!t.refresh || (t.refreshExpiresAt && t.refreshExpiresAt < now)) return undefined;
-    let p = this.inflight.get(userId);
-    if (!p) {
-      p = this.refresh(userId, user.login, t.refresh).finally(() => this.inflight.delete(userId));
-      this.inflight.set(userId, p);
-    }
-    return p;
+    if (this.fresh(t)) return { token: t.access, host: 'github.com', login: user.login, expiresAt: t.accessExpiresAt };
+    const renewed = await this.directory.renewGitHubTokens(userId, async (current) => {
+      // Another replica may have renewed it while this one waited for the lock.
+      if (!current || this.fresh(current)) return undefined;
+      if (!current.refresh || (current.refreshExpiresAt && current.refreshExpiresAt < Date.now())) return undefined;
+      return this.refresh(current.refresh);
+    });
+    return renewed && this.fresh(renewed) ? { token: renewed.access, host: 'github.com', login: user.login, expiresAt: renewed.accessExpiresAt } : undefined;
   }
 
-  private async refresh(userId: string, login: string, refresh: string): Promise<GitHubIdentity | undefined> {
+  private async refresh(refresh: string): Promise<GitHubTokenSet | undefined> {
     const res = await this.http(new URL('/login/oauth/access_token', this.app.webUrl), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -48,8 +51,7 @@ export class GitHubTokens {
     const tok = (await res?.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; refresh_token?: string; refresh_token_expires_in?: number } | undefined;
     if (!tok?.access_token) return undefined;
     const now = Date.now();
-    this.directory.saveGitHubTokens(userId, { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), refresh: tok.refresh_token ?? refresh, ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) });
-    return { token: tok.access_token, host: 'github.com', login, ...(tok.expires_in ? { expiresAt: now + tok.expires_in * 1000 } : {}) };
+    return { access: tok.access_token, ...(tok.expires_in ? { accessExpiresAt: now + tok.expires_in * 1000 } : {}), refresh: tok.refresh_token ?? refresh, ...(tok.refresh_token_expires_in ? { refreshExpiresAt: now + tok.refresh_token_expires_in * 1000 } : {}) };
   }
 }
 
@@ -66,10 +68,10 @@ export class WorkspaceSecrets implements SecretStore {
     return this.directory.secretOf(this.workspaceId, name);
   }
   async set(name: Parameters<SecretStore['set']>[0], value: string) {
-    this.directory.setSecret(this.workspaceId, name, value);
+    await this.directory.setSecret(this.workspaceId, name, value);
   }
   async delete(name: Parameters<SecretStore['delete']>[0]) {
-    this.directory.deleteSecret(this.workspaceId, name);
+    await this.directory.deleteSecret(this.workspaceId, name);
   }
 }
 
@@ -86,8 +88,8 @@ export class WorkspaceAccounts implements CopilotAccounts {
     private readonly tokens: GitHubTokens,
   ) {}
   async state(): Promise<AccountState> {
-    const userId = this.directory.copilotUser(this.workspaceId);
-    const user = userId ? this.directory.user(userId) : undefined;
+    const userId = await this.directory.copilotUser(this.workspaceId);
+    const user = userId ? await this.directory.user(userId) : undefined;
     const id = userId ? await this.tokens.identity(userId) : undefined;
     if (!user) return { signedIn: false, accounts: [], providers: [] };
     const active = { id: user.id, login: user.login, host: 'github.com', active: true, source: 'copilot' as const };
@@ -114,11 +116,11 @@ export class WorkspaceAccounts implements CopilotAccounts {
   }
   async tokenFor(host: string): Promise<string | undefined> {
     if (host !== 'github.com') return undefined;
-    const userId = this.directory.copilotUser(this.workspaceId);
+    const userId = await this.directory.copilotUser(this.workspaceId);
     return userId ? (await this.tokens.identity(userId))?.token : undefined;
   }
   async identity(): Promise<GitHubIdentity | undefined> {
-    const userId = this.directory.copilotUser(this.workspaceId);
+    const userId = await this.directory.copilotUser(this.workspaceId);
     return userId ? this.tokens.identity(userId) : undefined;
   }
 }

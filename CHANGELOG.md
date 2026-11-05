@@ -27,6 +27,21 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **More than one replica.** With `TANDEM_DATABASE_URL`, the web app's
+  directory lives in Postgres and several replicas share it, each with its
+  own volume and stable name (a StatefulSet).
+  - **Placement:** a workspace runs on one replica; new ones go to the
+    replica running the fewest.
+  - **Routing:** any replica answers any request, passing it to the replica
+    that runs the workspace (or holds its company runner's connection) and
+    streaming the answer back, live updates included.
+  - **Shared work:** webhooks reach every replica, and two replicas never
+    renew the same GitHub token twice.
+  - **Moving over:** `tandem migrate-directory` moves one replica's SQLite
+    directory into Postgres.
+  - **Tested:** two replicas on a real Postgres, and the whole hosted flow
+    on Postgres.
+
 - **CodeCommit through a role in the customer's account.** In the web app,
   Settings › AWS › "Connect with a role" shows the workspace's external ID
   and a CloudFormation template (a one-click link when the operator sets

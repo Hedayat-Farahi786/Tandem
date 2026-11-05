@@ -8,6 +8,7 @@ import { runDoctor, type DoctorCheck } from './doctor.js';
 import { LEGAL_DIR, VERSION, WEB_DIR, readConfig, startServer } from './start.js';
 import { readHostedConfig, startHosted } from './hosted/server.js';
 import { startRunner } from './runner.js';
+import { Directory } from './hosted/directory.js';
 
 const ICON: Record<DoctorCheck['status'], string> = { pass: '✔', warn: '!', fail: '✖', skipped: '–' };
 
@@ -127,6 +128,30 @@ async function runner(): Promise<void> {
   process.once('SIGTERM', () => void shutdown());
 }
 
+/**
+ * `tandem migrate-directory --to postgres://…`: copies the web app's directory from this server's
+ * SQLite (TANDEM_HOME/directory.db) into Postgres, before running several replicas.
+ */
+async function migrateDirectory(): Promise<void> {
+  const i = args.indexOf('--to');
+  const to = i >= 0 ? args[i + 1] : process.env.TANDEM_DATABASE_URL;
+  const home = process.env.TANDEM_HOME;
+  const key = process.env.TANDEM_SECRET_KEY;
+  if (!to || !/^postgres(ql)?:\/\//.test(to)) throw new Error('Give the Postgres database: tandem migrate-directory --to postgres://…');
+  if (!home || !key) throw new Error('Set TANDEM_HOME and TANDEM_SECRET_KEY as the web app has them.');
+  const from = join(home.replace(/^~/, homedir()), 'directory.db');
+  if (!existsSync(from)) throw new Error(`There is no directory at ${from}.`);
+  const source = await Directory.open(from, key);
+  const target = await Directory.open(to, key);
+  try {
+    const counts = await target.copyFrom(source);
+    console.log(`Copied ${Object.entries(counts).map(([t, n]) => `${n} ${t}`).join(', ')}.`);
+  } finally {
+    await source.close();
+    await target.close();
+  }
+}
+
 const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith('-')) ?? 'start';
 try {
@@ -134,6 +159,7 @@ try {
   else if (cmd === 'doctor') process.exitCode = await doctor(args.includes('--json'));
   else if (cmd === 'start') await start(!args.includes('--no-open'));
   else if (cmd === 'runner') await runner();
+  else if (cmd === 'migrate-directory') await migrateDirectory();
   else {
     console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json] | tandem runner [--url <web app>] [--key <runner key>]`);
     process.exitCode = 2;

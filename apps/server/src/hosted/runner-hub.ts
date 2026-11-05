@@ -64,9 +64,11 @@ export class RunnerHub {
   constructor(
     private readonly o: {
       /** The workspace a runner key belongs to, or undefined to refuse it. */
-      authenticate(token: string | undefined, req: IncomingMessage): string | undefined;
-      welcome(workspaceId: string): Record<string, unknown>;
-      seen(workspaceId: string, machine: string): void;
+      authenticate(token: string | undefined, req: IncomingMessage): Promise<string | undefined>;
+      welcome(workspaceId: string): Promise<Record<string, unknown>>;
+      seen(workspaceId: string, machine: string): Promise<void>;
+      /** A runner connected here, or the one connected here went away (where it is, for the other replicas). */
+      connected?(workspaceId: string, here: boolean): Promise<void>;
       logger: Logger;
     },
   ) {
@@ -91,14 +93,19 @@ export class RunnerHub {
       };
       if (path !== '/runner/connect') return refuse(404, 'Not Found');
       const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
-      const workspaceId = this.o.authenticate(token, req);
-      if (!workspaceId) return refuse(401, 'Unauthorized');
-      this.wss.handleUpgrade(req, socket, head, (ws) => this.connected(workspaceId, ws));
+      void this.o
+        .authenticate(token, req)
+        .catch(() => undefined)
+        .then((workspaceId) => {
+          if (!workspaceId) return refuse(401, 'Unauthorized');
+          this.wss.handleUpgrade(req, socket, head, (ws) => void this.connected(workspaceId, ws));
+          return undefined;
+        });
       return undefined;
     });
   }
 
-  private connected(workspaceId: string, ws: WebSocket): void {
+  private async connected(workspaceId: string, ws: WebSocket): Promise<void> {
     const conn: Connection = { ws, machine: 'a computer', version: '', connectedAt: Date.now(), streams: new Map(), alive: true };
     const old = this.conns.get(workspaceId);
     this.conns.set(workspaceId, conn);
@@ -107,12 +114,16 @@ export class RunnerHub {
     ws.on('message', (data: RawData) => this.message(workspaceId, conn, data));
     ws.on('error', () => undefined);
     ws.on('close', () => {
-      if (this.conns.get(workspaceId) === conn) this.conns.delete(workspaceId);
+      if (this.conns.get(workspaceId) === conn) {
+        this.conns.delete(workspaceId);
+        void this.o.connected?.(workspaceId, false).catch(() => undefined);
+      }
       for (const s of conn.streams.values()) s.onError("The company runner disconnected.");
       conn.streams.clear();
       this.o.logger.info('runner disconnected', { workspace: workspaceId });
     });
-    ws.send(JSON.stringify({ t: 'welcome', protocol: RUNNER_PROTOCOL, ...this.o.welcome(workspaceId) }));
+    await this.o.connected?.(workspaceId, true).catch(() => undefined);
+    ws.send(JSON.stringify({ t: 'welcome', protocol: RUNNER_PROTOCOL, ...(await this.o.welcome(workspaceId).catch(() => ({}))) }));
     this.o.logger.info('runner connected', { workspace: workspaceId });
   }
 
@@ -126,7 +137,7 @@ export class RunnerHub {
     if (f.t === 'hello') {
       conn.machine = String(f.machine ?? 'a computer').slice(0, 120);
       conn.version = String(f.version ?? '').slice(0, 40);
-      this.o.seen(workspaceId, conn.machine);
+      void this.o.seen(workspaceId, conn.machine).catch(() => undefined);
       return;
     }
     const s = f.id ? conn.streams.get(f.id) : undefined;
