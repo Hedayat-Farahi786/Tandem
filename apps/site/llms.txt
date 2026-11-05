@@ -1,0 +1,18 @@
+# Tandem
+
+> Tandem turns a request into a reviewed pull request. A person describes a change; Tandem asks until it is clear, writes a spec with acceptance criteria (given/when/then) for the person and optionally their PM to approve, then has GitHub Copilot build it on its own feature branch, runs the repository's own checks (install, lint, type-check, build, tests), maps each criterion to a passing test, reviews the change, and opens one pull request per repository. A person always reviews and merges; agents never merge or push to a default branch.
+
+## Facts
+
+- Product: a web app. People sign in with GitHub; each team works in a workspace.
+- Agent: GitHub Copilot, on a member's own Copilot plan (Free, Pro, Pro+, Business, Enterprise; github.com or GitHub Enterprise Cloud).
+- Repositories: GitHub and AWS CodeCommit. Trackers: Jira Cloud (Atlassian sign-in) and Jira Data Center (token), optional.
+- Hosting: in the EU. A company runner (`tandem runner`) can keep a workspace's code and data on the company's own computers, over one outbound connection.
+- Guardrails enforced in code: agents can't merge, force-push, push to branches they didn't create, run cloud CLIs, curl, ssh, publish or deploy commands, or write outside the task folder; building starts only after every approval of the current spec.
+- Spend: per-task and per-day limits in prompts and AI credits; an estimate before a task starts.
+- Operator: CHD Labs.
+
+## Links
+
+- [Sign in](/app): start with GitHub
+- [Privacy](/legal/privacy), [Terms](/legal/terms), [Data processing agreement](/legal/dpa), [Subprocessors](/legal/subprocessors)

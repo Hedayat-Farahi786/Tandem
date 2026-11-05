@@ -3,106 +3,233 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tandem: from request to reviewed pull request</title>
-    <meta name="description" content="Describe what you need. Tandem writes the spec, has GitHub Copilot build it on its own branch, runs your checks and opens the pull request. You approve every step. Hosted in the EU." />
+    <title>Tandem: describe it, approve it, merge it</title>
+    <meta name="description" content="Tandem turns a request into a spec you approve, has GitHub Copilot build it on its own branch, runs your checks and opens a pull request for you to merge. Hosted in the EU, or on your own computers." />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)" />
-    <meta property="og:title" content="Tandem: from request to reviewed pull request" />
-    <meta property="og:description" content="Specs you approve, code Copilot writes, checks that really run, and a pull request a person merges. Hosted in the EU." />
+    <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="Tandem: describe it, approve it, merge it" />
+    <meta property="og:description" content="Specs you approve, code GitHub Copilot writes, your checks run on every task, and a pull request a person merges. Hosted in the EU." />
     <meta property="og:type" content="website" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e3b3b'/%3E%3Cpath d='M8 10h16M16 10v13' stroke='white' stroke-width='3.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <meta property="og:image" content="./social.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="./fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="./site.css" />
+    <script>
+      // Before the first paint: the visitor's own choice of theme, if they made one.
+      try {
+        const t = localStorage.getItem('tandem-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch {}
+      document.documentElement.classList.add('js');
+    </script>
   </head>
   <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="7" r="2" /><path d="M6 7v10M18 9c0 5-6 4-11 8" /></symbol>
+      <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="19" r="2" /><path d="M6 7v10M18 17V9a3 3 0 0 0-3-3h-4M13 3l-3 3 3 3" /></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6z" /><path d="M9 12l2 2 4-4" /></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z" /></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M17 6l3 3M14 9l2 2" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" /><path d="M3 20c.5-3.5 3-5.5 6-5.5s5.5 2 6 5.5" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.6c1.8.7 2.8 2.6 3 5.4" /></symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.5 18a9 9 0 1 1 15 0" /><path d="M12 13l4-5" /><circle cx="12" cy="13" r="1.4" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z" /></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13" /></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4" /></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></symbol>
+      <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="2" /><rect x="4" y="13" width="16" height="7" rx="2" /><path d="M8 7.5h.01M8 16.5h.01" /></symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18h10.5a4 4 0 0 0 .5-8 6 6 0 0 0-11.6 1.6A3.3 3.3 0 0 0 7 18z" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.3L4 9M4 4v5h5M4 13a8 8 0 0 0 14.3 4.3L20 15M20 20v-5h-5" /></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z" /><path d="M3 13l9 5 9-5" /></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h9a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z" /><path d="M5 16a4 4 0 0 1 4-4h9" /></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 18l-1.5 3 4-1.5A9 8 0 1 0 5 18z" /></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /><path d="M4 20L20 4" /></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M7 9l3 3-3 3M12.5 15H17" /></symbol>
+    </svg>
+
     <a class="skip" href="#main">Skip to content</a>
 
     <header class="nav" id="top">
       <div class="wrap nav-row">
-        <a class="brand" href="#top" aria-label="Tandem home">
-          <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 4.5h9M8 4.5v8" /></svg></span>
-          Tandem
-        </a>
-        <nav class="nav-links" aria-label="Main">
+        <a class="nav-brand" href="#top" aria-label="Tandem, back to top"><svg class="wordmark" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0.00000 -0.00004 3.69751 0.73926"><path transform="translate(0 -0.18) scale(0.011023) translate(-12 0)" class="wm-mark" fill-rule="evenodd" d="M12 16H84V34H57V82H39V34H12ZM46.5 16H49.5V58.5A1.5 1.5 0 0 1 46.5 58.5Z"/><path transform="translate(0.75864 0.72750) scale(0.00048828)" class="wm-text" d="M430.9 17.4Q325.4 17.4 243.3 -17.7Q161.2 -52.8 113.9 -123.2Q66.5 -193.6 66.5 -298.6Q66.5 -388.7 100 -447.7Q133.4 -506.7 191.1 -542.4Q248.8 -578.1 323.7 -596.6Q398.5 -615.2 480.2 -623.4Q577.6 -633.8 634.9 -642.4Q692.2 -651 717 -667.9Q741.7 -684.8 741.7 -719.8V-727.1Q741.7 -769.3 719.8 -801.5Q697.9 -833.6 657.1 -851.9Q616.4 -870.2 559 -870.2Q501.3 -870.2 457.4 -851.8Q413.5 -833.3 387.9 -800.6Q362.3 -767.8 358.3 -724.7H98.4Q105.2 -832 162.5 -911.1Q219.7 -990.3 322.1 -1034Q424.6 -1077.8 566.2 -1077.8Q671.7 -1077.8 754.8 -1053Q837.8 -1028.3 895.3 -981.4Q952.7 -934.5 982.5 -868Q1012.3 -801.5 1012.3 -718.1V0H744.4V-149.1H740.4Q714.2 -99.8 673.6 -62.2Q633 -24.6 573.6 -3.6Q514.3 17.4 430.9 17.4ZM502.6 -178.3Q579.2 -178.3 633.1 -206.4Q687.1 -234.4 715.3 -281.8Q743.5 -329.2 743.5 -388.3V-498.7Q731.2 -491.5 709.2 -484.8Q687.2 -478.2 657.5 -472Q627.8 -465.9 593 -460Q558.2 -454.1 520.8 -448.6Q468.8 -441 425.6 -424Q382.3 -407 356.4 -378Q330.5 -349 330.5 -303.9Q330.5 -264.8 351.8 -236.5Q373.2 -208.2 411.8 -193.3Q450.5 -178.3 502.6 -178.3ZM1419.6 -591.9V0H1146.1V-1056H1415.1V-784.2H1365.3Q1416 -925 1508.7 -1001.4Q1601.4 -1077.8 1742.2 -1077.8Q1854.1 -1077.8 1938.1 -1029.5Q2022 -981.2 2068.9 -888.2Q2115.8 -795.2 2115.8 -660.5V0H1842.3V-613.4Q1842.3 -724.7 1789.2 -782.3Q1736 -839.9 1638.6 -839.9Q1575.1 -839.9 1525.6 -813.8Q1476.1 -787.8 1447.9 -733Q1419.6 -678.2 1419.6 -591.9ZM2659.6 21.8Q2522.1 21.8 2419.1 -47.2Q2316 -116.3 2259.2 -240.2Q2202.5 -364.2 2202.5 -528.9Q2202.5 -691.5 2259.9 -815.2Q2317.4 -938.9 2420.2 -1008.4Q2523 -1077.8 2657.8 -1077.8Q2726.8 -1077.8 2785.4 -1059.2Q2844.1 -1040.6 2891.3 -1003.2Q2938.5 -965.8 2972 -908.1H2973.6V-1490H3247.1V0H2977.6V-161.8H2976Q2944.3 -100.4 2896.6 -59.5Q2848.9 -18.5 2788.9 1.6Q2729 21.8 2659.6 21.8ZM2727.4 -203.7Q2806.1 -203.7 2864.6 -243.9Q2923.1 -284.1 2955.3 -357.4Q2987.6 -430.6 2987.6 -528.9Q2987.6 -627.7 2955.3 -700.5Q2923.1 -773.3 2864.6 -813.6Q2806.1 -853.8 2727.4 -853.8Q2653.1 -853.8 2597 -815.8Q2540.9 -777.7 2509.9 -705.5Q2478.9 -633.2 2478.9 -528.9Q2478.9 -425.1 2509.9 -352.4Q2540.9 -279.7 2597 -241.7Q2653.1 -203.7 2727.4 -203.7ZM3855.5 24Q3696.4 24 3579.1 -46.8Q3461.7 -117.5 3397.6 -242.3Q3333.5 -367 3333.5 -526.9Q3333.5 -688.4 3399 -813.1Q3464.5 -937.9 3580 -1009Q3695.4 -1080 3845.3 -1080Q3960.7 -1080 4054.8 -1040.2Q4148.9 -1000.5 4216.9 -927.1Q4284.8 -853.8 4321.5 -753.4Q4358.1 -653.1 4358.1 -531.9V-457.8H3436.1V-639H4224L4101 -593.4Q4101 -677.9 4070.4 -739.4Q4039.8 -800.9 3983.7 -834.3Q3927.7 -867.7 3850.2 -867.7Q3773.8 -867.7 3717.8 -834.3Q3661.8 -800.9 3631.2 -739.4Q3600.5 -677.9 3600.5 -593.4V-474.1Q3600.5 -388 3631.3 -323Q3662 -257.9 3720.8 -221.8Q3779.5 -185.8 3862.7 -185.8Q3923.3 -185.8 3970.2 -203.7Q4017 -221.6 4048.5 -253.9Q4079.9 -286.2 4093.6 -329.1H4346.4Q4326.9 -224.9 4258 -145.5Q4189.2 -66.1 4085.2 -21Q3981.3 24 3855.5 24ZM4440.3 0V-1056H4704.4V-822H4686.1Q4714.4 -908 4765.1 -964.8Q4815.9 -1021.5 4882.7 -1049.7Q4949.5 -1077.8 5023.3 -1077.8Q5144.6 -1077.8 5233.3 -1008Q5322.1 -938.2 5341.3 -822H5309.4Q5329.7 -900 5380.5 -957.4Q5431.3 -1014.7 5504.6 -1046.3Q5577.9 -1077.8 5664.5 -1077.8Q5765.3 -1077.8 5845.6 -1034Q5925.8 -990.2 5972.3 -905.6Q6018.8 -821.1 6018.8 -698.3V0H5745.3V-653.3Q5745.3 -753 5690.8 -800.9Q5636.3 -848.9 5558.2 -848.9Q5498 -848.9 5454 -822.7Q5410.1 -796.6 5386 -750.1Q5361.8 -703.7 5361.8 -642.3V0H5097.3V-663.2Q5097.3 -747.8 5046 -798.4Q4994.6 -848.9 4913.5 -848.9Q4859.3 -848.9 4813.8 -823.3Q4768.3 -797.7 4741 -748.2Q4713.8 -698.7 4713.8 -626.9V0Z"/></svg></a>
+        <nav class="nav-links" id="nav-links" aria-label="Main">
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
-          <a href="#security">Security</a>
+          <a href="#guardrails">Guardrails</a>
+          <a href="#runner">Your own computers</a>
           <a href="#faq">FAQ</a>
         </nav>
         <div class="nav-cta">
+          <button class="theme-toggle" type="button" aria-label="Switch between light and dark">
+            <svg class="ico sun" aria-hidden="true"><use href="#i-sun" /></svg>
+            <svg class="ico moon" aria-hidden="true"><use href="#i-moon" /></svg>
+          </button>
           <a class="btn btn-ghost" href="/app">Sign in</a>
-          <a class="btn btn-primary" href="/app/signup">Get started</a>
+          <a class="btn btn-primary" href="/app">Start with GitHub</a>
+          <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg class="ico" aria-hidden="true"><use href="#i-menu" /></svg></button>
         </div>
       </div>
     </header>
 
     <main id="main">
-      <!-- Hero -->
+      <!-- ================================================================ hero -->
       <section class="hero">
-        <div class="glow" aria-hidden="true"></div>
-        <div class="wrap hero-grid">
+        <div class="wrap">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="dot"></span> Works with your GitHub Copilot plan</p>
-            <h1>From request to <em>reviewed</em> pull&nbsp;request.</h1>
-            <p class="lede">Describe what you need. Tandem writes the spec, has GitHub Copilot build it on its own branch, runs your checks and opens the pull request. You approve the plan and merge the result. Nothing ships without you.</p>
+            <svg class="fuse fuse-enter hero-mark" viewBox="0 0 96 96" aria-hidden="true">
+              <path class="l" d="M12 16H46.5V82H39V34H12Z" />
+              <path class="r" d="M84 16H49.5V82H57V34H84Z" />
+              <path class="b" d="M46.2 58.5H46.5A1.5 1.5 0 0 0 49.5 58.5H49.8V82H46.2Z" />
+            </svg>
+            <p class="eyebrow"><span class="tag">Built on GitHub Copilot</span> Your plan, your repos <span class="sep opt" aria-hidden="true"></span><span class="opt">Hosted in the EU</span></p>
+            <h1>Describe it. <span class="you">Approve it.</span><br /><span class="you">Merge it.</span></h1>
+            <p class="lede">Tandem turns a request into a spec you approve, has GitHub Copilot build it on its own branch, runs <b>your</b> checks and opens a pull request. Everything between your three decisions is done for you, and checked.</p>
             <div class="hero-cta">
-              <a class="btn btn-primary btn-lg" href="/app/signup">
-                <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" /></svg>
-                Continue with GitHub
+              <a class="btn btn-primary btn-lg" href="/app">
+                <svg class="gh" viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"></path></g></svg>
+                Start with GitHub
               </a>
-              <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+              <a class="btn btn-ghost btn-lg" href="#demo">
+                Watch a task run
+                <svg class="ico ico-move" aria-hidden="true"><use href="#i-down" /></svg>
+              </a>
             </div>
-            <ul class="trust" aria-label="At a glance">
-              <li>GitHub and AWS CodeCommit</li>
-              <li>Hosted in the EU</li>
-              <li>Agents never merge</li>
+            <ul class="hero-note" aria-label="At a glance">
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>No credit card</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>GitHub and AWS CodeCommit</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Agents never merge</span></li>
             </ul>
           </div>
 
-          <!-- Product preview -->
-          <figure class="preview" aria-label="Tandem working on a task">
+          <!-- The product, playing one task from request to pull request. Click a stage to jump there. -->
+          <figure class="demo" id="demo" aria-labelledby="demo-caption">
+            <figcaption id="demo-caption" class="sr">A task in Tandem, from a request to a pull request: Tandem asks one question, writes a spec with three acceptance criteria, both you and your PM approve it, Copilot builds it, every check passes, a self-review fixes one thing, and a pull request waits for you to merge. Choose a stage to see it.</figcaption>
             <div class="window">
               <div class="window-bar">
                 <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="window-title">WEB-42 · Add a dark mode toggle to settings</span>
-              </div>
-              <div class="stage-row">
-                <span class="stage-name" id="stage-name">Build</span>
-                <span class="stage-now" id="stage-now">Copilot coding · 2m 14s</span>
-                <span class="stage-count" id="stage-count">4 of 8</span>
-              </div>
-              <div class="bar" aria-hidden="true">
-                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                <span class="window-title"><span class="key">SHOP-42</span><b>Add a dark mode toggle to Settings</b></span>
+                <span class="window-meta">
+                  <span class="elapsed" id="demo-step">Step 1 of 8</span>
+                  <span class="credits" aria-label="Copilot credits used"><span id="demo-credits">0.0</span> credits</span>
+                  <button class="demo-pause" type="button" aria-label="Pause the demo">
+                    <svg class="ico pause" aria-hidden="true"><use href="#i-pause" /></svg>
+                    <svg class="ico play" aria-hidden="true"><use href="#i-play" /></svg>
+                  </button>
+                </span>
               </div>
               <div class="window-body">
-                <div class="convo">
-                  <p class="bubble">Add a dark mode toggle to the settings page. It should remember the choice.</p>
-                  <div class="card">
-                    <span class="ic doc" aria-hidden="true"></span>
-                    <div><b>Spec v1</b><small>Approved by you · 3 acceptance criteria</small></div>
+                <nav class="rail" aria-label="Stages of the task">
+                  <p class="rail-h">Task</p>
+                  <ol>
+                    <li data-stage="0"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Request<span class="who">You</span></button></li>
+                    <li data-stage="1"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Readiness</button></li>
+                    <li data-stage="2"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Spec</button></li>
+                    <li data-stage="3"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Approvals<span class="who">You</span></button></li>
+                    <li data-stage="4"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Build</button></li>
+                    <li data-stage="5"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Checks</button></li>
+                    <li data-stage="6"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Self-review</button></li>
+                    <li data-stage="7"><button type="button"><span class="dot"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.8" /></svg></span>Pull request<span class="who">You</span></button></li>
+                  </ol>
+                </nav>
+
+                <div class="stage" aria-hidden="true">
+                  <div class="composer"><span class="composer-text">Reply, or ask for a change…</span><span class="composer-model">Auto model</span><span class="composer-send"><svg class="ico"><use href="#i-right" /></svg></span></div>
+                  <!-- 0 Request -->
+                  <div class="scene" data-scene="0">
+                    <div class="msg"><span class="av av-you">S</span><div><span class="who-line">Sam</span><p class="bubble" id="demo-typed" data-text="Add a dark mode toggle to Settings. It should remember the choice."></p></div></div>
                   </div>
-                  <div class="card live">
-                    <span class="ic av" aria-hidden="true">C</span>
-                    <div><b>Building the change</b><small class="shimmer" id="live-step">Editing settings-page.tsx…</small></div>
+                  <!-- 1 Readiness -->
+                  <div class="scene" data-scene="1">
+                    <div class="msg"><span class="av av-you">S</span><div><span class="who-line">Sam</span><p class="bubble">Add a dark mode toggle to Settings. It should remember the choice.</p></div></div>
+                    <div class="msg msg-t"><span class="av av-t"><svg viewBox="0 0 96 96" aria-hidden="true"><path d="M6 18H84V36H60V84H30V36H6ZM42 18H48V54H42Z" fill-rule="evenodd" /></svg></span><div class="bubble"><span class="who-line">Tandem</span>Read 6 files of <span class="file">web-app</span>. One question: until someone chooses, should it follow the system setting?<div class="choices"><span class="chip on">Yes, follow the system</span><span class="chip">No, start light</span></div></div></div>
                   </div>
-                  <div class="card dim" id="card-checks">
-                    <span class="ic ok" aria-hidden="true"></span>
-                    <div><b>Checks passed</b><small>All 5 checks passed · lint, types, build, tests</small></div>
+                  <!-- 2 Spec -->
+                  <div class="scene" data-scene="2">
+                    <div class="msg msg-t"><span class="av av-t"><svg viewBox="0 0 96 96" aria-hidden="true"><path d="M6 18H84V36H60V84H30V36H6ZM42 18H48V54H42Z" fill-rule="evenodd" /></svg></span><div class="bubble"><span class="who-line">Tandem</span>It's ready to build. Here is the spec: three criteria, each with the test that will prove it. Nothing is built until it's approved.</div></div>
+                    <div class="card step-card"><svg class="ico" aria-hidden="true"><use href="#i-file" /></svg><div><b>Spec v1</b><small>3 acceptance criteria · 1 test file · web-app</small></div><span class="badge badge-wait" style="margin-left: auto">Waiting for approval</span></div>
                   </div>
-                  <div class="card dim" id="card-pr">
-                    <span class="ic pr" aria-hidden="true"></span>
-                    <div><b>Add dark mode toggle</b><small><span class="pill">Open</span> web-app · ready for review</small></div>
+                  <!-- 3 Approvals -->
+                  <div class="scene" data-scene="3">
+                    <div class="card step-card"><svg class="ico" aria-hidden="true"><use href="#i-file" /></svg><div><b>Spec v1</b><small>3 acceptance criteria · 1 test file · web-app</small></div></div>
+                    <div class="card step-card"><span class="av av-you">S</span><div><b>Approved by you</b><small>Sam · just now</small></div><span class="badge badge-ok" style="margin-left: auto"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>Approved</span></div>
+                    <div class="card step-card"><span class="av" style="background: #c7d7fe; color: #1e2a78">P</span><div><b>Approved by Pat, your PM</b><small>Replied “approve” on SHOP-42 in Jira</small></div><span class="badge badge-ok" style="margin-left: auto"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>Approved</span></div>
+                  </div>
+                  <!-- 4 Build -->
+                  <div class="scene" data-scene="4">
+                    <div class="msg msg-t"><span class="av av-t"><svg viewBox="0 0 96 96" aria-hidden="true"><path d="M6 18H84V36H60V84H30V36H6ZM42 18H48V54H42Z" fill-rule="evenodd" /></svg></span><div class="bubble"><span class="who-line">Copilot, in its own folder</span>Building on <span class="file">feature/SHOP-42-dark-mode-toggle</span></div></div>
+                    <ol class="card log">
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg><span>Read <b>4 files</b>: settings-page.tsx, theme.ts, storage.ts, app.tsx</span></li>
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-edit" /></svg><span>Edited <span class="file">theme.ts</span> <span class="add">+24</span> <span class="del">−3</span></span></li>
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-edit" /></svg><span>Edited <span class="file">settings-page.tsx</span> <span class="add">+31</span> <span class="del">−2</span></span></li>
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg><span>Added <span class="file">theme-toggle.spec.ts</span> <span class="add">+58</span></span></li>
+                    </ol>
+                  </div>
+                  <!-- 5 Checks -->
+                  <div class="scene" data-scene="5">
+                    <div class="msg msg-t"><span class="av av-t"><svg viewBox="0 0 96 96" aria-hidden="true"><path d="M6 18H84V36H60V84H30V36H6ZM42 18H48V54H42Z" fill-rule="evenodd" /></svg></span><div class="bubble"><span class="who-line">Tandem</span>Running your checks in a clean copy, with your own commands.</div></div>
+                    <div class="checks">
+                      <div class="card check" data-t="8"><b>Install</b><span class="state"><span class="spin"></span><svg class="ico ok-ico" aria-hidden="true"><use href="#i-check" /></svg><span class="tm">running</span></span></div>
+                      <div class="card check" data-t="4"><b>Lint</b><span class="state"><span class="spin"></span><svg class="ico ok-ico" aria-hidden="true"><use href="#i-check" /></svg><span class="tm">running</span></span></div>
+                      <div class="card check" data-t="6"><b>Types</b><span class="state"><span class="spin"></span><svg class="ico ok-ico" aria-hidden="true"><use href="#i-check" /></svg><span class="tm">running</span></span></div>
+                      <div class="card check" data-t="11"><b>Build</b><span class="state"><span class="spin"></span><svg class="ico ok-ico" aria-hidden="true"><use href="#i-check" /></svg><span class="tm">running</span></span></div>
+                      <div class="card check" data-t="14"><b>Tests</b><span class="state"><span class="spin"></span><svg class="ico ok-ico" aria-hidden="true"><use href="#i-check" /></svg><span class="tm">running</span></span></div>
+                    </div>
+                    <div class="card step-card"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><div><b>Every criterion has a passing test</b><small>1, 2 and 3 → theme-toggle.spec.ts</small></div></div>
+                  </div>
+                  <!-- 6 Self-review -->
+                  <div class="scene" data-scene="6">
+                    <div class="msg msg-t"><span class="av av-t"><svg viewBox="0 0 96 96" aria-hidden="true"><path d="M6 18H84V36H60V84H30V36H6ZM42 18H48V54H42Z" fill-rule="evenodd" /></svg></span><div class="bubble"><span class="who-line">Tandem, reviewing</span>Read the whole change against the spec, your 6 repo rules and a security checklist.</div></div>
+                    <ol class="card log">
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg><span>Found <b>1 thing</b>: the toggle had no accessible name</span></li>
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-edit" /></svg><span>Fixed in <span class="file">settings-page.tsx</span> <span class="add">+1</span> <span class="del">−1</span></span></li>
+                      <li><svg class="ico" aria-hidden="true"><use href="#i-refresh" /></svg><span>Ran every check again: <b>all passed</b></span></li>
+                    </ol>
+                  </div>
+                  <!-- 7 Pull request -->
+                  <div class="scene" data-scene="7">
+                    <div class="card pr">
+                      <div class="pr-top">
+                        <span class="pr-ico"><svg class="ico" aria-hidden="true"><use href="#i-pr" /></svg></span>
+                        <div><p class="pr-title">SHOP-42: Add a dark mode toggle to Settings</p><p class="pr-sub">web-app · <code>feature/SHOP-42-dark-mode-toggle</code> · 1 commit</p></div>
+                      </div>
+                      <ul class="pr-rows">
+                        <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Spec v1, approved by Sam and Pat</span></li>
+                        <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>All 5 checks passed · 3 of 3 criteria tested</span></li>
+                        <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Self-review: 1 finding, fixed</span></li>
+                      </ul>
+                      <div class="pr-merge"><span>Ready for your review. Merging is yours.</span><span class="merge-btn">Merge</span></div>
+                    </div>
                   </div>
                 </div>
-                <aside class="spec" aria-label="Spec">
+
+                <aside class="spec" aria-hidden="true">
+                  <div class="spec-head"><b>Spec v1</b><span class="badge badge-accent" id="spec-state">Drafting</span></div>
                   <p class="spec-h">Acceptance criteria</p>
                   <ol>
-                    <li><span>Given</span> the settings page, <span>when</span> I switch the toggle, <span>then</span> the app turns dark at once.</li>
-                    <li><span>Given</span> I chose dark, <span>when</span> I reload, <span>then</span> it stays dark.</li>
-                    <li><span>Given</span> no choice yet, <span>then</span> it follows the system setting.</li>
+                    <li><em>Given</em> Settings, <em>when</em> I switch the toggle, <em>then</em> the app turns dark at once.</li>
+                    <li><em>Given</em> I chose dark, <em>when</em> I reload, <em>then</em> it stays dark.</li>
+                    <li><em>Given</em> no choice yet, <em>then</em> it follows the system.</li>
                   </ol>
-                  <p class="spec-h">Tests to add</p>
-                  <p class="spec-t">theme-toggle.spec.ts → criteria 1, 2, 3</p>
+                  <p class="spec-h">Approvals</p>
+                  <ul class="spec-approvals">
+                    <li>You <span class="badge badge-wait" data-approval="you">Waiting</span></li>
+                    <li>Pat, PM <span class="badge badge-wait" data-approval="pm">Waiting</span></li>
+                  </ul>
+                  <span class="badge badge-ok tested"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>Each criterion tested</span>
                 </aside>
               </div>
             </div>
@@ -110,186 +237,468 @@
         </div>
       </section>
 
-      <!-- Works with -->
+      <!-- ================================================================ works with -->
       <section class="works" aria-label="Works with">
         <div class="wrap works-row">
-          <span>Works with</span>
+          <span class="works-label">Works with</span>
           <ul>
-            <li>GitHub Copilot</li>
-            <li>GitHub</li>
-            <li>GitHub Enterprise Cloud</li>
-            <li>AWS CodeCommit</li>
-            <li>Jira</li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M19.245 5.364c1.322 1.36 1.877 3.216 2.11 5.817.622 0 1.2.135 1.592.654l.73.964c.21.278.323.61.323.955v2.62c0 .339-.173.669-.453.868C20.239 19.602 16.157 21.5 12 21.5c-4.6 0-9.205-2.583-11.547-4.258-.28-.2-.452-.53-.453-.868v-2.62c0-.345.113-.679.321-.956l.73-.963c.392-.517.974-.654 1.593-.654l.029-.297c.25-2.446.81-4.213 2.082-5.52 2.461-2.54 5.71-2.851 7.146-2.864h.198c1.436.013 4.685.323 7.146 2.864zm-7.244 4.328c-.284 0-.613.016-.962.05-.123.447-.305.85-.57 1.108-1.05 1.023-2.316 1.18-2.994 1.18-.638 0-1.306-.13-1.851-.464-.516.165-1.012.403-1.044.996a65.882 65.882 0 00-.063 2.884l-.002.48c-.002.563-.005 1.126-.013 1.69.002.326.204.63.51.765 2.482 1.102 4.83 1.657 6.99 1.657 2.156 0 4.504-.555 6.985-1.657a.854.854 0 00.51-.766c.03-1.682.006-3.372-.076-5.053-.031-.596-.528-.83-1.046-.996-.546.333-1.212.464-1.85.464-.677 0-1.942-.157-2.993-1.18-.266-.258-.447-.661-.57-1.108-.32-.032-.64-.049-.96-.05zm-2.525 4.013c.539 0 .976.426.976.95v1.753c0 .525-.437.95-.976.95a.964.964 0 01-.976-.95v-1.752c0-.525.437-.951.976-.951zm5 0c.539 0 .976.426.976.95v1.753c0 .525-.437.95-.976.95a.964.964 0 01-.976-.95v-1.752c0-.525.437-.951.976-.951zM7.635 5.087c-1.05.102-1.935.438-2.385.906-.975 1.037-.765 3.668-.21 4.224.405.394 1.17.657 1.995.657h.09c.649-.013 1.785-.176 2.73-1.11.435-.41.705-1.433.675-2.47-.03-.834-.27-1.52-.63-1.813-.39-.336-1.275-.482-2.265-.394zm6.465.394c-.36.292-.6.98-.63 1.813-.03 1.037.24 2.06.675 2.47.968.957 2.136 1.104 2.776 1.11h.044c.825 0 1.59-.263 1.995-.657.555-.556.765-3.187-.21-4.224-.45-.468-1.335-.804-2.385-.906-.99-.088-1.875.058-2.265.394zM12 7.615c-.24 0-.525.015-.84.044.03.16.045.336.06.526l-.001.159a2.94 2.94 0 01-.014.25c.225-.022.425-.027.612-.028h.366c.187 0 .387.006.612.028-.015-.146-.015-.277-.015-.409.015-.19.03-.365.06-.526a9.29 9.29 0 00-.84-.044z"></path></g></svg>GitHub Copilot</li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"></path></g></svg>GitHub</li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"></path></g></svg>GitHub Enterprise Cloud</li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M6.763 11.212c0 .296.032.535.088.71.064.176.144.368.256.576.04.063.056.127.056.183 0 .08-.048.16-.152.24l-.503.335a.383.383 0 01-.208.072c-.08 0-.16-.04-.239-.112a2.47 2.47 0 01-.287-.375 6.18 6.18 0 01-.248-.471c-.622.734-1.405 1.101-2.347 1.101-.67 0-1.205-.191-1.596-.574-.39-.384-.59-.894-.59-1.533 0-.678.24-1.23.726-1.644.487-.415 1.133-.623 1.955-.623.272 0 .551.024.846.064.296.04.6.104.918.176v-.583c0-.607-.127-1.03-.375-1.277-.255-.248-.686-.367-1.3-.367-.28 0-.568.031-.863.103-.295.072-.583.16-.862.272a2.4 2.4 0 01-.28.104.488.488 0 01-.127.023c-.112 0-.168-.08-.168-.247v-.391c0-.128.016-.224.056-.28a.597.597 0 01.224-.167 4.577 4.577 0 011.005-.36 4.84 4.84 0 011.246-.151c.95 0 1.644.216 2.091.647.44.43.662 1.085.662 1.963v2.586h.016zm-3.24 1.214c.263 0 .534-.048.822-.144a1.78 1.78 0 00.758-.51 1.27 1.27 0 00.272-.512c.047-.191.08-.423.08-.694v-.335a6.66 6.66 0 00-.735-.136 6.02 6.02 0 00-.75-.048c-.535 0-.926.104-1.19.32-.263.215-.39.518-.39.917 0 .375.095.655.295.846.191.2.47.296.838.296zm6.41.862c-.144 0-.24-.024-.304-.08-.064-.048-.12-.16-.168-.311L7.586 6.726a1.398 1.398 0 01-.072-.32c0-.128.064-.2.191-.2h.783c.151 0 .255.025.31.08.065.048.113.16.16.312l1.342 5.284 1.245-5.284c.04-.16.088-.264.151-.312a.549.549 0 01.32-.08h.638c.152 0 .256.025.32.08.063.048.12.16.151.312l1.261 5.348 1.381-5.348c.048-.16.104-.264.16-.312a.52.52 0 01.311-.08h.743c.127 0 .2.065.2.2 0 .04-.009.08-.017.128a1.137 1.137 0 01-.056.2l-1.923 6.17c-.048.16-.104.263-.168.311a.51.51 0 01-.303.08h-.687c-.15 0-.255-.024-.32-.08-.063-.056-.119-.16-.15-.32L12.32 7.747l-1.23 5.14c-.04.16-.087.264-.15.32-.065.056-.177.08-.32.08l-.686.001zm10.256.215c-.415 0-.83-.048-1.229-.143-.399-.096-.71-.2-.918-.32-.128-.071-.215-.151-.247-.223a.563.563 0 01-.048-.224v-.407c0-.167.064-.247.183-.247.048 0 .096.008.144.024.048.016.12.048.2.08.271.12.566.215.878.279.32.064.63.096.95.096.502 0 .894-.088 1.165-.264a.86.86 0 00.415-.758.777.777 0 00-.215-.559c-.144-.151-.416-.287-.807-.415l-1.157-.36c-.583-.183-1.014-.454-1.277-.813a1.902 1.902 0 01-.4-1.158c0-.335.073-.63.216-.886.144-.255.335-.479.575-.654.24-.184.51-.32.83-.415.32-.096.655-.136 1.006-.136.175 0 .36.008.535.032.183.024.35.056.518.088.16.04.312.08.455.127.144.048.256.096.336.144a.69.69 0 01.24.2.43.43 0 01.071.263v.375c0 .168-.064.256-.184.256a.83.83 0 01-.303-.096 3.652 3.652 0 00-1.532-.311c-.455 0-.815.071-1.062.223-.248.152-.375.383-.375.71 0 .224.08.416.24.567.16.152.454.304.877.44l1.134.358c.574.184.99.44 1.237.767.247.327.367.702.367 1.117 0 .343-.072.655-.207.926a2.157 2.157 0 01-.583.703c-.248.2-.543.343-.886.447-.36.111-.734.167-1.142.167z"></path><path d="M.378 15.475c3.384 1.963 7.56 3.153 11.877 3.153 2.914 0 6.114-.607 9.06-1.852.44-.2.814.287.383.607-2.626 1.94-6.442 2.969-9.722 2.969-4.598 0-8.74-1.7-11.87-4.526-.247-.223-.024-.527.272-.351zm23.531-.2c.287.36-.08 2.826-1.485 4.007-.215.184-.423.088-.327-.151l.175-.439c.343-.88.802-2.198.52-2.555-.336-.43-2.22-.207-3.074-.103-.255.032-.295-.192-.063-.36 1.5-1.053 3.967-.75 4.254-.399z" fill="#F90"></path></g></svg>AWS CodeCommit</li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#0052CC" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>Jira</li>
           </ul>
         </div>
       </section>
 
-      <!-- How it works -->
-      <section class="section" id="how">
+      <!-- ================================================================ the problem -->
+      <section class="section" id="why">
         <div class="wrap">
-          <p class="kicker">How it works</p>
-          <h2>Four steps. You decide at every one.</h2>
-          <ol class="steps">
-            <li>
-              <span class="n">1</span>
-              <h3>Ask</h3>
-              <p>Describe the change in a chat, like you would to a colleague. Tandem asks only what it needs to know.</p>
-            </li>
-            <li>
-              <span class="n">2</span>
-              <h3>Approve the spec</h3>
-              <p>A short spec with acceptance criteria and the tests to add. Nothing is built until you, and your PM if you like, approve it.</p>
-            </li>
-            <li>
-              <span class="n">3</span>
-              <h3>Copilot builds, Tandem checks</h3>
-              <p>Copilot writes the code on its own branch. Tandem runs your lint, types, build and tests, sends failures back, then reviews the change against the spec.</p>
-            </li>
-            <li>
-              <span class="n">4</span>
-              <h3>Review and merge</h3>
-              <p>One clean commit and a pull request with every criterion traced to its test. A person reviews and merges. Agents never do.</p>
-            </li>
-          </ol>
+          <div class="section-head reveal">
+            <p class="kicker">Why Tandem</p>
+            <h2>AI writes code in minutes. Trusting it still takes days.</h2>
+            <p>Coding agents are fast, and that moved the hard part. Changes arrive without a plan, pass on one machine and fail on another, and land as diffs nobody wants to review. Tandem puts back the steps a careful team never skips.</p>
+          </div>
+          <div class="problems">
+            <article class="card problem reveal">
+              <span class="was">Code first, questions later</span>
+              <h3>A spec comes first</h3>
+              <p>Tandem asks until the request is clear, then writes acceptance criteria you can read in a minute.</p>
+              <p class="now"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>No code until you, and your PM if you like, approve.</p>
+            </article>
+            <article class="card problem reveal" style="--d: 80ms">
+              <span class="was">“It worked for the agent”</span>
+              <h3>Your checks, every time</h3>
+              <p>Install, lint, types, build and tests run with your own commands in a clean copy, and failures go back to be fixed.</p>
+              <p class="now"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>Each criterion is proven by a test.</p>
+            </article>
+            <article class="card problem reveal" style="--d: 160ms">
+              <span class="was">A diff too big to review</span>
+              <h3>A pull request you can read</h3>
+              <p>One commit with a human title, the spec in the description, and every criterion traced to its test.</p>
+              <p class="now"><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>A person reviews and merges. Agents never do.</p>
+            </article>
+          </div>
+          <ul class="facts reveal" aria-label="True of every task">
+            <li><b>3</b><span>decisions are yours: what to build, the spec it follows, and the merge</span></li>
+            <li><b>0</b><span>merges, deploys or pushes to your main branch by an agent</span></li>
+            <li><b>1</b><span>clean commit per task, on its own <code>feature/</code> branch</span></li>
+            <li><b>100%</b><span>of acceptance criteria mapped to a test that passes</span></li>
+          </ul>
         </div>
       </section>
 
-      <!-- Features -->
-      <section class="section alt" id="features">
+      <!-- ================================================================ how it works -->
+      <section class="section" id="how" style="padding-top: 0">
         <div class="wrap">
-          <p class="kicker">Features</p>
-          <h2>Everything a careful team would do. Done for you.</h2>
-          <div class="features">
-            <article>
-              <span class="fi" aria-hidden="true">◎</span>
-              <h3>Specs before code</h3>
-              <p>Given, when, then. Every requirement becomes a criterion, and every criterion gets a test.</p>
+          <div class="section-head center reveal">
+            <p class="kicker">How it works</p>
+            <h2>Five steps. Three of them are yours.</h2>
+            <p>You and the agent work side by side, each on your own part, and finish as one pull request.</p>
+          </div>
+          <div class="lanes" id="lanes">
+            <svg class="lanes-seam" aria-hidden="true"><path id="seam" d="" /></svg>
+            <div class="lane-label you"><b>You</b><small>decide</small></div>
+            <div class="lane-label agent"><b>Tandem and Copilot</b><small>do the work, and check it</small></div>
+            <article class="card lane-step mine s1 reveal"><span class="n">1</span><h3>Describe it</h3><p>In a chat, the way you'd ask a colleague. Or import the Jira issue.</p></article>
+            <article class="card lane-step s2 reveal" style="--d: 90ms"><span class="n">2</span><h3>Spec</h3><p>Questions until it's clear, then criteria and the tests that will prove them.</p></article>
+            <article class="card lane-step mine s3 reveal" style="--d: 180ms"><span class="n">3</span><h3>Approve it</h3><p>You, and your PM in Tandem or by replying in Jira. Change it and it's drafted again.</p></article>
+            <article class="card lane-step s4 reveal" style="--d: 270ms"><span class="n">4</span><h3>Build and check</h3><p>Copilot builds on its own branch. Tandem runs your checks, reviews the change, and has it fixed.</p></article>
+            <article class="card lane-step end s5 reveal" style="--d: 360ms"><span class="n">5</span><h3>Merge it</h3><p>One pull request per repository, ready for review. Merging stays with you.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================ features -->
+      <section class="section" id="features" style="padding-top: 0">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <p class="kicker">Features</p>
+            <h2>Everything a careful team would do. Done for you, on every task.</h2>
+          </div>
+          <div class="dives">
+            <!-- Spec -->
+            <div class="dive">
+              <div class="dive-copy reveal">
+                <h3>A spec before a single line of code</h3>
+                <p>Tandem reads your repository, asks what it needs to know, and writes the spec in plain words: given, when, then. You approve that version, not a summary of it.</p>
+                <ul class="points">
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Your PM approves in Tandem, or by replying “approve” on the Jira issue</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Ask for a change and the spec is drafted again, with approvals reset</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Frontend and backend in separate repositories? One spec, linked pull requests</span></li>
+                </ul>
+              </div>
+              <div class="dive-art reveal" style="--d: 100ms" aria-hidden="true">
+                <div class="card art">
+                  <div class="art-h"><b>Spec v2 · Export orders as CSV</b><span class="badge badge-ok"><svg class="ico"><use href="#i-check" /></svg>Approved</span></div>
+                  <ol class="gwt">
+                    <li><em>Given</em> the orders list, <em>when</em> I choose Export, <em>then</em> a CSV of the filtered orders downloads.</li>
+                    <li><em>Given</em> more than 10,000 orders, <em>when</em> I export, <em>then</em> I'm told it is emailed instead.</li>
+                    <li><em>Given</em> no orders match, <em>then</em> Export is disabled with a reason.</li>
+                  </ol>
+                </div>
+                <div class="card art">
+                  <ul class="rows">
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>You</b> approved v2</span><span class="t">10:42</span></li>
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>Pat</b> replied “approve” in Jira</span><span class="t">11:05</span></li>
+                    <li><svg class="ico warn"><use href="#i-refresh" /></svg><span>v1 changed: “email large exports”</span><span class="t">10:31</span></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <!-- Checks -->
+            <div class="dive">
+              <div class="dive-copy reveal">
+                <h3>Checks that really run, and tests that prove the spec</h3>
+                <p>Every task runs your repository's own install, lint, type-check, build and test commands in a clean copy. When something fails, the agent gets the output and fixes it.</p>
+                <ul class="points">
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Each acceptance criterion is mapped to the test that proves it</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Failures that were already on your main branch are told apart from new ones</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Installed dependencies are shared between tasks, so checks start fast</span></li>
+                </ul>
+              </div>
+              <div class="dive-art reveal" style="--d: 100ms" aria-hidden="true">
+                <div class="card art">
+                  <div class="art-h"><b>Checks</b><small>clean copy · your commands</small></div>
+                  <ul class="rows">
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>Install</b> <code>npm ci</code></span><span class="t">8s</span></li>
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>Lint</b> <code>npm run lint</code></span><span class="t">4s</span></li>
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>Types</b> <code>npm run typecheck</code></span><span class="t">6s</span></li>
+                    <li><svg class="ico ok"><use href="#i-check" /></svg><span><b>Build</b> <code>npm run build</code></span><span class="t">11s</span></li>
+                    <li><svg class="ico warn"><use href="#i-history" /></svg><span><b>Tests</b> 1 failure, already on main: not this change</span><span class="t">14s</span></li>
+                  </ul>
+                </div>
+                <div class="card art">
+                  <div class="art-h"><b>Criteria and their tests</b><span class="badge badge-ok">3 of 3</span></div>
+                  <div class="trace">
+                    <span class="c">1</span><code>orders-export.spec.ts › downloads the filtered list</code><svg class="ico" style="color: var(--ok)"><use href="#i-check" /></svg>
+                    <span class="c">2</span><code>orders-export.spec.ts › emails large exports</code><svg class="ico" style="color: var(--ok)"><use href="#i-check" /></svg>
+                    <span class="c">3</span><code>orders-export.spec.ts › disabled when empty</code><svg class="ico" style="color: var(--ok)"><use href="#i-check" /></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Pull request -->
+            <div class="dive">
+              <div class="dive-copy reveal">
+                <h3>A pull request your reviewers will actually read</h3>
+                <p>Before you see it, a second pass reads the whole diff against the spec, the rules your team taught it and a security checklist, and fixes what matters. Then one commit, with a title a person would write.</p>
+                <ul class="points">
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>The spec, the checks and every criterion's test in the description</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>When main moves on, Tandem keeps the branch mergeable, without force-pushing</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Rules your team teaches it in review are followed on every task after</span></li>
+                </ul>
+              </div>
+              <div class="dive-art reveal" style="--d: 100ms" aria-hidden="true">
+                <div class="card art">
+                  <div class="pr-top">
+                    <span class="pr-ico"><svg class="ico"><use href="#i-pr" /></svg></span>
+                    <div><p class="pr-title">SHOP-57: Export orders as CSV</p><p class="pr-sub">shop-web · <code>feature/SHOP-57-export-orders-csv</code></p></div>
+                  </div>
+                  <div class="commit" style="margin-top: 14px"><svg class="ico"><use href="#i-branch" /></svg><span>SHOP-57: Export orders as CSV</span><span class="sha" style="margin-left: auto">a41c9e2</span></div>
+                  <ul class="pr-rows">
+                    <li><svg class="ico"><use href="#i-check" /></svg><span>Self-review: 2 findings, both fixed</span></li>
+                    <li><svg class="ico"><use href="#i-check" /></svg><span>Main moved on: merged in, conflict resolved, checks passed</span></li>
+                    <li><svg class="ico"><use href="#i-check" /></svg><span>Linked: <b style="color: var(--text); font-weight: 560">shop-api #212</b>, built first</span></li>
+                  </ul>
+                  <div class="pr-merge"><span>Waiting for review</span><span class="badge badge-accent">Yours to merge</span></div>
+                </div>
+              </div>
+            </div>
+            <!-- Spend -->
+            <div class="dive">
+              <div class="dive-copy reveal">
+                <h3>Spend you can see coming</h3>
+                <p>Copilot runs on your own plan. Pick the model for each task, see an estimate before it starts, and set limits that stop a task the moment it reaches them.</p>
+                <ul class="points">
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Daily and per-task limits, in prompts and in AI credits</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Every model your Copilot plan offers, with its cost next to it</span></li>
+                  <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>A task that hits a limit waits for you, with nothing half-pushed</span></li>
+                </ul>
+              </div>
+              <div class="dive-art reveal" style="--d: 100ms" aria-hidden="true">
+                <div class="card art">
+                  <div class="art-h"><b>Model for this task</b><small>estimate per task</small></div>
+                  <ul class="models">
+                    <li class="on"><svg viewBox="0 0 24 24"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" fill="#D97757" fill-rule="nonzero"></path></svg>Claude<span class="est">about 4 credits</span></li>
+                    <li><svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"></path></g></svg>GPT<span class="est">about 3 credits</span></li>
+                    <li><svg viewBox="0 0 24 24"><path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" fill="#3186FF"></path><path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" fill="url(#lobe-icons-gemini-0)"></path><path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" fill="url(#lobe-icons-gemini-1)"></path><path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" fill="url(#lobe-icons-gemini-2)"></path><defs><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-gemini-0" x1="7" x2="11" y1="15.5" y2="12"><stop stop-color="#08B962"></stop><stop offset="1" stop-color="#08B962" stop-opacity="0"></stop></linearGradient><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-gemini-1" x1="8" x2="11.5" y1="5.5" y2="11"><stop stop-color="#F94543"></stop><stop offset="1" stop-color="#F94543" stop-opacity="0"></stop></linearGradient><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-gemini-2" x1="3.5" x2="17.5" y1="13.5" y2="12"><stop stop-color="#FABC12"></stop><stop offset=".46" stop-color="#FABC12" stop-opacity="0"></stop></linearGradient></defs></svg>Gemini<span class="est">about 2 credits</span></li>
+                  </ul>
+                </div>
+                <div class="card art">
+                  <div class="meter"><div class="meter-top"><span>This task</span><b>3.1 of 25 credits</b></div><div class="meter-bar"><i style="--w: 12%"></i></div></div>
+                  <div class="meter"><div class="meter-top"><span>Today, this workspace</span><b>41 of 75 credits</b></div><div class="meter-bar"><i style="--w: 55%"></i></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================ everything around it -->
+      <section class="section" style="padding-top: 0">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <p class="kicker">Made for teams</p>
+            <h2>And everything around the code.</h2>
+          </div>
+          <div class="bento">
+            <article class="card tile w3 reveal">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-layers" /></svg></span>
+              <h3>Frontend and backend, built in order</h3>
+              <p>A project can span several repositories. The backend is built first, the frontend against it, and the pull requests link to each other.</p>
+              <div class="mini" aria-hidden="true">
+                <ul class="mini-prs">
+                  <li><svg class="ico"><use href="#i-pr" /></svg><span><b>shop-api</b> #212</span><span class="badge badge-ok">Checks passed</span></li>
+                  <li><svg class="ico"><use href="#i-pr" /></svg><span><b>shop-web</b> #518</span><span class="badge badge-ok">Checks passed</span></li>
+                </ul>
+              </div>
             </article>
-            <article>
-              <span class="fi" aria-hidden="true">✓</span>
-              <h3>Checks that really run</h3>
-              <p>Your own commands, in a clean workspace. Failures that were already on your main branch are told apart from new ones.</p>
+            <article class="card tile w3 reveal" style="--d: 80ms">
+              <span class="tile-ico"><svg class="fill" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0052CC" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>
+              <h3>Jira in a few clicks</h3>
+              <p>Connect Jira by signing in at Atlassian. Issues in your “ready” status become tasks, specs go to the issue, and the issue moves when the pull request opens.</p>
+              <div class="mini" aria-hidden="true">
+                <ul class="mini-feed">
+                  <li><time>09:12</time>SHOP-57 imported from Jira</li>
+                  <li><time>10:42</time>Spec v2 posted to SHOP-57</li>
+                  <li><time>11:58</time>SHOP-57 moved to In Review</li>
+                </ul>
+              </div>
             </article>
-            <article>
-              <span class="fi" aria-hidden="true">⌘</span>
-              <h3>A self-review</h3>
-              <p>A second pass reads the whole diff against the spec, your repo rules and a security checklist, and fixes what matters.</p>
-            </article>
-            <article>
-              <span class="fi" aria-hidden="true">≡</span>
-              <h3>History that reads well</h3>
-              <p>One commit per task with a short, human title, on a <code>feature/</code> branch. No noise in your log.</p>
-            </article>
-            <article>
-              <span class="fi" aria-hidden="true">◷</span>
+            <article class="card tile w2 reveal">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-activity" /></svg></span>
               <h3>Live progress</h3>
-              <p>See each stage as it happens: what Copilot is reading, which check is running, what comes next.</p>
+              <p>See what Copilot is reading, which check is running and what comes next, as it happens.</p>
+              <div class="mini" aria-hidden="true">
+                <div class="mini-progress"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="now"></span><span></span><span></span><span></span></div>
+                <p class="mini-now"><span class="spin"></span>Checks · running tests, 3 of 5 done</p>
+              </div>
             </article>
-            <article>
-              <span class="fi" aria-hidden="true">€</span>
-              <h3>Spend you control</h3>
-              <p>Daily and per-task limits on Copilot credits, the model per task, and an estimate before you start.</p>
+            <article class="card tile w2 reveal" style="--d: 80ms">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-key" /></svg></span>
+              <h3>CodeCommit without keys</h3>
+              <p>Create a role in your AWS account from Tandem's template. It reaches only the repositories you choose, and only your workspace may use it.</p>
+            </article>
+            <article class="card tile w2 reveal" style="--d: 160ms">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-users" /></svg></span>
+              <h3>A workspace per team</h3>
+              <p>Invite colleagues with a link. Approvals and the audit log name who did what.</p>
+              <div class="mini mini-people" aria-hidden="true"><span style="background: #e48a6b">S</span><span style="background: #6d7fe0">P</span><span style="background: #3f9a8f">M</span><span style="background: #b07ad8">H</span><small>4 members</small></div>
+            </article>
+            <article class="card tile w4 reveal">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-history" /></svg></span>
+              <h3>Every step on the record</h3>
+              <p>A tamper-evident audit log of requests, approvals, commits and pull requests, which anyone can verify and export for your auditors.</p>
+              <div class="mini" aria-hidden="true">
+                <ul class="mini-feed">
+                  <li><time>10:42</time><span><b style="color: var(--text); font-weight: 560">Sam</b> approved spec v2 of SHOP-57</span><span class="hash">#9f2e…</span></li>
+                  <li><time>11:58</time><span>Pull request opened on shop-web</span><span class="hash">#c81a…</span></li>
+                  <li><time>12:20</time><span>Audit chain verified, 1,284 entries</span><span class="hash">#00d4…</span></li>
+                </ul>
+              </div>
+            </article>
+            <article class="card tile w2 reveal" style="--d: 80ms">
+              <span class="tile-ico"><svg class="ico" aria-hidden="true"><use href="#i-chat" /></svg></span>
+              <h3>Ask before you build</h3>
+              <p>Ask questions about your code in chat, read-only. Turn the answer into a request when you're ready.</p>
+              <div class="mini" aria-hidden="true"><p class="mini-ask">Where do we send order emails from?</p></div>
             </article>
           </div>
         </div>
       </section>
 
-      <!-- Runner -->
+      <!-- ================================================================ guardrails -->
+      <section class="section band" id="guardrails">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <p class="kicker">Guardrails</p>
+            <h2>Rules in code, not in a prompt.</h2>
+            <p>What an agent may do is enforced by Tandem before each action runs. The prompt repeats the rules, but nothing depends on the model following them.</p>
+          </div>
+          <div class="guard">
+            <div class="guard-col can reveal">
+              <h3><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg>Agents can</h3>
+              <ul>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Read your repository, and edit files inside the task's own folder</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Run your repository's own install, lint, type-check, build and test commands</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Push to the <code>feature/</code> branch Tandem made for the task</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Start building only after every approval of the current spec</span></li>
+              </ul>
+            </div>
+            <div class="guard-col cant reveal" style="--d: 90ms">
+              <h3><svg class="ico" aria-hidden="true"><use href="#i-x" /></svg>Agents can't</h3>
+              <ul>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-x" /></svg><span>Merge, or push to your main branch or any branch they didn't create</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-x" /></svg><span>Force-push. Only <code>--force-with-lease</code>, after Tandem's own rebase</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-x" /></svg><span>Run cloud CLIs, <code>curl</code>, <code>ssh</code>, publish or deploy commands</span></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-x" /></svg><span>Write outside the task folder, or go past the spend limits you set</span></li>
+              </ul>
+            </div>
+          </div>
+          <div class="guard-foot">
+            <div class="reveal"><b>Every build isolated</b><p>In Tandem's cloud, each build runs in its own sandbox that sees only its workspace.</p></div>
+            <div class="reveal" style="--d: 80ms"><b>Secrets never in reach</b><p>Tokens are sealed per workspace, kept away from builds, and redacted from every log.</p></div>
+            <div class="reveal" style="--d: 160ms"><b>A person merges</b><p>Every change reaches your main branch through your own review, nothing else.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================ the company runner -->
       <section class="section" id="runner">
         <div class="wrap split">
-          <div>
-            <p class="kicker">For companies</p>
-            <h2>Your code stays where it lives.</h2>
-            <p class="body">Run tasks in Tandem's isolated EU sandboxes, or install the Tandem runner on your own laptops, VMs or cluster. The runner connects out over HTTPS, works in the clones you already have, and uses your own SSH keys and cloud sign-in. Your source code never leaves your network.</p>
+          <div class="reveal">
+            <p class="kicker">Your own computers</p>
+            <h2>Your code can stay inside the company.</h2>
+            <p style="margin-top: 18px; color: var(--muted); font-size: 1.08rem">Move a workspace to a computer of yours: a laptop, a VM or a server. Tandem then works there, in the clones you already have, with your git, SSH keys, AWS sign-in and Copilot seat. The web app stays the way in for everyone.</p>
             <ul class="ticks">
-              <li>Outbound only: no inbound ports, no VPN</li>
-              <li>Uses your existing git, SSH and AWS sign-in</li>
-              <li>One switch per project: hosted or your runners</li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>One outbound connection: no inbound ports, no VPN</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>The workspace's data and code stay on that computer</span></li>
+              <li><svg class="ico" aria-hidden="true"><use href="#i-check" /></svg><span>Installed in one line, by the owner of the workspace</span></li>
             </ul>
           </div>
-          <div class="diagram" aria-hidden="true">
-            <div class="node cloud"><b>Tandem</b><small>EU cloud · coordinates</small></div>
-            <div class="link"><span>jobs, status</span></div>
-            <div class="node runner"><b>Your runner</b><small>laptop, VM or cluster</small></div>
-            <div class="link"><span>git over SSH or HTTPS</span></div>
-            <div class="node repo"><b>Your repositories</b><small>GitHub or CodeCommit</small></div>
+          <div class="reveal" style="--d: 100ms">
+            <div class="term" role="group" aria-label="Setting up a company runner">
+              <div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>build-server-01</div>
+              <div class="term-body">
+                <div class="term-line"><span class="p" aria-hidden="true">$</span><code>npm install -g https://app.[domain]/download/tandem.tgz</code><button class="copy" type="button" data-copy="npm install -g https://app.[domain]/download/tandem.tgz" aria-label="Copy the install command"><svg class="ico clip" aria-hidden="true"><use href="#i-copy" /></svg><svg class="ico done" aria-hidden="true"><use href="#i-check" /></svg></button></div>
+                <div class="term-out">added 139 packages in 15s</div>
+                <div class="term-line"><span class="p" aria-hidden="true">$</span><code>tandem runner --url https://app.[domain] --key tdr_••••••</code></div>
+                <div class="term-out ok">Connected for the workspace “Acme web”. Leave this running.</div>
+              </div>
+            </div>
+            <div class="flow" aria-hidden="true">
+              <div class="flow-node"><b>Your team</b><small>in the browser</small></div>
+              <div class="flow-arrow"><svg class="ico"><use href="#i-right" /></svg></div>
+              <div class="flow-node"><b>Tandem</b><small>EU · the way in</small></div>
+              <div class="flow-arrow"><svg class="ico" style="transform: scaleX(-1)"><use href="#i-right" /></svg><span>outbound</span></div>
+              <div class="flow-node home"><b>Your runner</b><small>code stays here</small></div>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- Security -->
-      <section class="section alt" id="security">
+      <!-- ================================================================ security and privacy -->
+      <section class="section" id="security" style="padding-top: 0">
         <div class="wrap">
-          <p class="kicker">Security and privacy</p>
-          <h2>Built for teams who read the fine print.</h2>
+          <div class="section-head reveal">
+            <p class="kicker">Security and privacy</p>
+            <h2>Built for teams who read the fine print.</h2>
+          </div>
           <div class="sec">
-            <div><h3>Hosted in the EU</h3><p>Tandem's data and processing stay in Frankfurt, backups in the EU. GDPR by design, with a data processing agreement for your company.</p></div>
-            <div><h3>Your Copilot, your terms</h3><p>Copilot runs under your own GitHub account and plan. We never resell it, and never train on your code.</p></div>
-            <div><h3>Guardrails in code</h3><p>Agents can't push to your main branch, merge, deploy, reach the network or run migrations. Enforced by Tandem, not by a prompt.</p></div>
-            <div><h3>Secrets stay secret</h3><p>Tokens are encrypted per workspace and never reach the browser. Sign-ins renew themselves and can be revoked at any time.</p></div>
-            <div><h3>Every step on record</h3><p>A tamper-evident audit log of approvals, commits and pull requests, exportable for your auditors.</p></div>
-            <div><h3>Your data, your call</h3><p>Export everything or delete your account yourself, at any time. No tracking cookies, no ads, no analytics on you.</p></div>
+            <div class="reveal"><h3><svg class="ico" aria-hidden="true"><use href="#i-globe" /></svg>Hosted in the EU</h3><p>Tandem's storage and processing stay in the EU, backups too, with a data processing agreement for your company.</p></div>
+            <div class="reveal" style="--d: 60ms"><h3><svg class="ico" aria-hidden="true"><use href="#i-key" /></svg>Your Copilot, your terms</h3><p>Copilot runs under a member's own GitHub account and plan. Tandem doesn't resell it, and trains nothing on your code.</p></div>
+            <div class="reveal" style="--d: 120ms"><h3><svg class="ico" aria-hidden="true"><use href="#i-lock" /></svg>Workspaces kept apart</h3><p>Each workspace has its own database and folders, reached only after a membership check on every request.</p></div>
+            <div class="reveal"><h3><svg class="ico" aria-hidden="true"><use href="#i-shield" /></svg>Sign-ins you control</h3><p>GitHub, AWS and Jira connect with their own sign-in. Nothing is stored in the browser, and every connection can be removed at once.</p></div>
+            <div class="reveal" style="--d: 60ms"><h3><svg class="ico" aria-hidden="true"><use href="#i-book" /></svg>Your data, your call</h3><p>Export a workspace or your account as one file, or delete your account yourself, at any time.</p></div>
+            <div class="reveal" style="--d: 120ms"><h3><svg class="ico" aria-hidden="true"><use href="#i-eye" /></svg>No tracking</h3><p>No analytics, ads or tracking cookies, on this site or in the app. This page loads nothing from anyone else.</p></div>
           </div>
         </div>
       </section>
 
-      <!-- FAQ -->
-      <section class="section" id="faq">
-        <div class="wrap narrow">
-          <p class="kicker">FAQ</p>
-          <h2>Questions, answered.</h2>
-          <div class="faq">
+      <!-- ================================================================ FAQ -->
+      <section class="section" id="faq" style="padding-top: 0">
+        <div class="wrap faq-grid">
+          <div class="faq-side reveal">
+            <p class="kicker">FAQ</p>
+            <h2>Questions, answered.</h2>
+            <p>Anything else? Write to <a href="mailto:[privacy email]">[privacy email]</a>.</p>
+          </div>
+          <div class="faq reveal" style="--d: 80ms">
             <details>
-              <summary>Which Copilot plans work?</summary>
-              <p>Any plan that may use Copilot from the CLI or SDK: Copilot Free, Pro and Pro+, and Copilot Business or Enterprise from your company, on github.com or on GitHub Enterprise Cloud (*.ghe.com). Your organisation may need to allow the Copilot CLI policy.</p>
+              <summary>Who merges the pull request?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>A person, always. Tandem pushes only to the task's own branch and opens the pull request. Your review rules, CI and deploys stay exactly as they are.</p>
             </details>
             <details>
-              <summary>Does Tandem merge or deploy anything?</summary>
-              <p>No. Tandem pushes only to its own task branch and opens a pull request. A person reviews and merges. Deploys stay with your existing pipeline.</p>
+              <summary>Which Copilot plans work?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>Copilot Free, Pro and Pro+, and Copilot Business or Enterprise from your company, on github.com or GitHub Enterprise Cloud (<code>*.ghe.com</code>). A workspace runs on one member's plan; your organisation may need to allow the Copilot CLI policy.</p>
             </details>
             <details>
-              <summary>What does it cost to run a task?</summary>
-              <p>Copilot work counts against your Copilot plan. Tandem shows an estimate in AI credits before you start, and stops a task at the limits you set.</p>
+              <summary>Which repositories and trackers?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>GitHub and AWS CodeCommit repositories, in any language whose checks run from the command line. Jira Cloud connects with Atlassian's sign-in, Jira Data Center with a token. Without Jira, everything stays in Tandem.</p>
             </details>
             <details>
-              <summary>Where is my data processed?</summary>
-              <p>Tandem's own storage and processing are in the EU. Copilot is processed by GitHub under your agreement with them; with GitHub Enterprise Cloud data residency in the EU, that stays in the EU too.</p>
+              <summary>What does a task cost?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>The Copilot work counts against your own Copilot plan. Tandem shows an estimate in AI credits before a task starts, and stops it at the limits you set, per task and per day.</p>
             </details>
             <details>
-              <summary>Can we keep our source code inside the company?</summary>
-              <p>Yes. Install the Tandem runner on your own machines. Tasks then run there with your own credentials, and the code never reaches Tandem's cloud.</p>
+              <summary>Where is our code processed?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>In Tandem's cloud, in the EU: each task's code is cloned into its workspace's isolated folder for the build. With a company runner, it never leaves your computers. Copilot itself is processed by GitHub under your agreement with them.</p>
             </details>
             <details>
-              <summary>Can we run Tandem ourselves?</summary>
-              <p>Yes. Tandem is one web app: the same one we host runs on your own server, or on one computer to try it. A company runner keeps the code on your machines either way.</p>
+              <summary>Does Tandem train on our code?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>No. Tandem trains no models. Your code is used only to do the task you asked for.</p>
+            </details>
+            <details>
+              <summary>What if the checks fail?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>The agent gets the output and two tries to fix it. If it still fails, the task waits and tells you why, in plain words, with what to do next. Failures already on your main branch are pointed out as such.</p>
+            </details>
+            <details>
+              <summary>Can we run Tandem ourselves?<svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></summary>
+              <p>Yes. The same web app we host runs on your own server as one container, with your GitHub App. Or keep using ours and run only a company runner.</p>
             </details>
           </div>
         </div>
       </section>
 
-      <!-- Final CTA -->
+      <!-- ================================================================ final call -->
       <section class="cta">
-        <div class="wrap cta-box">
-          <h2>Hand over the next ticket.</h2>
-          <p>Connect GitHub, pick a repository and describe the change. You'll have a spec to approve in a minute.</p>
-          <a class="btn btn-light btn-lg" href="/app/signup">Get started with GitHub</a>
+        <div class="wrap">
+          <div class="cta-box reveal">
+            <svg class="fuse" viewBox="0 0 96 96" aria-hidden="true"><path d="M12 16H84V34H57V82H39V34H12ZM46.5 16H49.5V58.5A1.5 1.5 0 0 1 46.5 58.5Z" fill-rule="evenodd" /></svg>
+            <h2>Hand over the next ticket.</h2>
+            <p>Sign in with GitHub, add a repository and describe the change. You'll have a spec to approve in a few minutes.</p>
+            <div class="hero-cta">
+              <a class="btn btn-primary btn-lg" href="/app">
+                <svg class="gh" viewBox="0 0 24 24" aria-hidden="true"><g fill-rule="evenodd"><path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"></path></g></svg>
+                Start with GitHub
+              </a>
+              <a class="btn btn-ghost btn-lg" href="#runner">Keep code in-house<svg class="ico ico-right" aria-hidden="true"><use href="#i-right" /></svg></a>
+            </div>
+          </div>
         </div>
       </section>
     </main>
 
     <footer class="foot">
-      <div class="wrap foot-row">
-        <div>
-          <a class="brand" href="#top"><span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 4.5h9M8 4.5v8" /></svg></span> Tandem</a>
-          <p class="fine">© <span id="year">2026</span> <a href="https://chdlabs.com">CHD Labs</a>. Hosted in the EU.</p>
+      <div class="wrap">
+        <div class="foot-row">
+          <div class="foot-brand">
+            <a href="#top" aria-label="Tandem, back to top" style="display: inline-flex"><svg class="wordmark" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0.00000 -0.00004 3.69751 0.73926"><path transform="translate(0 -0.18) scale(0.011023) translate(-12 0)" class="wm-mark" fill-rule="evenodd" d="M12 16H84V34H57V82H39V34H12ZM46.5 16H49.5V58.5A1.5 1.5 0 0 1 46.5 58.5Z"/><path transform="translate(0.75864 0.72750) scale(0.00048828)" class="wm-text" d="M430.9 17.4Q325.4 17.4 243.3 -17.7Q161.2 -52.8 113.9 -123.2Q66.5 -193.6 66.5 -298.6Q66.5 -388.7 100 -447.7Q133.4 -506.7 191.1 -542.4Q248.8 -578.1 323.7 -596.6Q398.5 -615.2 480.2 -623.4Q577.6 -633.8 634.9 -642.4Q692.2 -651 717 -667.9Q741.7 -684.8 741.7 -719.8V-727.1Q741.7 -769.3 719.8 -801.5Q697.9 -833.6 657.1 -851.9Q616.4 -870.2 559 -870.2Q501.3 -870.2 457.4 -851.8Q413.5 -833.3 387.9 -800.6Q362.3 -767.8 358.3 -724.7H98.4Q105.2 -832 162.5 -911.1Q219.7 -990.3 322.1 -1034Q424.6 -1077.8 566.2 -1077.8Q671.7 -1077.8 754.8 -1053Q837.8 -1028.3 895.3 -981.4Q952.7 -934.5 982.5 -868Q1012.3 -801.5 1012.3 -718.1V0H744.4V-149.1H740.4Q714.2 -99.8 673.6 -62.2Q633 -24.6 573.6 -3.6Q514.3 17.4 430.9 17.4ZM502.6 -178.3Q579.2 -178.3 633.1 -206.4Q687.1 -234.4 715.3 -281.8Q743.5 -329.2 743.5 -388.3V-498.7Q731.2 -491.5 709.2 -484.8Q687.2 -478.2 657.5 -472Q627.8 -465.9 593 -460Q558.2 -454.1 520.8 -448.6Q468.8 -441 425.6 -424Q382.3 -407 356.4 -378Q330.5 -349 330.5 -303.9Q330.5 -264.8 351.8 -236.5Q373.2 -208.2 411.8 -193.3Q450.5 -178.3 502.6 -178.3ZM1419.6 -591.9V0H1146.1V-1056H1415.1V-784.2H1365.3Q1416 -925 1508.7 -1001.4Q1601.4 -1077.8 1742.2 -1077.8Q1854.1 -1077.8 1938.1 -1029.5Q2022 -981.2 2068.9 -888.2Q2115.8 -795.2 2115.8 -660.5V0H1842.3V-613.4Q1842.3 -724.7 1789.2 -782.3Q1736 -839.9 1638.6 -839.9Q1575.1 -839.9 1525.6 -813.8Q1476.1 -787.8 1447.9 -733Q1419.6 -678.2 1419.6 -591.9ZM2659.6 21.8Q2522.1 21.8 2419.1 -47.2Q2316 -116.3 2259.2 -240.2Q2202.5 -364.2 2202.5 -528.9Q2202.5 -691.5 2259.9 -815.2Q2317.4 -938.9 2420.2 -1008.4Q2523 -1077.8 2657.8 -1077.8Q2726.8 -1077.8 2785.4 -1059.2Q2844.1 -1040.6 2891.3 -1003.2Q2938.5 -965.8 2972 -908.1H2973.6V-1490H3247.1V0H2977.6V-161.8H2976Q2944.3 -100.4 2896.6 -59.5Q2848.9 -18.5 2788.9 1.6Q2729 21.8 2659.6 21.8ZM2727.4 -203.7Q2806.1 -203.7 2864.6 -243.9Q2923.1 -284.1 2955.3 -357.4Q2987.6 -430.6 2987.6 -528.9Q2987.6 -627.7 2955.3 -700.5Q2923.1 -773.3 2864.6 -813.6Q2806.1 -853.8 2727.4 -853.8Q2653.1 -853.8 2597 -815.8Q2540.9 -777.7 2509.9 -705.5Q2478.9 -633.2 2478.9 -528.9Q2478.9 -425.1 2509.9 -352.4Q2540.9 -279.7 2597 -241.7Q2653.1 -203.7 2727.4 -203.7ZM3855.5 24Q3696.4 24 3579.1 -46.8Q3461.7 -117.5 3397.6 -242.3Q3333.5 -367 3333.5 -526.9Q3333.5 -688.4 3399 -813.1Q3464.5 -937.9 3580 -1009Q3695.4 -1080 3845.3 -1080Q3960.7 -1080 4054.8 -1040.2Q4148.9 -1000.5 4216.9 -927.1Q4284.8 -853.8 4321.5 -753.4Q4358.1 -653.1 4358.1 -531.9V-457.8H3436.1V-639H4224L4101 -593.4Q4101 -677.9 4070.4 -739.4Q4039.8 -800.9 3983.7 -834.3Q3927.7 -867.7 3850.2 -867.7Q3773.8 -867.7 3717.8 -834.3Q3661.8 -800.9 3631.2 -739.4Q3600.5 -677.9 3600.5 -593.4V-474.1Q3600.5 -388 3631.3 -323Q3662 -257.9 3720.8 -221.8Q3779.5 -185.8 3862.7 -185.8Q3923.3 -185.8 3970.2 -203.7Q4017 -221.6 4048.5 -253.9Q4079.9 -286.2 4093.6 -329.1H4346.4Q4326.9 -224.9 4258 -145.5Q4189.2 -66.1 4085.2 -21Q3981.3 24 3855.5 24ZM4440.3 0V-1056H4704.4V-822H4686.1Q4714.4 -908 4765.1 -964.8Q4815.9 -1021.5 4882.7 -1049.7Q4949.5 -1077.8 5023.3 -1077.8Q5144.6 -1077.8 5233.3 -1008Q5322.1 -938.2 5341.3 -822H5309.4Q5329.7 -900 5380.5 -957.4Q5431.3 -1014.7 5504.6 -1046.3Q5577.9 -1077.8 5664.5 -1077.8Q5765.3 -1077.8 5845.6 -1034Q5925.8 -990.2 5972.3 -905.6Q6018.8 -821.1 6018.8 -698.3V0H5745.3V-653.3Q5745.3 -753 5690.8 -800.9Q5636.3 -848.9 5558.2 -848.9Q5498 -848.9 5454 -822.7Q5410.1 -796.6 5386 -750.1Q5361.8 -703.7 5361.8 -642.3V0H5097.3V-663.2Q5097.3 -747.8 5046 -798.4Q4994.6 -848.9 4913.5 -848.9Q4859.3 -848.9 4813.8 -823.3Q4768.3 -797.7 4741 -748.2Q4713.8 -698.7 4713.8 -626.9V0Z"/></svg></a>
+            <p>From a request to a reviewed pull request, with you deciding at every step.</p>
+          </div>
+          <nav aria-labelledby="foot-product">
+            <h2 id="foot-product">Product</h2>
+            <ul>
+              <li><a href="#how">How it works</a></li>
+              <li><a href="#features">Features</a></li>
+              <li><a href="#guardrails">Guardrails</a></li>
+              <li><a href="#runner">Company runners</a></li>
+              <li><a href="#faq">FAQ</a></li>
+            </ul>
+          </nav>
+          <nav aria-labelledby="foot-company">
+            <h2 id="foot-company">Company</h2>
+            <ul>
+              <li><a href="https://chdlabs.com">CHD Labs</a></li>
+              <li><a href="mailto:[privacy email]">Contact</a></li>
+              <li><a href="/app">Sign in</a></li>
+            </ul>
+          </nav>
+          <nav aria-labelledby="foot-legal">
+            <h2 id="foot-legal">Legal</h2>
+            <ul>
+              <li><a href="/legal/privacy">Privacy</a></li>
+              <li><a href="/legal/terms">Terms</a></li>
+              <li><a href="/legal/dpa">Data processing agreement</a></li>
+              <li><a href="/legal/subprocessors">Subprocessors</a></li>
+            </ul>
+          </nav>
         </div>
-        <nav aria-label="Legal" class="foot-links">
-          <a href="/legal/privacy">Privacy</a>
-          <a href="/legal/terms">Terms</a>
-          <a href="/legal/dpa">Data processing agreement</a>
-          <a href="/legal/subprocessors">Subprocessors</a>
-          <a href="mailto:[privacy email]">Contact</a>
-        </nav>
+        <div class="foot-base">
+          <span>© <span id="year">2026</span> CHD Labs. Hosted in the EU.</span>
+          <span>Product names and logos are trademarks of their owners.</span>
+        </div>
       </div>
     </footer>
 
