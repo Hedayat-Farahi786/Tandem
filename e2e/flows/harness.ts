@@ -16,6 +16,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const REAL = process.env.TANDEM_E2E_REAL === '1';
+/** Hosted mode: the GitHub App's webhook secret the test server uses. */
+export const WEBHOOK_SECRET = 'e2e-webhook-secret-0123456789';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = join(ROOT, 'apps', 'server', 'dist', 'cli.js');
 const REGION = process.env.TANDEM_AWS_REGION || 'eu-central-1';
@@ -255,6 +257,7 @@ export class Harness {
         TANDEM_GITHUB_WEB_URL: this.o.hosted.github,
         TANDEM_GITHUB_API_URL: this.o.hosted.github,
         TANDEM_SECRET_KEY: this.secretKey,
+        TANDEM_GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET,
       });
     this.proc = spawn(process.execPath, [CLI, 'start', '--no-open'], { env, stdio: ['ignore', log, log], detached: process.platform !== 'win32' });
     closeSync(log);

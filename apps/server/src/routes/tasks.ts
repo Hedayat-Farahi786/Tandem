@@ -178,6 +178,12 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: ServerContext) {
     await auditOwner(store, { action: 'spec.changes-requested', summary: `${t.key}: requested changes to the spec.`, taskId: t.id, projectId: t.projectId, detail: { feedback } });
     return t;
   });
+  /** A pull request changed on GitHub (the web app's webhook): its task checks it now. */
+  app.post('/api/hooks/pull-request', async (req) => {
+    const { url } = z.object({ url: z.string().url().max(500) }).parse(req.body);
+    return { woken: await service.pullRequestChanged(url) };
+  });
+
   app.post('/api/tasks/:id/approve', async (req) => {
     const { name } = z.object({ name: z.string().optional() }).parse(req.body ?? {});
     return service.approve(id(req), name?.trim() || ownerNameOf(await tandem.settings()) || 'Owner');

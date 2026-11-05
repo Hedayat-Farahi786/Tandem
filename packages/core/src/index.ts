@@ -23,3 +23,4 @@ export * from './store-lock.js';
 export * from './audit.js';
 export * from './chat/chat-service.js';
 export * from './detect.js';
+export * from './safe-read.js';

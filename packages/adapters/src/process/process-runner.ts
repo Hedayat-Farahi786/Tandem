@@ -23,13 +23,17 @@ function killTree(pid: number): void {
 
 /** Runs owner-configured command lines (npm test, ...) through the platform shell. */
 export class ShellProcessRunner implements ProcessRunner {
+  /** Tandem's cloud: every command starts inside this sandbox. */
+  constructor(private readonly sandbox?: { wrap(argv: readonly string[], cwd?: string): { file: string; args: string[]; env: Record<string, string>; cwd: string } }) {}
+
   async runCommand(command: string, opts: { cwd: string; timeoutMs: number; env?: Record<string, string>; onLine?: (line: string) => void; signal?: AbortSignal }): Promise<ProcessResult> {
     const started = performance.now();
     return new Promise((resolve, reject) => {
-      const child = spawn(command, {
-        cwd: opts.cwd,
-        env: commandEnv(opts.env),
-        shell: true,
+      const boxed = this.sandbox?.wrap(['sh', '-c', command], opts.cwd);
+      const child = spawn(boxed ? boxed.file : command, boxed ? boxed.args : [], {
+        cwd: boxed ? boxed.cwd : opts.cwd,
+        env: { ...commandEnv(opts.env), ...(boxed?.env ?? {}) },
+        shell: !boxed,
         windowsHide: true,
         detached: process.platform !== 'win32', // own process group, so a timeout kills everything it started
         stdio: ['ignore', 'pipe', 'pipe'],

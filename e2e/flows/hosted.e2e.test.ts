@@ -11,13 +11,14 @@
  *   pnpm build && pnpm test:flows e2e/flows/hosted.e2e.test.ts
  */
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createHmac } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Harness, repoName, type Detail } from './harness.js';
+import { Harness, WEBHOOK_SECRET, repoName, type Detail } from './harness.js';
 
 const REQUEST = "Add a GET /health endpoint returning {status: 'ok'} and show the status on the main page.";
 const ANSWER = 'Show "Checking status…" while loading and "Status unavailable" if it fails. Authentication and metrics are out of scope.';
@@ -142,14 +143,23 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
     expect((await raw(hubot, 'PATCH', '/api/workspace', { name: 'Mine now' })).status).toBe(403);
     const monaId = (ws.members as Array<{ id: string; login: string }>).find((m) => m.login === 'mona')!.id;
     expect((await raw(mona, 'POST', `/api/workspace/members/${monaId}/role`, { role: 'member' })).status).toBe(409);
+    // Settings and connections are an owner's; the Copilot program and GitHub's address are the operator's.
+    const settings = await h.api<{ copilot: Record<string, string>; github: Record<string, string> }>('GET', '/api/settings');
+    expect((await raw(hubot, 'PUT', '/api/settings', settings)).status).toBe(403);
+    expect((await raw(hubot, 'POST', '/api/aws/keys', { accessKeyId: 'AKIAABCDEFGHIJKLMNOP', secretAccessKey: 'x'.repeat(40) })).status).toBe(403);
+    expect((await raw(mona, 'PUT', '/api/settings', { ...settings, copilot: { ...settings.copilot, cliPath: '/bin/sh' } })).status).toBe(409);
+    expect((await raw(mona, 'PUT', '/api/settings', { ...settings, github: { apiBase: 'https://collector.example' } })).status).toBe(409);
   });
 
   it('adds a repository and a project, turns a chat request into a task, and ends at the pull request', async () => {
     const url = `codecommit::eu-central-1://${repoName('fullstack')}`;
     const detected = await h.api<{ repo: Record<string, unknown> & { role: string } }>('POST', '/api/repos/detect', { url });
     expect(detected.repo.role).toBe('full-stack');
-    const repo = await h.api<{ id: string }>('POST', '/api/repos', { ...detected.repo, defaultBranch: h.base });
+    const repo = await h.api<{ id: string; commands: Record<string, string> }>('POST', '/api/repos', { ...detected.repo, defaultBranch: h.base });
     projectId = (await h.project('Shop', [repo.id], 'SHOP')).id;
+    // The lint check first reports what a build in the cloud can see; it must be only its own workspace.
+    const probe = `m=$(ls -d '${h.home}'/workspaces/*/mirrors); echo "probe directory=$(test -e '${h.home}/directory.db' && echo visible || echo hidden) procs=$(ls /proc | grep -c '^[0-9]') home=$HOME mirrors=$(touch "$m/.probe" 2>/dev/null && echo writable || echo read-only)"`;
+    await h.api('PUT', `/api/repos/${repo.id}`, { commands: { ...repo.commands, lint: `${probe} && ${repo.commands.lint}` } });
 
     // Request mode: the request, Tandem's questions as choices, the answers, then the task.
     const first = await h.request(projectId, [REQUEST]);
@@ -172,10 +182,26 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
     const d: Detail = await h.waitFor(task.id, 'the pull request', (x) => x.task.state === 'PR_OPEN' && x.prs.length === 1, { ms: 420_000 });
     expect(d.approvalState).toMatchObject({ owner: { name: 'Mona Lisa', specVersion: 1 }, pm: { name: 'Pat Lee' }, complete: true });
     expect(d.verifyRuns.at(-1)?.passed).toBe(true);
+    const seen = (d.verifyRuns.at(-1)!.results as Array<{ kind: string; outputTail?: string }>).find((r) => r.kind === 'lint')?.outputTail ?? '';
+    expect(seen).toMatch(/probe directory=hidden procs=[1-9] home=\/tmp\/home mirrors=read-only/);
     expect(d.prs[0]).toMatchObject({ status: 'manual-pending', manual: true });
     expect(d.task.branch).toMatch(/^feature\/SHOP-\d+-/);
     expect(h.remoteBranches('fullstack').has(d.task.branch)).toBe(true);
     expect(h.remoteFile('fullstack', d.task.branch, 'src/server/app.ts')).toContain("app.get('/health'");
+
+    // GitHub's webhook: signed, it makes the task look at its pull request now; unsigned, it is refused.
+    const hook = (event: string, payload: unknown, secret = WEBHOOK_SECRET) => {
+      const body = JSON.stringify(payload);
+      return fetch(`${h.url}/hooks/github`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-github-event': event, 'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(body).digest('hex')}` }, body });
+    };
+    expect((await hook('ping', { zen: 'hi' }, 'wrong-secret-0000000000')).status).toBe(401);
+    expect((await hook('ping', { zen: 'hi' })).status).toBe(200);
+    expect((await hook('pull_request', { action: 'closed', pull_request: { html_url: d.prs[0]!.url } })).status).toBe(202);
+    const serverLog = () => readdirSync(join(h.home, 'logs')).map((f) => readFileSync(join(h.home, 'logs', f), 'utf8')).join('\n');
+    const end = Date.now() + 15_000;
+    const woke = () => serverLog().split('\n').some((l) => l.includes('"msg":"webhook"') && l.includes('"event":"pull_request"') && l.includes('"woken":1'));
+    while (!woke() && Date.now() < end) await sleep(200);
+    expect(woke()).toBe(true);
 
     // The audit log names who did what, and its chain verifies.
     const trace = await h.api<{ audit: Array<{ action: string; actor: string; actorName?: string; summary: string }>; integrity: { ok: boolean } }>('GET', `/api/tasks/${task.id}/trace`);

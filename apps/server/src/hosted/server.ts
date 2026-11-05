@@ -1,11 +1,13 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
+import { NamespaceSandbox, guardWorktrees } from '@tandem/adapters';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
 import { Directory, type Session } from './directory.js';
@@ -36,6 +38,8 @@ export const HostedConfig = z.object({
     apiUrl: z.string().url().default('https://api.github.com'),
     /** The GitHub App's URL name (github.com/apps/<slug>), for "install on your account or organization". */
     appSlug: z.string().optional(),
+    /** The GitHub App's webhook secret: with it, pull request changes reach tasks at once (else they are polled). */
+    webhookSecret: z.string().min(16).optional(),
   }),
   /** 32 random bytes, base64: seals stored tokens. */
   secretKey: z.string().min(40),
@@ -45,6 +49,8 @@ export const HostedConfig = z.object({
   overrides: z.record(z.string(), z.unknown()).default({}),
   /** Starting values for a new workspace (its Copilot budget), which its owners can change. */
   seeds: z.record(z.string(), z.unknown()).default({}),
+  /** Builds in the cloud run isolated ('on'); 'off' only for trying Tandem out, never with real users. */
+  sandbox: z.enum(['on', 'off']).default('on'),
 });
 export type HostedConfig = z.infer<typeof HostedConfig>;
 
@@ -60,10 +66,11 @@ export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
     port: Number(env.TANDEM_PORT ?? 8080),
     listenHost: env.TANDEM_LISTEN_HOST ?? '0.0.0.0',
     publicUrl: need('TANDEM_PUBLIC_URL'),
-    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID'), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET'), ...(env.TANDEM_GITHUB_APP_SLUG ? { appSlug: env.TANDEM_GITHUB_APP_SLUG } : {}), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
+    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID'), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET'), ...(env.TANDEM_GITHUB_APP_SLUG ? { appSlug: env.TANDEM_GITHUB_APP_SLUG } : {}), ...(env.TANDEM_GITHUB_WEBHOOK_SECRET ? { webhookSecret: env.TANDEM_GITHUB_WEBHOOK_SECRET } : {}), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
     secretKey: need('TANDEM_SECRET_KEY'),
     logLevel: env.TANDEM_LOG_LEVEL ?? 'info',
     agent: env.TANDEM_AGENT ?? 'copilot',
+    sandbox: env.TANDEM_SANDBOX === 'off' ? 'off' : 'on',
     ...operatorSettings(env),
   });
 }
@@ -82,6 +89,43 @@ const SESSION = 'tandem_session';
 const OAUTH = 'tandem_oauth';
 const JOIN = 'tandem_join';
 const CELL_HOST = 'cell.tandem.internal';
+/** Changes only an owner makes: settings, and the workspace's connections and secrets. */
+const OWNER_ONLY = /^\/api\/(settings|secrets|aws|copilot)(\/|\?|$)/;
+
+/** What a cloud workspace's builds see: their own workspace folder, without its database, logs or the git helper's key. */
+function cellSandbox(hostedHome: string, home: string) {
+  return {
+    hide: [resolve(hostedHome)],
+    keep: [home],
+    readOnly: [join(home, 'mirrors'), join(home, 'projects')],
+    mask: [
+      ...['tandem.db', 'tandem.db-wal', 'tandem.db-shm', 'tandem.db-journal', join('bin', 'git-credential.json'), 'logs'].map((f) => join(home, f)),
+      // The server user's credentials, and secrets mounted by Docker or Kubernetes (the service account's token).
+      ...['.ssh', '.aws', '.config', '.gitconfig', '.git-credentials', '.npmrc', '.netrc', '.docker', '.kube', '.copilot', '.tandem', '.tandem-runner'].map((f) => join(homedir(), f)),
+      '/run/secrets',
+      '/var/run/secrets',
+    ],
+  };
+}
+
+/** Before any build: isolation works on this server, or Tandem doesn't start. */
+async function provesIsolation(hostedHome: string, workspacesRoot: string): Promise<void> {
+  const probe = join(workspacesRoot, `.probe-${randomBytes(6).toString('hex')}`);
+  mkdirSync(join(probe, 'mirrors'), { recursive: true });
+  writeFileSync(join(probe, 'tandem.db'), 'probe');
+  try {
+    const sbx = new NamespaceSandbox(cellSandbox(hostedHome, probe));
+    const r = await sbx.selfTest({ hidden: join(hostedHome, 'directory.db'), kept: probe, readOnly: join(probe, 'mirrors'), masked: join(probe, 'tandem.db') });
+    if (!r.ok) throw new Error(r.message);
+  } catch (err) {
+    throw new Error(
+      `Tandem can't isolate builds on this server (${(err as Error).message}). It needs Linux user namespaces: in Docker, run the container with --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined (see docs/DEPLOYMENT.md). Only to try Tandem out, without real users, set TANDEM_SANDBOX=off.`,
+      { cause: err },
+    );
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}
 const RUNNER_OFFLINE = "This workspace works on a company computer, and its runner isn't connected right now. Start it there with: tandem runner";
 
 function cookies(req: FastifyRequest): Record<string, string> {
@@ -108,6 +152,11 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   mkdirSync(join(cfg.home, 'workspaces'), { recursive: true, mode: 0o700 });
   const logger: Logger = createLogger(join(cfg.home, 'logs'), cfg.logLevel === 'silent' ? 'silent' : cfg.logLevel);
   const directory = await Directory.open(join(cfg.home, 'directory.db'), cfg.secretKey);
+  const workspacesRoot = resolve(cfg.home, 'workspaces');
+  if (cfg.sandbox === 'on') {
+    await provesIsolation(cfg.home, workspacesRoot);
+    guardWorktrees([workspacesRoot]);
+  } else logger.warn('builds are NOT isolated (TANDEM_SANDBOX=off): never use this with real users');
   const tokens = new GitHubTokens(directory, { clientId: cfg.github.clientId, clientSecret: cfg.github.clientSecret, webUrl: cfg.github.webUrl, slug: cfg.github.appSlug }, http);
   const installUrl = cfg.github.appSlug ? `${cfg.github.webUrl}/apps/${cfg.github.appSlug}/installations/new` : undefined;
   const secure = cfg.publicUrl.startsWith('https://');
@@ -129,10 +178,14 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!c) {
       const home = cellHome(id);
       mkdirSync(home, { recursive: true, mode: 0o700 });
-      const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides: cfg.overrides, seeds: cfg.seeds };
+      // The Copilot program and the GitHub API address are the operator's: a member could otherwise run
+      // a program of theirs on this server, or send the workspace's GitHub token elsewhere.
+      const overrides = { ...cfg.overrides, 'copilot.cliPath': cfg.overrides['copilot.cliPath'] ?? '', 'github.apiBase': 'https://api.github.com' };
+      const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides, seeds: cfg.seeds };
       const accounts = new WorkspaceAccounts(directory, id, tokens);
       const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl };
-      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted }).then(async (cell) => {
+      const sandbox = cfg.sandbox === 'on' ? new NamespaceSandbox(cellSandbox(cfg.home, home)) : undefined;
+      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}) }).then(async (cell) => {
         await cell.app.ready();
         await cell.start(listenPort, `/cells/${id}/git/credential`);
         return cell;
@@ -454,6 +507,71 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     return reply.redirect('/');
   });
 
+  /* ---------------------------------------------------------------- GitHub webhooks */
+
+  /**
+   * GitHub tells the app when a pull request changes (merged, closed, reviewed, commented, checks).
+   * The signature proves it is GitHub; every workspace then checks whether the pull request is one
+   * of its tasks', and if so, that task looks at it now. Polling stays as the fallback.
+   */
+  const secret = cfg.github.webhookSecret;
+  const prUrlOf = (event: string, body: Record<string, unknown>): string | undefined => {
+    const get = (o: unknown, ...path: string[]) => path.reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), o);
+    const url =
+      event === 'pull_request' || event === 'pull_request_review' || event === 'pull_request_review_comment' || event === 'pull_request_review_thread'
+        ? get(body, 'pull_request', 'html_url')
+        : event === 'issue_comment'
+          ? get(body, 'issue', 'pull_request', 'html_url')
+          : event === 'check_suite' || event === 'check_run'
+            ? (() => {
+                const prs = get(body, event, 'pull_requests') as Array<{ number?: number }> | undefined;
+                const repo = get(body, 'repository', 'html_url');
+                return prs?.[0]?.number && typeof repo === 'string' ? `${repo}/pull/${prs[0].number}` : undefined;
+              })()
+            : undefined;
+    return typeof url === 'string' ? url : undefined;
+  };
+  const notifyWorkspaces = async (url: string) => {
+    let woken = 0;
+    const payload = JSON.stringify({ url });
+    for (const w of directory.allWorkspaces()) {
+      if (directory.runnerMode(w.id) === 'company') {
+        hub.request(w.id, { method: 'POST', url: '/api/hooks/pull-request', headers: { 'content-type': 'application/json' }, body: payload }, { onHead: () => undefined, onData: () => undefined, onEnd: () => undefined, onError: () => undefined });
+        continue;
+      }
+      const cell = await cells.get(w.id)?.catch(() => undefined);
+      if (!cell) continue;
+      const r = await cell.app.inject({ method: 'POST', url: '/api/hooks/pull-request', headers: { host: CELL_HOST, 'content-type': 'application/json', 'x-tandem-token': cell.token }, payload });
+      woken += (r.json() as { woken?: number }).woken ?? 0;
+    }
+    return woken;
+  };
+  await app.register(async (hooks) => {
+    hooks.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 25 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+    hooks.post('/hooks/github', async (req, reply) => {
+      if (!secret) return reply.code(404).send({ error: 'Webhooks are not set up.' });
+      const raw = req.body as Buffer;
+      const sig = String(req.headers['x-hub-signature-256'] ?? '');
+      const want = `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}`;
+      if (sig.length !== want.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return reply.code(401).send({ error: 'Bad signature.' });
+      const event = String(req.headers['x-github-event'] ?? '');
+      if (event === 'ping') return { ok: true };
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
+      } catch {
+        return reply.code(400).send({ error: 'Not JSON.' });
+      }
+      const url = prUrlOf(event, body);
+      if (!url) return reply.code(202).send({ ignored: event });
+      // Answer GitHub at once (it waits 10 seconds at most); the workspaces look in the background.
+      void notifyWorkspaces(url)
+        .then((woken) => logger.info('webhook', { event, woken }))
+        .catch((err: unknown) => logger.warn('webhook could not be delivered', { event, error: String(err) }));
+      return reply.code(202).send({ accepted: true });
+    });
+  });
+
   /* ---------------------------------------------------------------- into the workspace */
 
   /** The git helper of a workspace's runner asks its own cell (from this machine only). */
@@ -471,6 +589,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!s) return reply;
     const w = currentWorkspace(s);
     if (!w || !directory.roleIn(w.id, s.session.userId)) return reply.code(403).send({ error: 'You are not a member of a workspace yet.' });
+    if (writes(req) && OWNER_ONLY.test(req.url) && directory.roleIn(w.id, s.session.userId) !== 'owner') return reply.code(403).send({ error: "Only an owner of the workspace can change its settings and connections." });
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !['cookie', 'origin', 'host', 'x-tandem-token', 'x-tandem-actor', 'x-tandem-git-key', 'content-length', 'authorization', 'connection', 'upgrade'].includes(k)) headers[k] = v;
     const person = directory.user(s.session.userId);

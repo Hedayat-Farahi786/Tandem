@@ -2,7 +2,9 @@
 # runner. Data lives in /data (mount a volume). See docs/DEPLOYMENT.md.
 #
 #   docker build -t tandem .
-#   docker run -p 8080:8080 -v tandem-data:/data --env-file tandem.env tandem
+#   docker run -p 8080:8080 -v tandem-data:/data --env-file tandem.env \
+#     --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined tandem
+#   (the three options let Tandem isolate each build in its own namespaces; see docs/DEPLOYMENT.md)
 
 # ---------------------------------------------------------------- build
 FROM node:22.21.1-bookworm-slim AS build

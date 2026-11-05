@@ -27,6 +27,28 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Isolated builds in Tandem's cloud.** Every command of a cloud workspace
+  runs in its own Linux namespaces: its checks and installs, and the Copilot
+  runtime with every command Copilot runs.
+  - **What a build sees:** only its own workspace folder. Git mirrors are
+    read-only; the workspace database, the logs and the git helper's key are
+    masked; `/tmp` and `HOME` are private; and no server process is visible.
+  - **What Tandem's own git checks:** that a task folder still links into its
+    workspace's mirrors. Repository files Tandem reads are never followed
+    through symlinks out of the checkout.
+  - **When it can't be done:** the server checks at startup that isolation
+    works, and refuses to start without it (`TANDEM_SANDBOX=off` is for
+    trials only).
+  - **Tested end to end:** a real build in the hosted flow reports what it
+    can see.
+- **Safer settings in shared workspaces.** In the web app, only owners change
+  settings and connections. The Copilot program and GitHub's API address are
+  the operator's: no member can make the server run a program of theirs or
+  send the workspace's GitHub token elsewhere.
+- **GitHub webhooks.** With `TANDEM_GITHUB_WEBHOOK_SECRET`, signed GitHub
+  events (merges, closes, reviews, comments, checks) make the task that owns
+  the pull request look at it at once. Polling stays as the fallback.
+
 - **Company runners: the web app, working on a company's own computer.**
   An owner moves a workspace to a work laptop, a VM or a server with
   Settings › Workspace › "Use a company computer", then starts

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { NamespaceSandbox } from './sandbox/namespace-sandbox.js';
 import {
   Runner,
   TaskService,
@@ -59,6 +60,8 @@ export interface TandemOptions {
    * reachable: no AWS profiles or default credentials, no SSH keys, no folders on the server.
    */
   hosted?: { secrets: SecretStore; identity: () => Promise<GitHubIdentity | undefined>; accounts: CopilotAccounts };
+  /** Tandem's cloud: checks, installs and the Copilot runtime run isolated (see sandbox/namespace-sandbox.ts). */
+  sandbox?: NamespaceSandbox;
 }
 
 export interface Tandem {
@@ -129,7 +132,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     const s = await store.settings.get();
     if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
   };
-  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.logger ? { logger: o.logger } : {}) });
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.sandbox ? { sandbox: o.sandbox } : {}), ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();
@@ -146,7 +149,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     git,
     tracker,
     agent,
-    process: new ShellProcessRunner(),
+    process: new ShellProcessRunner(o.sandbox),
     settings,
     ...(o.events ? { events: o.events } : {}),
     ...(o.logger ? { logger: o.logger } : {}),

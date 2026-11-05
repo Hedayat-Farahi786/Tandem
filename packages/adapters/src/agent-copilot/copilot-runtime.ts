@@ -1,4 +1,5 @@
 import { CopilotClient, RuntimeConnection, ToolSet, defineTool } from '@github/copilot-sdk';
+import { bundledCopilotRuntime } from '../sandbox/namespace-sandbox.js';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ZodType } from 'zod';
@@ -69,6 +70,8 @@ export interface CopilotRuntimeOptions {
    * session and renewed on demand; the runtime never uses a sign-in of its own.
    */
   identity?: () => Promise<GitHubIdentity | undefined>;
+  /** Tandem's cloud: the runtime, and every command Copilot runs, start inside this sandbox. */
+  sandbox?: { wrap(argv: readonly string[], cwd?: string): { file: string; args: string[]; env: Record<string, string> } };
 }
 
 const RETRYABLE = /(rate.?limit|\b429\b|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|\b5\d\d\b|overloaded|temporarily unavailable|stream (closed|ended))/i;
@@ -149,10 +152,17 @@ export class CopilotRuntime implements AgentRuntime {
     if (home) mkdirSync(home.gh, { recursive: true, mode: 0o700 });
     const env = copilotRuntimeEnv(this.o.env ?? process.env, s.copilot.host || undefined, home);
     const cliPath = s.copilot.cliPath || undefined;
+    // Isolated: start the runtime the SDK would start, inside the sandbox (its arguments follow ours).
+    const isolated = (): Record<string, unknown> => {
+      const runtime = cliPath ?? bundledCopilotRuntime();
+      if (!runtime) throw new Error('The Copilot runtime was not found, so it cannot start isolated. Reinstall dependencies (pnpm install).');
+      const w = this.o.sandbox!.wrap([runtime]);
+      return { connection: RuntimeConnection.forStdio({ path: w.file, args: w.args, env: { ...env, ...w.env } }) };
+    };
     this.starting = (async () => {
       const c: ClientLike = this.o.createClient
         ? this.o.createClient(env, cliPath)
-        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: !this.o.identity, ...(home ? { baseDirectory: home.copilot } : {}), ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
+        : (new CopilotClient({ logLevel: 'error', useLoggedInUser: !this.o.identity, ...(home ? { baseDirectory: home.copilot } : {}), ...(this.o.sandbox ? isolated() : cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
       await c.start();
       this.client = c;
       return c;

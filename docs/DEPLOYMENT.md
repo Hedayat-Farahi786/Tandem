@@ -27,7 +27,7 @@ This is done once, by the operator, at github.com → Settings → Developer set
 | Callback URL | `https://app.[domain]/auth/github/callback` |
 | Expire user authorization tokens | **On** (8-hour tokens, renewed with a 6-month refresh token) |
 | Request user authorization (OAuth) during installation | On |
-| Webhook | Off (Tandem polls; webhooks are not used yet) |
+| Webhook | On. URL `https://app.[domain]/hooks/github`, with a random secret (at least 16 characters) → `TANDEM_GITHUB_WEBHOOK_SECRET`. Events: Pull request, Pull request review, Pull request review comment, Pull request review thread, Issue comment, Check suite, Check run. Without it, Tandem polls pull requests every few minutes. |
 | Repository permissions | Contents: read and write · Pull requests: read and write · Metadata: read |
 | Account permissions | Copilot Requests (so Copilot runs on the member's own plan), plus Email addresses: read |
 | Where can it be installed | Any account |
@@ -58,6 +58,8 @@ may use.
 | `TANDEM_HOME` | set in the image | `/data` |
 | `TANDEM_PORT` | set in the image | `8080` |
 | `TANDEM_LISTEN_HOST` | set in the image | `0.0.0.0` |
+| `TANDEM_GITHUB_WEBHOOK_SECRET` | recommended | The GitHub App's webhook secret. Keep it in your secret manager. |
+| `TANDEM_SANDBOX` | no | `on` (default): builds run isolated, and Tandem won't start if it can't isolate them. `off` only to try Tandem out without real users. |
 | `TANDEM_LOG_LEVEL` | no | `info` (default), `warn`, `debug` |
 | `TANDEM_MODEL`, `TANDEM_LIGHT_MODEL` | no | The default Copilot models for every workspace |
 | `TANDEM_MAX_CONCURRENT_BUILDS`, `TANDEM_BUILD_TIMEOUT_MIN` | no | Runner limits for every workspace |
@@ -73,7 +75,9 @@ workspace must reconnect AWS and Jira. Back it up with the same care as the data
 
 ```sh
 docker build -t tandem .
-docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.env --restart unless-stopped tandem
+docker run -d --name tandem -p 8080:8080 -v tandem-data:/data --env-file tandem.env --restart unless-stopped \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
+  tandem
 ```
 
 - **TLS.** Terminate HTTPS at your load balancer and forward to port 8080 with the original
@@ -102,11 +106,33 @@ their own schedule, and the privacy policy says so.
 
 ## 5. Isolation of builds
 
-The runner executes code from customers' repositories: install scripts, tests and builds. Treat
-that code as untrusted.
+The runner executes code from customers' repositories: install scripts, tests, builds, and the
+commands Copilot runs. Treat that code as untrusted.
+
+**Inside the container, Tandem isolates every build.** Each command of a cloud workspace starts
+in its own Linux namespaces: user, mount and process.
+
+- **What it sees:**
+  - its own workspace folder only. Every other workspace, the directory and the logs are hidden.
+  - the git mirrors read-only, so it can't plant hooks or config that Tandem's git would run.
+  - its workspace database and the git helper's key masked.
+  - a private `/tmp` and `HOME`.
+  - none of the server's processes, whose memory and environment hold the secrets.
+- **What Tandem's own git checks:** before touching a task folder, that its `.git` link still
+  points into that workspace's mirrors. Repository files Tandem reads itself are never read
+  through symlinks that lead out of the checkout.
+- **Startup self-test:** Tandem proves this works when it starts, and refuses to start if it
+  doesn't (`TANDEM_SANDBOX=off` skips this, for trials only).
+
+It needs user namespaces and permission to mount inside them. Docker's defaults block both, hence
+the three `--security-opt` flags in section 3. On Kubernetes, use `seccompProfile: Unconfined`,
+`appArmorProfile: Unconfined` and `procMount: Unmasked` (with `hostUsers: false`). These loosen
+the container's own confinement in exchange for the per-build isolation, so pair them with the
+rest of this list:
 
 - **A host of its own.** Run Tandem on a dedicated VM or node pool, never next to other services.
-- **A sandboxed runtime.** Use gVisor (`runsc`) or Kata/Firecracker for the container.
+- **A sandboxed runtime around the container.** gVisor (`runsc`) or Kata/Firecracker add a second
+  wall between builds and the host's kernel.
 - **No cloud metadata endpoint.** Block `169.254.169.254` and IPv6 `fd00:ec2::254` from the
   container. Tandem never uses the machine's own credentials, but a build could try to.
 - **Restricted egress.** Allow GitHub (`github.com`, `api.github.com`, `*.githubusercontent.com`),
@@ -153,7 +179,10 @@ cloud, or deletes it.
 - [ ] The GitHub App exists with the settings above, and its secret and `TANDEM_SECRET_KEY` are in
       the secret manager.
 - [ ] `TANDEM_PUBLIC_URL` matches the address users open, and HTTPS works end to end.
-- [ ] Build isolation is in place: sandboxed runtime, metadata endpoint blocked, egress restricted.
+- [ ] Tandem starts with `TANDEM_SANDBOX` on (the default). This means the startup self-test passed.
+- [ ] The host and runtime around the container are in place: metadata endpoint blocked, egress
+      restricted.
+- [ ] The GitHub App's webhook points at `/hooks/github`, and its secret is set.
 - [ ] Backups are taken and a restore has been tried once.
 - [ ] The load balancer passes WebSocket upgrades on `/runner/connect` (see section 6).
 - [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,

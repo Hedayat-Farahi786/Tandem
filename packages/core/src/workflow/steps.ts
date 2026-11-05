@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readInside } from '../safe-read.js';
+import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   ExtractedRequirement,
@@ -43,8 +44,8 @@ export function unwrapMarkdown(text: string): string {
 export async function currentSpecTemplate(deps: WorkflowDeps, project: Project): Promise<string> {
   const specRepo = await deps.store.repos.get(project.specRepoId);
   if (specRepo) {
-    const p = join(deps.paths.referenceDir(project.id, specRepo.name), 'specs', 'TEMPLATE.md');
-    if (existsSync(p)) return readFile(p, 'utf8');
+    const text = await readInside(deps.paths.referenceDir(project.id, specRepo.name), join('specs', 'TEMPLATE.md'));
+    if (text !== undefined) return text;
   }
   return DEFAULT_TEMPLATE;
 }

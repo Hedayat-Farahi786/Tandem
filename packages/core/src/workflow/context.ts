@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { readInside } from '../safe-read.js';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentRun, AgentRunKind, AgentStep, Project, Repo, Settings, Task } from '@tandem/shared';
 import { Budget, BudgetError } from '../budget.js';
@@ -77,8 +78,8 @@ export function repoCommands(repos: readonly Repo[], project?: Project): string[
 export async function repoContext(dir: string): Promise<string> {
   const parts: string[] = [];
   const read = async (rel: string) => {
-    const p = join(dir, rel);
-    if (existsSync(p)) parts.push(`### ${rel}\n\n${(await readFile(p, 'utf8')).slice(0, 20_000)}`);
+    const text = await readInside(dir, rel);
+    if (text !== undefined) parts.push(`### ${rel}\n\n${text.slice(0, 20_000)}`);
   };
   await read('.github/copilot-instructions.md');
   const agentsDir = join(dir, '.github', 'agents');

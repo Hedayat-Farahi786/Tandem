@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, join as joinPath, relative, resolve as resolvePath, sep } from 'node:path';
 import { RetryableError } from '@tandem/core';
 
 export class GitError extends Error {
@@ -53,13 +54,67 @@ export interface GitResult {
   stderr: string;
 }
 
+/*
+ * Tandem's cloud: builds run isolated, but their task folders are shared with Tandem's own git. A
+ * build could replace a worktree's `.git` link to make Tandem's git read a config it wrote (an
+ * fsmonitor or a filter runs commands). So under these roots ('<root>/<workspace>/…'), a `.git`
+ * must be a plain file that links into that same workspace's mirrors, which builds can't write;
+ * and hooks and fsmonitor are off for every call.
+ */
+let guarded: string[] = [];
+export function guardWorktrees(roots: readonly string[]): void {
+  guarded = roots.map((r) => resolvePath(r));
+}
+const HARDENED = ['core.hooksPath=/dev/null', 'core.fsmonitor=false'];
+
+function checkGitLinks(o: GitRun): void {
+  const under = (p: string) => guarded.map((root) => ({ root, rel: relative(root, resolvePath(p)) })).find((x) => x.rel && !x.rel.startsWith('..') && !isAbsolute(x.rel));
+  const inMirrors = (base: string, p: string) => {
+    const rel = relative(joinPath(base, 'mirrors'), resolvePath(p));
+    return Boolean(rel) && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  const refuse = (why: string) => new GitError(`Tandem refused to run git: ${why}. The task folder was changed by something other than Tandem.`, '', null);
+  if (o.gitDir) {
+    const g = under(o.gitDir);
+    if (g && !inMirrors(joinPath(g.root, g.rel.split(sep)[0]!), o.gitDir)) throw refuse(`${o.gitDir} is not one of this workspace's mirrors`);
+  }
+  if (!o.cwd) return;
+  const c = under(o.cwd);
+  if (!c) return;
+  const base = joinPath(c.root, c.rel.split(sep)[0]!);
+  if (inMirrors(base, o.cwd)) return;
+  for (let dir = resolvePath(o.cwd); dir.startsWith(base + sep); dir = dirname(dir)) {
+    const link = joinPath(dir, '.git');
+    let st;
+    try {
+      st = lstatSync(link);
+    } catch {
+      continue;
+    }
+    if (!st.isFile()) throw refuse(`${link} is not the link git made`);
+    const target = /^gitdir:\s*(.+)$/m.exec(readFileSync(link, 'utf8'))?.[1]?.trim();
+    if (!target || !inMirrors(base, resolvePath(dir, target))) throw refuse(`${link} points outside this workspace's mirrors`);
+    return;
+  }
+  throw refuse(`${o.cwd} is not inside a worktree`);
+}
+
 /** Runs the system git without a shell. Network errors become RetryableError; auth errors get a fix. */
 export function runGit(args: readonly string[], o: GitRun = {}): Promise<GitResult> {
-  const full = [...(o.config ?? []).flatMap((c) => ['-c', c]), ...(o.gitDir ? ['--git-dir', o.gitDir] : []), ...args];
+  const config = guarded.length ? [...HARDENED, ...(o.config ?? [])] : (o.config ?? []);
+  const full = [...config.flatMap((c) => ['-c', c]), ...(o.gitDir ? ['--git-dir', o.gitDir] : []), ...args];
   return new Promise((resolve, reject) => {
     if (o.cwd && !existsSync(o.cwd)) {
       reject(new GitError(`Folder ${o.cwd} does not exist.`, '', null));
       return;
+    }
+    if (guarded.length) {
+      try {
+        checkGitLinks(o);
+      } catch (err) {
+        reject(err as Error);
+        return;
+      }
     }
     const child = spawn('git', full, { cwd: o.cwd, env: gitEnv(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';

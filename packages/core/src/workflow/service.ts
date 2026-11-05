@@ -461,6 +461,18 @@ export class TaskService {
     return next;
   }
 
+  /**
+   * A pull request changed on its host (a webhook): its task checks it now instead of at the next
+   * poll. Returns how many tasks were woken; a pull request Tandem doesn't know wakes none.
+   */
+  async pullRequestChanged(url: string): Promise<number> {
+    const norm = (u: string) => u.trim().replace(/\/+$/, '').toLowerCase();
+    const prs = (await this.deps.store.prs.listByStatus(['open', 'manual-pending'])).filter((p) => norm(p.url) === norm(url));
+    const tasks = [...new Set(prs.map((p) => p.taskId))];
+    for (const t of tasks) await this.wakePoll(t);
+    return tasks.length;
+  }
+
   private async wakePoll(taskId: string): Promise<void> {
     const job = await this.deps.store.jobs.get(taskId);
     if (job && job.step === 'poll') await this.deps.store.jobs.upsert({ ...job, notBefore: this.deps.clock.now() });

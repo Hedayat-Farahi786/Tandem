@@ -14,6 +14,7 @@ export * from './aws/aws-connection.js';
 export * from './aws/codecommit-credential.js';
 export * from './git/credential-helper.js';
 export * from './secrets/keychain.js';
+export * from './sandbox/namespace-sandbox.js';
 export * from './paths.js';
 export * from './compose.js';
 export * from './git/inspect.js';

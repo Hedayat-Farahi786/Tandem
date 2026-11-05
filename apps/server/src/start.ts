@@ -86,7 +86,7 @@ export interface Cell {
  * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
  * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
  */
-export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined } }): Promise<Cell> {
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined }; sandbox?: TandemOptions['sandbox'] }): Promise<Cell> {
   const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
@@ -96,6 +96,7 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
     ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript), realModels: process.env.TANDEM_REAL_MODELS === '1' } : {}),
     ...testSeams(),
     ...(o.hosted ? { hosted: o.hosted } : {}),
+    ...(o.sandbox ? { sandbox: o.sandbox } : {}),
     events: bus,
     logger,
   });
