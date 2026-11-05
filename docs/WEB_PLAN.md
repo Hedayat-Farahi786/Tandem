@@ -1,9 +1,10 @@
 # Tandem as a web app: architecture and plan
 
-Status: **proposal**, agreed direction (November 2026): Tandem hosted in the EU,
-anyone can sign up, and an optional runner lets a company keep its code on its
-own laptops or network. The local app stays usable while the web version is
-built, and both share the same core.
+Status: **built** (November 2026). Tandem is one product, the web app: hosted
+in the EU, anyone can sign up, and an optional runner lets a company keep its
+code on its own laptops or network. The single-user local app it grew from is
+gone; its engine runs inside every workspace, and `pnpm tandem` runs the web
+app on one computer for trials and development.
 
 ## 1. What changes, in one picture
 
@@ -29,8 +30,8 @@ built, and both share the same core.
 * A **runner** does what Tandem does today on one machine: clone or reuse a
   checkout, run Copilot sessions, run the checks, push the branch. The engine
   in `packages/core` is reused as it is; the runner is a new entry point.
-* **Local mode** (`TANDEM_MODE=local`, today's app) is the control plane and a
-  runner in one process on `127.0.0.1`, with the keychain for secrets.
+* There is no separate local mode: on one computer, the web app runs the same
+  way, at `http://localhost:<port>`, with GitHub sign-in.
 
 ## 2. Decisions
 

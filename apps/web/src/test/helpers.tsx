@@ -32,3 +32,12 @@ export function renderApp(path: string) {
 export function wideScreen() {
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {} }));
 }
+
+/** A workspace on a company computer: the page carries the runner's meta tag until the test ends. */
+export function asCompanyRunner(): () => void {
+  const meta = document.createElement('meta');
+  meta.name = 'tandem-runner';
+  meta.content = 'company';
+  document.head.appendChild(meta);
+  return () => meta.remove();
+}

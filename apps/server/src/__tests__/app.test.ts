@@ -30,7 +30,7 @@ beforeAll(async () => {
   bus = new EventBus();
   tandem = await createTandem({ home: join(dir, 'home'), agent: new ScriptedAgent(defaultScript), secrets: new MemorySecrets(), events: bus });
   const chat = new ChatService(tandem.deps, tandem.service);
-  ({ app } = await buildApp({ tandem, bus, chat, doctor: {} }, { port: PORT, token: TOKEN, webDir: web, version: '9.9.9' }));
+  ({ app } = await buildApp({ tandem, bus, chat, doctor: {} }, { port: PORT, token: TOKEN, version: '9.9.9' }));
 });
 
 afterAll(async () => {
@@ -70,19 +70,7 @@ describe('local-only security', () => {
   });
 });
 
-describe('web app', () => {
-  it('serves the app with the token and a strict CSP, with history fallback', async () => {
-    for (const url of ['/', '/tasks/abc', '/chat?thread=1']) {
-      const r = await app.inject({ method: 'GET', url, headers: H });
-      expect(r.statusCode).toBe(200);
-      expect(r.body).toContain(`<meta name="tandem-token" content="${TOKEN}">`);
-      expect(r.headers['content-security-policy']).toContain("default-src 'self'");
-      expect(r.headers['content-security-policy']).toContain("frame-ancestors 'none'");
-    }
-    expect((await app.inject({ method: 'GET', url: '/assets/app.js', headers: H })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/assets/missing.js', headers: H })).statusCode).toBe(404);
-  });
-
+describe('the API', () => {
   it('answers unknown API paths with a plain 404', async () => {
     const r = await app.inject({ method: 'GET', url: '/api/nope', headers: H });
     expect(r.statusCode).toBe(404);

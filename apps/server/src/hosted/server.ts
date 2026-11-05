@@ -89,20 +89,43 @@ export const HostedConfig = z.object({
 });
 export type HostedConfig = z.infer<typeof HostedConfig>;
 
-/** Hosted settings from the environment; every address is configuration, none is in the code. */
+/** On one computer only: the secret key, made once and kept in the data folder (owner-only). */
+function localSecretKey(home: string): string {
+  const file = join(home, 'secret.key');
+  if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const key = randomBytes(32).toString('base64');
+  writeFileSync(file, `${key}\n`, { mode: 0o600, flag: 'wx' });
+  return key;
+}
+
+/** The address people open; on one computer, localhost on the port Tandem listens on. */
+const isLoopbackUrl = (url: string) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url.replace(/\/+$/, ''));
+
+/**
+ * Tandem's settings from the environment; every address is configuration, none is in the code. On a
+ * server, the public address, the GitHub App and the secret key are required. To try Tandem on one
+ * computer, the address is http://localhost:<port>, the data stay in ~/.tandem, and the secret key is
+ * made once and kept there (owner-only); the GitHub App is still needed, since sign-in is GitHub's.
+ */
 export function readHostedConfig(env: NodeJS.ProcessEnv): HostedConfig {
-  const need = (k: string) => {
+  const need = (k: string, why = '') => {
     const v = env[k]?.trim();
-    if (!v) throw new Error(`${k} is required in hosted mode.`);
+    if (!v) throw new Error(`${k} is required${why}. See docs/DEPLOYMENT.md.`);
     return v;
   };
+  const port = Number(env.TANDEM_PORT ?? 8080);
+  const publicUrl = (env.TANDEM_PUBLIC_URL?.trim() || `http://localhost:${port}`).replace(/\/+$/, '');
+  const local = isLoopbackUrl(publicUrl);
+  const home = (env.TANDEM_HOME?.trim() || join(homedir(), '.tandem')).replace(/^~(?=$|\/)/, homedir());
+  const github = ' (the GitHub App: Tandem signs people in with GitHub; docs/DEPLOYMENT.md section 1 makes one in a few minutes)';
   return HostedConfig.parse({
-    home: need('TANDEM_HOME'),
-    port: Number(env.TANDEM_PORT ?? 8080),
-    listenHost: env.TANDEM_LISTEN_HOST ?? '0.0.0.0',
-    publicUrl: need('TANDEM_PUBLIC_URL'),
-    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID'), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET'), ...(env.TANDEM_GITHUB_APP_SLUG ? { appSlug: env.TANDEM_GITHUB_APP_SLUG } : {}), ...(env.TANDEM_GITHUB_WEBHOOK_SECRET ? { webhookSecret: env.TANDEM_GITHUB_WEBHOOK_SECRET } : {}), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
-    secretKey: need('TANDEM_SECRET_KEY'),
+    home,
+    port,
+    listenHost: env.TANDEM_LISTEN_HOST ?? (local ? '127.0.0.1' : '0.0.0.0'),
+    publicUrl,
+    github: { clientId: need('TANDEM_GITHUB_CLIENT_ID', github), clientSecret: need('TANDEM_GITHUB_CLIENT_SECRET', github), ...(env.TANDEM_GITHUB_APP_SLUG ? { appSlug: env.TANDEM_GITHUB_APP_SLUG } : {}), ...(env.TANDEM_GITHUB_WEBHOOK_SECRET ? { webhookSecret: env.TANDEM_GITHUB_WEBHOOK_SECRET } : {}), ...(env.TANDEM_GITHUB_WEB_URL ? { webUrl: env.TANDEM_GITHUB_WEB_URL } : {}), ...(env.TANDEM_GITHUB_API_URL ? { apiUrl: env.TANDEM_GITHUB_API_URL } : {}) },
+    secretKey: env.TANDEM_SECRET_KEY?.trim() || (local ? localSecretKey(home) : need('TANDEM_SECRET_KEY', ' on a server (32 random bytes, base64: openssl rand -base64 32)')),
     logLevel: env.TANDEM_LOG_LEVEL ?? 'info',
     agent: env.TANDEM_AGENT ?? 'copilot',
     sandbox: env.TANDEM_SANDBOX === 'off' ? 'off' : 'on',
@@ -271,7 +294,7 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       const accounts = new WorkspaceAccounts(directory, id, tokens);
       const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl, awsRoleSource, awsTemplateUrl: cfg.aws.templateUrl };
       const sandbox = cfg.sandbox === 'on' ? new NamespaceSandbox(cellSandbox(cfg.home, home)) : undefined;
-      c = openCell({ home, config, logger, webDir: undefined, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}), ...(cellJira ? { jiraOAuth: cellJira } : {}), ...(o.fetch ? { jiraFetch: o.fetch as unknown as JiraFetch } : {}) }).then(async (cell) => {
+      c = openCell({ home, config, logger, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}), ...(cellJira ? { jiraOAuth: cellJira } : {}), ...(o.fetch ? { jiraFetch: o.fetch as unknown as JiraFetch } : {}) }).then(async (cell) => {
         await cell.app.ready();
         await cell.start(listenPort, `/cells/${id}/git/credential`);
         return cell;

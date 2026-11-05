@@ -1,7 +1,9 @@
 /**
- * End-to-end harness: the real Tandem server as a child process (so a restart can be a real
- * kill -9), driven over HTTP the way the web app drives it, with the scripted agent instead of
- * Copilot.
+ * End-to-end harness: the real Tandem web app as a child process (so a restart can be a real
+ * kill -9), behind a pretend GitHub, signed in and driven over HTTP the way its page drives it, with
+ * the scripted agent instead of Copilot. The workspace works in Tandem's cloud; with the real agent
+ * or real CodeCommit it works on a company runner on this computer, whose Copilot sign-in and AWS
+ * profile those need, as a company would run it.
  *
  * Remotes:
  *   local (default)       bare repos seeded from spikes/sandbox, served in place of CodeCommit.
@@ -14,6 +16,7 @@ import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFi
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startFakeGitHub, webAppEnv } from '../support/fake-github.mjs';
 
 export const REAL = process.env.TANDEM_E2E_REAL === '1';
 /** Hosted mode: the GitHub App's webhook secret the test server uses. */
@@ -88,11 +91,13 @@ export interface HarnessOptions {
   agent?: 'scripted' | 'copilot';
   /** Extra environment for the server (limits, model defaults). */
   env?: Record<string, string>;
+  /** Who signs in at the pretend GitHub (their OAuth code there); Mona by default. */
+  as?: string;
   /**
-   * Run Tandem as the hosted web app (TANDEM_MODE=hosted) behind a pretend GitHub at this address,
-   * and sign in as this person (their OAuth code there).
+   * The workspace works on a company runner on this computer (its data in its own folder), not in
+   * the cloud. On by default with the real agent or real CodeCommit.
    */
-  hosted?: { github: string; as: string };
+  runner?: boolean;
 }
 
 export class Harness {
@@ -106,6 +111,10 @@ export class Harness {
   readonly base = REAL ? `e2e/${this.runId}` : 'main';
   readonly events: TandemEvent[] = [];
   readonly logFile = join(this.work, 'server.log');
+  readonly runnerHome = join(this.work, 'company-computer');
+  private github: { url: string; close: () => Promise<void> } | undefined;
+  private runnerProc: ChildProcess | undefined;
+  private runnerKey = '';
   /** PRs opened during the run, for the evidence file. */
   readonly results: Array<{ scenario: string; task: string; state: string; prs: Array<{ repo: string; url: string; status: string }> } & Record<string, unknown>> = [];
   private proc: ChildProcess | undefined;
@@ -247,26 +256,18 @@ export class Harness {
       ...this.o.env,
     };
     if (REAL) delete env.TANDEM_TEST_REMOTE_ROOT;
-    if (this.o.hosted)
-      Object.assign(env, {
-        TANDEM_MODE: 'hosted',
-        TANDEM_PUBLIC_URL: this.url,
-        TANDEM_LISTEN_HOST: '127.0.0.1',
-        TANDEM_GITHUB_CLIENT_ID: 'Iv1.e2e',
-        TANDEM_GITHUB_CLIENT_SECRET: 'e2e-secret',
-        TANDEM_GITHUB_APP_SLUG: 'tandem-e2e',
-        TANDEM_GITHUB_WEB_URL: this.o.hosted.github,
-        TANDEM_GITHUB_API_URL: this.o.hosted.github,
-        TANDEM_SECRET_KEY: this.secretKey,
-        TANDEM_GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET,
-      });
+    this.github ??= await startFakeGitHub();
+    Object.assign(env, webAppEnv({ github: this.github.url, url: this.url, secretKey: this.secretKey }));
+    // The runner, not the web app, reaches real AWS and Copilot.
+    const engine = { ...env };
+    if (this.onRunner) for (const k of ['TANDEM_AWS_PROFILE', 'TANDEM_AWS_REGION']) delete env[k];
     this.proc = spawn(process.execPath, [CLI, 'start', '--no-open'], { env, stdio: ['ignore', log, log], detached: process.platform !== 'win32' });
     closeSync(log);
     this.starts++;
     const end = Date.now() + 60_000;
     for (;;) {
       try {
-        if ((await fetch(`${this.url}${this.o.hosted ? '/healthz' : '/api/health'}`)).ok) break;
+        if ((await fetch(`${this.url}/healthz`)).ok) break;
       } catch {
         // not listening yet
       }
@@ -274,13 +275,11 @@ export class Harness {
       if (Date.now() > end) throw new Error(`Tandem did not start.\n${this.logTail()}`);
       await sleep(200);
     }
-    if (this.o.hosted) {
-      const s = await this.signIn(this.o.hosted.as);
-      this.cookie = s.cookie;
-    }
-    const html = await (await fetch(`${this.url}/`, { headers: this.cookie ? { cookie: this.cookie } : {} })).text();
-    this.token = /<meta name="tandem-token" content="([^"]+)">/.exec(html)?.[1] ?? '';
+    const s = await this.signIn(this.o.as ?? 'code-mona');
+    this.cookie = s.cookie;
+    this.token = s.token;
     if (!this.token) throw new Error('No token in the served page.');
+    if (this.onRunner) await this.startRunner(engine);
     this.listen();
     // On a machine short of disk, TANDEM_E2E_MIN_FREE_DISK_GB lowers the "low disk" guard for this run's data only.
     const minFree = Number(process.env.TANDEM_E2E_MIN_FREE_DISK_GB);
@@ -290,7 +289,31 @@ export class Harness {
     }
   }
 
-  /** Hosted mode: the whole GitHub sign-in, as a browser does it. Returns the session cookie and its token. */
+  /** Whether the workspace works on a company runner on this computer. */
+  get onRunner(): boolean {
+    return this.o.runner ?? (this.o.agent === 'copilot' || REAL);
+  }
+
+  /**
+   * The workspace moves to a company runner on this computer (once), which then serves it: like an
+   * owner choosing "Use a company computer" and running the command shown.
+   */
+  private async startRunner(serverEnv: NodeJS.ProcessEnv): Promise<void> {
+    if (!this.runnerKey) this.runnerKey = (await this.api<{ key: string }>('POST', '/api/workspace/runner', {})).key;
+    const log = openSync(this.logFile, 'a');
+    const env: NodeJS.ProcessEnv = { ...serverEnv, TANDEM_HOME: this.runnerHome, TANDEM_RUNNER_KEY: this.runnerKey, TANDEM_PORT: '' };
+    for (const k of Object.keys(env)) if (/^TANDEM_(GITHUB|SECRET_KEY|PUBLIC_URL|LISTEN_HOST)/.test(k)) delete env[k];
+    this.runnerProc = spawn(process.execPath, [CLI, 'runner', '--url', this.url], { env, stdio: ['ignore', log, log], detached: process.platform !== 'win32' });
+    closeSync(log);
+    const end = Date.now() + 90_000;
+    while (!(await this.api<{ runner: { connected: boolean } }>('GET', '/api/workspace')).runner.connected) {
+      if (this.runnerProc.exitCode !== null) throw new Error(`The runner exited (${this.runnerProc.exitCode}).\n${this.logTail()}`);
+      if (Date.now() > end) throw new Error(`The runner did not connect.\n${this.logTail()}`);
+      await sleep(300);
+    }
+  }
+
+  /** The whole GitHub sign-in, as a browser does it. Returns the session cookie and its token. */
   async signIn(code: string, extraCookie = ''): Promise<{ cookie: string; token: string }> {
     const pick = (res: Response, name: string) => res.headers.getSetCookie().find((c) => c.startsWith(`${name}=`))?.split(';')[0] ?? '';
     const start = await fetch(`${this.url}/auth/github`, { redirect: 'manual' });
@@ -302,13 +325,13 @@ export class Harness {
     return { cookie, token: /<meta name="tandem-token" content="([^"]+)">/.exec(html)?.[1] ?? '' };
   }
 
-  /** Hosted mode: act as another signed-in person from now on. */
+  /** Act as another signed-in person from now on. */
   useSession(s: { cookie: string; token: string }): void {
     this.cookie = s.cookie;
     this.token = s.token;
   }
 
-  /** Hosted mode: the session in use. */
+  /** The session in use. */
   get session(): { cookie: string; token: string } {
     return { cookie: this.cookie, token: this.token };
   }
@@ -352,6 +375,7 @@ export class Harness {
 
   async stop(): Promise<void> {
     this.sse?.abort();
+    await this.stopRunner();
     const p = this.proc;
     if (!p?.pid || p.exitCode !== null) return;
     const exited = new Promise((r) => p.once('exit', r));
@@ -365,8 +389,22 @@ export class Harness {
     this.kill();
   }
 
+  private async stopRunner(): Promise<void> {
+    const r = this.runnerProc;
+    if (!r?.pid || r.exitCode !== null) return;
+    const exited = new Promise((done) => r.once('exit', done));
+    try {
+      if (process.platform === 'win32') r.kill('SIGTERM');
+      else process.kill(-r.pid, 'SIGTERM');
+    } catch {
+      return;
+    }
+    await Promise.race([exited, sleep(15_000)]);
+  }
+
   /** Removes a workspace the harness made for itself (keep it with TANDEM_E2E_DIR or TANDEM_E2E_KEEP=1). */
   cleanup(): void {
+    void this.github?.close();
     if (process.env.TANDEM_E2E_DIR || process.env.TANDEM_E2E_KEEP === '1') return;
     rmSync(this.work, { recursive: true, force: true, maxRetries: 3 });
   }

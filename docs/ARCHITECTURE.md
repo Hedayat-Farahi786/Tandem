@@ -1,12 +1,26 @@
 # Tandem architecture
 
-Tandem is a local web app that takes a request (from chat, a form, or later
-Jira) through an agentic software development lifecycle and ends with tested,
-reviewed pull requests. GitHub Copilot is the only agent. Everything runs on
-the user's machine and binds to `127.0.0.1`.
+Tandem is a web app that takes a request (from chat, a form, or Jira)
+through an agentic software development lifecycle and ends with tested,
+reviewed pull requests. GitHub Copilot is the only agent. People sign in with
+GitHub; each team works in a workspace, which works in Tandem's cloud or on a
+company computer through a runner.
 
-This document describes how Tandem is built and why. `docs/PLAN.md` describes
-the order it is built in and how each phase is proven.
+**How it is put together.** A front server (`apps/server/src/hosted/`) signs
+people in, keeps the directory (people, sessions, workspaces, members,
+invitations, sealed secrets; SQLite, or Postgres for several replicas) and
+checks every request. Each workspace is a *cell*: its own SQLite database,
+engine, runner and folders, reached only through the front. A cell in the
+cloud runs every build isolated in its own Linux namespaces; a company
+runner (`tandem runner`) runs the same cell on a company computer and takes
+the workspace's requests over one outbound WebSocket. Operating it is in
+[DEPLOYMENT.md](DEPLOYMENT.md); the plan behind it in [WEB_PLAN.md](WEB_PLAN.md).
+
+This document describes how the engine in each cell is built and why. It was
+first built as a single-user app on one computer; its sections still say
+"the user's machine" where a cell's or a runner's folders are meant.
+`docs/PLAN.md` describes the order it is built in and how each phase is
+proven.
 
 ---
 
@@ -14,7 +28,7 @@ the order it is built in and how each phase is proven.
 
 | Constraint | Consequence in the design |
 | --- | --- |
-| Local only, no telemetry | One Node process. Server binds to `127.0.0.1` only (rejected otherwise). No analytics. Copilot runtime started with `COPILOT_GITHUB_TELEMETRY_DISABLED=true`. Outbound traffic only to Git remotes, AWS, Copilot, and Jira when it is turned on. |
+| Workspaces apart, no telemetry | Each workspace is its own cell (database, folders, engine), reached only through the front after a membership check; cloud builds are isolated in their own namespaces. No analytics. Copilot runtime started with `COPILOT_GITHUB_TELEMETRY_DISABLED=true`. Outbound traffic only to Git remotes, AWS, Copilot, GitHub, and Jira when it is turned on; in the cloud, only to public addresses over https. |
 | Copilot is the only AI | `AgentRuntime` port with one real implementation (`agent-copilot`) built on `@github/copilot-sdk`. It uses the Copilot CLI's existing signed-in user (`useLoggedInUser`, the default). No other AI keys. |
 | CodeCommit (SSH or git-remote-codecommit), GitHub too | `SourceHost` port. Git operations use the system `git` binary with whatever the repo URL uses: the user's own `~/.ssh/config` for SSH URLs, or their AWS credentials for `codecommit::` URLs (git-remote-codecommit). PR APIs are per host (AWS SDK for CodeCommit, REST for GitHub), each with a manual-link fallback. |
 | Jira not available yet | `Tracker` port. `tracker-local` (SQLite) is the default and is complete on its own. `tracker-jira` turns on when a token is saved in Settings. |
@@ -22,8 +36,8 @@ the order it is built in and how each phase is proven.
 | Survives restart at any point | Every state transition and step checkpoint is written to SQLite before the side effect is reported. The runner re-enqueues active tasks on boot. Every step is idempotent. |
 | Agent safety in code | Tool filtering (`availableTools`/`excludedTools`) plus a permission handler and a pre-tool hook that enforce path containment and a command allowlist. Prompts repeat the rules but are not relied on. |
 
-Non-goals for v1.0: multi-user, remote hosting, running more than one Tandem
-instance against the same `~/.tandem`, merging PRs (agents never merge).
+Non-goals: merging PRs (agents never merge), and two engines on the same
+workspace at once (a workspace runs on one replica, or on its one runner).
 
 ---
 
@@ -99,29 +113,35 @@ folder. The experimental warning for `sqlite` only is suppressed.
 ## 3. Runtime topology
 
 ```
- Browser (127.0.0.1:4317)
-   │  HTTPS not needed: loopback only
-   │  REST for commands, one SSE stream for events
-   ▼
- apps/server  (single Node process)
-   ├─ HTTP API (Fastify)  ── host/origin checks, per-launch API token
+ Browser ── https://app.[domain] ──▶ load balancer (TLS)
+                                        │
+ apps/server, the front (one or more replicas)
+   ├─ GitHub sign-in, sessions (cookie + CSRF token), invitations, quotas, rate limits
+   ├─ Directory  ──────────── SQLite (directory.db) or Postgres (several replicas)
+   ├─ GitHub webhooks, Atlassian's sign-in for Jira, /metrics, /readyz
+   └─ Each request, checked, to its workspace:
+        ├─ a cell on this replica (in-process, with the member's name)
+        ├─ another replica (internal key), which serves it the same way
+        └─ a company runner (its WebSocket), whose cell answers on that computer
+
+ A cell (one per workspace; the engine below)
+   ├─ HTTP API (Fastify)  ── reached only from the front (or its runner)
    ├─ Event bus  ──────────  SSE fan-out, replay by Last-Event-ID
    ├─ Workflow runner (core)  ─ job queue, concurrency limits, resume on boot
    ├─ Chat service (core)  ─── Ask / Request / task chat
-   ├─ Pollers  ─────────────── PR status, Jira JQL and PM replies (when on)
+   ├─ Pollers  ─────────────── PR status, Jira and PM replies (when on)
    └─ Adapters
-        ├─ storage-sqlite  →  ~/.tandem/tandem.db
-        ├─ git             →  system git  →  ssh (user's ~/.ssh/config)
-        ├─ source-codecommit → AWS SDK (user's AWS profile) or console link
-        ├─ source-github   →  GitHub REST (token from keychain or `gh auth token`) or compare link
-        ├─ tracker-local / tracker-jira → SQLite / Jira REST
-        ├─ agent-copilot   →  @github/copilot-sdk → Copilot runtime (stdio child process)
-        └─ secrets         →  OS keychain
+        ├─ storage-sqlite  →  workspaces/<id>/tandem.db
+        ├─ git             →  system git (in the cloud: isolated, credentials from the cell)
+        ├─ source-codecommit → AWS SDK with the workspace's connection, or console link
+        ├─ source-github   →  GitHub REST with the workspace's GitHub identity, or compare link
+        ├─ tracker-local / tracker-jira → SQLite / Jira REST (or Atlassian's gateway)
+        ├─ agent-copilot   →  @github/copilot-sdk → Copilot runtime (isolated child process)
+        └─ secrets         →  sealed in the directory (cloud) or the OS keychain (runner)
 ```
 
-`pnpm tandem` builds anything stale, starts the server, runs doctor on first
-launch, and opens the browser. `pnpm tandem doctor` runs the same checks in
-the terminal.
+`pnpm tandem` builds anything stale and starts the web app on one computer
+(see the [runbook](RUNBOOK.md)); a server runs the Docker image.
 
 ### Files on disk
 
@@ -718,11 +738,12 @@ interface Tracker {
   ids; the server keeps a replay buffer and the client reconnects with
   `Last-Event-ID`. Anything that matters is also in the DB, so a full page
   reload rebuilds state from REST.
-- Local security: bind `127.0.0.1` only; reject requests whose `Host` is
-  not `127.0.0.1:<port>` or `localhost:<port>` (DNS rebinding); require a
-  per-launch random token in an `X-Tandem-Token` header for every non-GET
-  request (injected into the served page; blocks cross-site requests from
-  other browser tabs); no CORS; strict CSP on the web app.
+- Security: the front answers only on its public address (and loopback
+  for probes), checks the session cookie (host-only, HttpOnly, SameSite=Lax,
+  Secure over https) and, for every change, the session's own token in an
+  `X-Tandem-Token` header (put in the served page); no CORS; strict CSP.
+  A cell answers only the front (its own Host name and a per-cell token),
+  which names the member acting; a runner's cell listens on 127.0.0.1 only.
 
 ---
 

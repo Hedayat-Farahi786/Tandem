@@ -1,8 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import fastifyStatic from '@fastify/static';
 import { ZodError } from 'zod';
 import { ActionError, NotFoundError, TransitionError, acting, redactor, type ChatService, type Logger } from '@tandem/core';
 import { JiraError, type Tandem } from '@tandem/adapters';
@@ -34,8 +31,6 @@ export interface AppOptions {
   port: number;
   /** Per-launch token required on every state-changing request. */
   token?: string;
-  /** Built web app (apps/web/dist). Omit to serve the API only. */
-  webDir?: string | undefined;
   version?: string;
   /**
    * Hosted mode: the Host header the front server sets when it hands a signed-in request to this
@@ -141,16 +136,5 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
     throw new HttpError(404, 'No such API endpoint.');
   });
 
-  if (o.webDir && existsSync(join(o.webDir, 'index.html'))) {
-    const index = readFileSync(join(o.webDir, 'index.html'), 'utf8').replace('<meta name="tandem-token" content="">', `<meta name="tandem-token" content="${token}">`);
-    const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-    await app.register(fastifyStatic, { root: o.webDir, index: false, wildcard: false, serve: true });
-    const sendIndex = (_req: FastifyRequest, reply: FastifyReply) => reply.header('Content-Security-Policy', csp).header('Cache-Control', 'no-store').type('text/html').send(index);
-    app.get('/', sendIndex);
-    app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(req.url.split('?')[0]!)) return sendIndex(req, reply);
-      return reply.code(404).send({ error: 'Not found.' });
-    });
-  }
   return { app, token, gitKey };
 }

@@ -26,11 +26,10 @@ import { useTheme } from "./lib/theme";
 import { CommandPalette } from "./ui/command";
 import { ProjectAvatar } from "./ui/visual";
 import { ChatRecents } from "./ui/thread-actions";
-import { AccountMenu, isCompanyRunner, isHosted } from "./ui/account-menu";
+import { AccountMenu, isCompanyRunner } from "./ui/account-menu";
 import { RunnerOffline } from "./ui/runner-section";
 import { useChatProject } from "./lib/project";
 import {
-  Avatar,
   ErrorState,
   IconButton,
   Loading,
@@ -303,9 +302,6 @@ function Shell() {
   else if (path.startsWith("/doctor")) screen = <DoctorScreen />;
   else screen = <Loading />;
 
-  const testMode =
-    boot.data && (boot.data.agent !== "copilot" || boot.data.localRepoCopies);
-  const owner = boot.data?.settings.ownerName?.trim();
 
   return (
     <div className="flex min-h-screen bg-sidebar">
@@ -424,35 +420,7 @@ function Shell() {
                 );
               })}
             </nav>
-            {isHosted() ? <AccountMenu /> : (
-            <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-              <Avatar name={owner || "You"} />
-              <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate text-[13px] font-medium">
-                  {owner || "You"}
-                </p>
-                {testMode ? (
-                  <p
-                    className="truncate text-[12px] text-warn"
-                    title={
-                      boot.data?.localRepoCopies
-                        ? "Repositories come from local copies, so pull requests are links to fill in by hand."
-                        : undefined
-                    }
-                  >
-                    Test mode ·{" "}
-                    {boot.data!.agent !== "copilot"
-                      ? `${boot.data!.agent} agent`
-                      : "local repos"}
-                  </p>
-                ) : (
-                  <p className="truncate text-[12px] text-faint">
-                    Local · 127.0.0.1
-                  </p>
-                )}
-              </div>
-            </div>
-            )}
+            <AccountMenu />
           </div>
         </div>
       </div>

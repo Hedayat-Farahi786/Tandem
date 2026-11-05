@@ -61,7 +61,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
       return { access: answer.access, ...(answer.refresh ? { refresh: answer.refresh } : {}), expiresAt: answer.expiresAt };
     },
   };
-  const running = await startServer({ ...o.config, port }, { webDir: undefined, trustActor: true, jiraOAuth });
+  const running = await startServer({ ...o.config, port }, { trustActor: true, jiraOAuth });
   const local = `http://127.0.0.1:${port}`;
   const target = new URL('/runner/connect', o.url);
   target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';

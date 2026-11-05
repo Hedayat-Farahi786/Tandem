@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { openDatabase } from '@tandem/adapters';
 
@@ -27,6 +27,8 @@ export interface Manifest {
   createdAt: string;
   tandemVersion: string;
   databases: string[];
+  /** Other files: the secret key Tandem keeps on one computer (a server takes it from its secret manager). */
+  files?: string[];
 }
 
 /** Copies every database of `home` to the (new or empty) folder `to`. */
@@ -45,7 +47,9 @@ export async function backup(home: string, to: string, tandemVersion: string): P
       db.close();
     }
   }
-  const manifest: Manifest = { format: FORMAT, version: 1, createdAt: new Date().toISOString(), tandemVersion, databases: dbs };
+  const files = ['secret.key'].filter((f) => existsSync(join(home, f)));
+  for (const f of files) copyFileSync(join(home, f), join(to, f));
+  const manifest: Manifest = { format: FORMAT, version: 1, createdAt: new Date().toISOString(), tandemVersion, databases: dbs, ...(files.length ? { files } : {}) };
   writeFileSync(join(to, 'tandem-backup.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });
   return manifest;
 }
@@ -57,7 +61,8 @@ export function restore(from: string, home: string, o: { force?: boolean } = {})
   const m = JSON.parse(readFileSync(file, 'utf8')) as Manifest;
   if (m.format !== FORMAT || m.version !== 1) throw new Error('This backup is from a format this Tandem does not know.');
   const root = resolve(home);
-  for (const rel of m.databases) {
+  const files = (m.files ?? []).filter((f) => f === 'secret.key');
+  for (const rel of [...m.databases, ...files]) {
     const dest = resolve(root, rel);
     if (!dest.startsWith(root + sep) || relative(root, dest).startsWith('..')) throw new Error(`The backup names a file outside the data folder: ${rel}.`);
     if (existsSync(dest) && !o.force) throw new Error(`${dest} exists. Restore into an empty data folder, or pass --force to replace it.`);
@@ -67,6 +72,11 @@ export function restore(from: string, home: string, o: { force?: boolean } = {})
     mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
     for (const extra of ['-wal', '-shm', '-journal']) rmSync(`${dest}${extra}`, { force: true });
     copyFileSync(join(from, rel), dest);
+  }
+  for (const f of files) {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    copyFileSync(join(from, f), join(root, f));
+    chmodSync(join(root, f), 0o600);
   }
   return m;
 }

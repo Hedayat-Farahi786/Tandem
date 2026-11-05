@@ -21,7 +21,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
       ...(init.signal ? { signal: init.signal } : {}),
     });
   } catch {
-    throw new ApiError(0, 'Tandem is not reachable. Check that it is still running (pnpm tandem), then try again.');
+    throw new ApiError(0, 'Tandem is not reachable. Check your connection, then try again.');
   }
   const text = await res.text();
   const data = text ? (() => { try { return JSON.parse(text) as unknown; } catch { return text; } })() : undefined;

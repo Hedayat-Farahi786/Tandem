@@ -1,14 +1,17 @@
 /**
- * Starts Tandem in test mode for the browser tests: a fresh TANDEM_HOME, local bare "remotes"
- * seeded from spikes/sandbox (served instead of CodeCommit), the scripted agent, port 4399.
+ * Starts Tandem in test mode for the browser tests: the web app behind a pretend GitHub (signing in
+ * is one click), a fresh TANDEM_HOME, local bare "remotes" seeded from spikes/sandbox (served
+ * instead of CodeCommit), the scripted agent, port 4399.
  *
  *   node e2e/support/serve.mjs            (Playwright's webServer runs this)
  */
 import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startFakeGitHub, webAppEnv } from './fake-github.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const work = process.env.TANDEM_E2E_DIR ?? mkdtempSync(join(tmpdir(), 'tandem-e2e-'));
@@ -38,11 +41,16 @@ for (const t of ['fullstack', 'backend', 'frontend']) {
 }
 writeFileSync(join(work, 'README.txt'), `Tandem e2e workspace\nremotes: ${remotes}\nhome: ${home}\n`);
 
+const github = await startFakeGitHub();
+const port = process.env.TANDEM_PORT ?? '4399';
 const child = spawn(process.execPath, [join(repoRoot, 'apps', 'server', 'dist', 'cli.js'), 'start', '--no-open'], {
   stdio: 'inherit',
-  env: { ...process.env, TANDEM_AGENT: 'scripted', TANDEM_HOME: home, TANDEM_PORT: process.env.TANDEM_PORT ?? '4399', TANDEM_TEST_REMOTE_ROOT: remotes, TANDEM_LOG_LEVEL: 'info', COPILOT_GH_HOST: '' },
+  env: { ...process.env, ...webAppEnv({ github: github.url, url: `http://127.0.0.1:${port}`, secretKey: randomBytes(32).toString('base64') }), TANDEM_AGENT: 'scripted', TANDEM_HOME: home, TANDEM_PORT: port, TANDEM_TEST_REMOTE_ROOT: remotes, TANDEM_LOG_LEVEL: 'info', COPILOT_GH_HOST: '' },
 });
-const stop = () => child.kill('SIGTERM');
+const stop = () => {
+  child.kill('SIGTERM');
+  void github.close();
+};
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 child.on('exit', (code) => {

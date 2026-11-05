@@ -6,13 +6,13 @@ import { relativeTime } from '../lib/format';
 import { AwsConnect, AWS_REGIONS, useAws } from './aws-connect';
 import { BrandLogo } from './brands';
 import { CopilotConnect, useCopilotAccounts } from './copilot-connect';
-import { isCloud, isCompanyRunner } from './account-menu';
+import { isCompanyRunner } from './account-menu';
 import { Button, Callout, Input, Select, Spinner, Tabs, cx } from './kit';
 
 /*
  * Adding a repository the way people expect from Vercel or Netlify: pick it from a list of what your
  * connected accounts can reach (GitHub through the Copilot sign-in, CodeCommit through the AWS
- * connection), use a clone already on this computer, or paste a clone URL.
+ * connection), use a clone already on the runner's computer (company runners), or paste a clone URL.
  */
 
 interface Choice {
@@ -170,9 +170,9 @@ function LocalSource({ busyUrl, onPickLocal }: { busyUrl: string | null; onPickL
         Work in a repository you already cloned, for example on a work laptop. Tandem uses that clone and your own sign-in for it (SSH keys or git credentials), so nothing is cloned again and Copilot's changes go out as if you made them.
       </p>
       {found.isLoading ? (
-        <Loading text="Looking for repositories on this computer…" />
+        <Loading text="Looking for repositories on the runner's computer…" />
       ) : found.data?.length ? (
-        <ul aria-label="Repositories on this computer" className="flex max-h-[300px] flex-col overflow-y-auto rounded-xl shadow-[0_0_0_1px_var(--border)]">
+        <ul aria-label="Repositories on the runner's computer" className="flex max-h-[300px] flex-col overflow-y-auto rounded-xl shadow-[0_0_0_1px_var(--border)]">
           {found.data.map((r) => (
             <li key={r.path} className="flex items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0">
               <BrandLogo brand={r.host === 'github' ? 'github' : 'aws'} size={16} />
@@ -224,7 +224,7 @@ export function RepoImporter({ busy, onPick, onPickLocal }: { busy: string | nul
         tabs={[
           { id: 'github', label: 'GitHub' },
           { id: 'codecommit', label: 'AWS CodeCommit' },
-          ...(isCloud() ? [] : [{ id: 'local' as const, label: isCompanyRunner() ? "On the runner's computer" : 'On this computer' }]),
+          ...(isCompanyRunner() ? [{ id: 'local' as const, label: "On the runner's computer" }] : []),
           { id: 'url', label: 'Clone URL' },
         ]}
       />

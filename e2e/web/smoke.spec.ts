@@ -22,8 +22,12 @@ test.afterEach(() => {
   expect(errors, 'Errors in the browser console').toEqual([]);
 });
 
-test('first launch opens the setup wizard', async () => {
+test('signing in with GitHub opens the setup wizard', async () => {
   await page.goto('/');
+  // Signed out: the sign-in page. GitHub (pretend, here) sends the person straight back.
+  await expect(page.getByRole('link', { name: /Continue with GitHub/ })).toBeVisible();
+  await checkScreen(page, '00-sign-in');
+  await page.getByRole('link', { name: /Continue with GitHub/ }).click();
   await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole('heading', { name: 'Set up Tandem' })).toBeVisible();
   await checkScreen(page, '01-setup-welcome');
@@ -31,12 +35,12 @@ test('first launch opens the setup wizard', async () => {
 
 test('setup: connect Copilot, then detect and add a repository', async () => {
   await page.getByRole('button', { name: 'Start' }).click();
-  // Copilot first: in test mode a pretend account is already connected.
+  // Copilot first: it runs on the plan of the person who signed in.
   await expect(page.getByText('Connected', { exact: true })).toBeVisible();
-  await page.getByLabel('Your name').fill('Sam');
+  await expect(page.getByText('Your Copilot plan')).toBeVisible();
   await checkScreen(page, '04-setup-connect');
   await page.getByRole('button', { name: 'Continue' }).click();
-  // Repositories: from GitHub, CodeCommit, a clone on this computer, or a URL.
+  // Repositories: from GitHub, CodeCommit, or a URL.
   await page.getByRole('tab', { name: 'Clone URL' }).click();
   const url = page.getByRole('textbox', { name: 'Clone URL' });
   await url.fill('not a url');

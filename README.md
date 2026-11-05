@@ -8,74 +8,80 @@ passing test, reviews the change, and opens one pull request per repository.
 A person always reviews and merges: agents never merge and never push to a
 default branch.
 
-It runs on your machine as a local web app (127.0.0.1 only), on AWS
-CodeCommit or GitHub repositories, with Jira as an option.
+Tandem is a web app. People sign in with GitHub, and each team works in a
+workspace: its projects, tasks, chats and connections. A workspace works in
+Tandem's cloud, in the EU, or on a company's own computer through a runner
+when the code must not leave the company. It works on AWS CodeCommit or
+GitHub repositories, with Jira as an option.
 
 ```
 Chat request ─▶ Ready? ─▶ Spec ─▶ Owner + PM approve ─▶ Build ─▶ Checks ─▶ Self-review ─▶ Pull requests ─▶ Merged
 ```
 
-## What you need
+## What people need
 
 | | |
 | --- | --- |
-| Node.js | 22.13 or newer |
-| pnpm | 10 (`corepack enable` sets it up) |
-| git | 2.25 or newer |
-| GitHub Copilot | any plan: Free, Pro or Pro+ of your own, or Business or Enterprise from work. You connect it in the setup wizard |
-| AWS (CodeCommit only) | connected in the app: your company's IAM Identity Center sign-in, an access key, or a profile on this computer. No AWS CLI needed |
-| Disk | a few GB free; each repo is cloned once and its dependencies are shared between tasks |
+| A GitHub account | to sign in; Tandem uses it for GitHub repositories too |
+| GitHub Copilot | any plan: Free, Pro or Pro+ of your own, or Business or Enterprise from work. A workspace runs on one member's plan |
+| AWS (CodeCommit only) | connected in the app: your company's IAM Identity Center sign-in, an access key, or a role in your account. No AWS CLI needed |
+| Jira (optional) | **Connect Jira** in the app: sign in at Atlassian, or a token for Jira Data Center |
 
-Jira is optional. GitHub repositories use the GitHub account you connect
-for Copilot; no GitHub CLI is needed. Repositories are added from a list
-of what your accounts can reach, from a clone already on this computer
-(Tandem then uses that clone and your own git sign-in, without cloning it
-again), or from a clone URL.
+The first person in a workspace sets it up in a short wizard: Copilot,
+repositories (picked from what their accounts can reach, or a clone URL),
+a project, Jira, and a check. They invite colleagues with a link.
 
-## Install and start
+## Running Tandem
+
+**On a server**, for a team or as a service: the Docker image and everything
+around it (the GitHub App, settings, isolation of builds, backups, several
+replicas, monitoring) are in [Deploying Tandem](docs/DEPLOYMENT.md).
+
+**On one computer**, to try it or to develop it, you need a GitHub App for
+the sign-in ([section 1 of the deployment guide](docs/DEPLOYMENT.md#1-create-the-github-app),
+with the callback `http://localhost:4317/auth/github/callback`). Then:
 
 ```sh
 git clone <this repository> tandem
 cd tandem
 pnpm install
-pnpm tandem
+TANDEM_GITHUB_CLIENT_ID=… TANDEM_GITHUB_CLIENT_SECRET=… TANDEM_PORT=4317 pnpm tandem
 ```
 
-`pnpm tandem` builds Tandem if the build is missing or out of date, starts
-it at <http://127.0.0.1:4317>, opens your browser, and runs the doctor on
-the first launch. The setup wizard then walks you through adding
-repositories, grouping them into a project, and checking your setup.
-Stop it with Ctrl+C; unfinished work resumes on the next start.
+(or put those settings in a `.env` file; see `.env.example`). `pnpm tandem`
+builds Tandem when needed, starts it at <http://localhost:4317>, and opens
+your browser. Its data stay in `~/.tandem`, with a secret key Tandem makes
+there once. Stop it with Ctrl+C; unfinished work resumes on the next start.
+On a remote machine (for example over VS Code Remote-SSH), forward the port
+to the **same** local port.
 
-Connecting Copilot takes one click in the wizard (or in Settings ›
-Copilot): sign in with GitHub in your browser, on GitHub.com for a
-personal plan or a Business or Enterprise seat there, or on your company's
-GitHub address (for example `yourcompany.ghe.com`). The sign-in is kept in
-your system keychain, and you can add several accounts and switch between
-them. On a computer without a browser, connect with a fine-grained token
-that has the Copilot Requests permission. Tandem keeps its own sign-in: it
-doesn't use a Copilot CLI or GitHub CLI login on the computer, and no
-environment variable connects an account.
+**On a company computer**, when a workspace's code must stay in the company:
+an owner chooses Settings › Workspace › **Use a company computer**, and runs
+the two commands it shows there:
+
+```sh
+npm install -g https://app.[domain]/download/tandem.tgz
+tandem runner --url https://app.[domain] --key tdr_…
+```
 
 Other commands:
 
 ```sh
-pnpm tandem doctor          # check the setup in the terminal (--json for a report)
-pnpm tandem --no-open       # start without opening a browser
-pnpm tandem --version
+tandem doctor               # check a computer for a company runner (--json for a report)
+tandem backup --to <folder> # copy Tandem's databases while it runs; tandem restore --from <folder>
+tandem --help
 ```
-
-On a remote machine (for example over VS Code Remote-SSH), forward port
-4317 to the **same** local port: Tandem only answers on its own port.
 
 ## Documentation
 
 - [User guide](docs/USER_GUIDE.md): chat, specs and approvals, tasks,
   pull requests, models and credit limits.
+- [Deploying Tandem](docs/DEPLOYMENT.md): the server, the GitHub App,
+  isolation, backups, replicas, monitoring.
 - [Runbook](docs/RUNBOOK.md): data on disk, logs, backups, blocked tasks,
   sign-in problems, disk space, upgrades.
-- [Enable Jira](docs/ENABLE_JIRA.md): import issues, post specs, PM
-  approval from Jira, and a keychain on headless Linux.
+- [Enable Jira](docs/ENABLE_JIRA.md): connect Jira, import issues, post
+  specs, PM approval from Jira.
 - [Adapters](docs/ADAPTERS.md): how the source hosts, trackers and the
   agent runtime plug in, and how to add one.
 - [Architecture](docs/ARCHITECTURE.md) and [plan](docs/PLAN.md).
@@ -93,8 +99,10 @@ On a remote machine (for example over VS Code Remote-SSH), forward port
 - Tandem pushes only to the `feature/<key>-…` branches it created, never with
   `--force` (only `--force-with-lease` after its own rebase), and never
   merges.
-- Secrets (Jira and GitHub tokens) live only in the OS keychain. Logs and
-  stored output are redacted.
+- Every workspace is apart from the others: its own database and folders,
+  and each build isolated in its own namespaces. Secrets are sealed per
+  workspace (or kept in the keychain of a company runner's computer), never
+  in a page or a log. Logs and stored output are redacted.
 - Copilot use has hard limits per task and per day, in prompts and in AI
   credits; a run that reaches one stops at once.
 

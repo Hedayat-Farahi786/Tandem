@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Gauge, Save, ShieldAlert, ShieldCheck, UserRound, Users, Workflow, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Gauge, Save, ShieldAlert, ShieldCheck, Users, Workflow, type LucideIcon } from 'lucide-react';
 import { BrandLogo, BrandTile, type Brand } from '../ui/brands';
 import { IconTile, Ring } from '../ui/visual';
 import type { Settings } from '@tandem/shared';
@@ -9,7 +9,7 @@ import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
 import { CopilotConnect } from '../ui/copilot-connect';
-import { isCompanyRunner, isCloud, isHosted, secretsKept } from '../ui/account-menu';
+import { isCompanyRunner, isCloud, secretsKept } from '../ui/account-menu';
 import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
 import { JiraConnect, queryOfStatus, statusOfQuery, useJira, useJiraStatuses } from '../ui/jira-connect';
@@ -174,7 +174,7 @@ function AuditSection() {
           </LinkButton>
         </span>
       </Row>
-      <Row label="All data" description={`Every project, task, chat, approval, Copilot run and audit entry ${isHosted() ? 'of this workspace' : 'Tandem keeps'}, as one JSON file. Secrets are never included.`}>
+      <Row label="All data" description={'Every project, task, chat, approval, Copilot run and audit entry of this workspace, as one JSON file. Secrets are never included.'}>
         <LinkButton to="/api/export" size="sm" download>
           Download
         </LinkButton>
@@ -183,9 +183,9 @@ function AuditSection() {
   );
 }
 
-const NAV_ALL = [
+/** The sections, in order. Names come from GitHub, so there is no "your name" section. */
+const NAV = [
   ['workspace', 'Workspace', Users],
-  ['general', 'General', UserRound],
   ['copilot', 'Copilot', 'copilot'],
   ['budget', 'Budget', Gauge],
   ['workflow', 'Workflow', Workflow],
@@ -194,8 +194,6 @@ const NAV_ALL = [
   ['github', 'GitHub', 'github'],
   ['audit', 'Audit log', ShieldCheck],
 ] as const satisfies ReadonlyArray<readonly [string, string, LucideIcon | Brand]>;
-/** The workspace section exists only in the web app; there, names come from GitHub (no General section). */
-const NAV = NAV_ALL.filter(([id]) => (isHosted() ? id !== 'general' : id !== 'workspace'));
 /** Where secrets are kept, in words. */
 const KEPT = secretsKept();
 
@@ -292,23 +290,15 @@ export function SettingsScreen() {
     <div className="mx-auto w-full max-w-[1000px] pb-24">
       <div className="mb-10">
         <h1 className="font-display text-[26px] leading-tight">Settings</h1>
-        <p className="mt-1 text-[14px] text-muted">{isCompanyRunner() ? "This workspace's settings, shared by its members. It works on a company computer: its data, repositories and sign-ins stay there." : isHosted() ? "This workspace's settings, shared by its members. Tokens are encrypted and used only for this workspace." : 'Stored on this machine. Tokens go only to your OS keychain.'}</p>
+        <p className="mt-1 text-[14px] text-muted">{isCompanyRunner() ? "This workspace's settings, shared by its members. It works on a company computer: its data, repositories and sign-ins stay there." : "This workspace's settings, shared by its members. Tokens are encrypted and used only for this workspace."}</p>
       </div>
       <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">
       <SectionNav />
       <div className="flex min-w-0 flex-col gap-14">
 
-      {isHosted() && <WorkspaceSection />}
+      <WorkspaceSection />
 
-      {!isHosted() && (
-        <SettingsSection id="general" icon={<IconTile icon={UserRound} />} title="General">
-          <Row label="Your name" htmlFor="set-name" description="Shown on the specs you approve.">
-            <Input id="set-name" value={s.ownerName} onChange={(e) => set('ownerName', e.target.value)} />
-          </Row>
-        </SettingsSection>
-      )}
-
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : isCompanyRunner() ? "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays in that computer's keychain." : "The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain."}>
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays in that computer's keychain."}>
         <div className="py-4">
           <CopilotConnect />
         </div>
@@ -433,7 +423,7 @@ export function SettingsScreen() {
       >
         {!kcOk && secrets.data && (
           <div className="py-4">
-            <Callout tone="warn" title="No OS keychain on this machine">
+            <Callout tone="warn" title="No OS keychain on the runner's computer">
               {secrets.data.keychain.message}
             </Callout>
           </div>

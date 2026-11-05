@@ -74,7 +74,7 @@ function NewKey({ command, install, onDone }: { command: string; install?: strin
       <Command text={command} />
       <ul className="flex list-disc flex-col gap-1 pl-5 text-[12.5px] text-muted">
         <li>
-          It needs Node.js 22.13 or later, git, and access to your repositories{install ? '' : ', and a copy of Tandem (the same one your team runs locally)'}. <code className="font-mono">tandem doctor</code> checks that computer.
+          It needs Node.js 22.13 or later, git, and access to your repositories{install ? '' : ', and the tandem command installed'}. <code className="font-mono">tandem doctor</code> checks that computer.
         </li>
         <li>The key is shown only now. The runner keeps it in that computer's keychain, so the next start is just <code className="font-mono">tandem runner</code>.</li>
         <li>Only outgoing connections: nothing on that computer is opened to the network.</li>

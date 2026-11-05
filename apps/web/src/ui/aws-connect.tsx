@@ -8,7 +8,7 @@ import { Button, Callout, CopyButton, Dialog, Input, Select, Spinner, cx, useToa
 
 /*
  * Connecting AWS for CodeCommit, in the app: the company sign-in (AWS IAM Identity Center, in the
- * browser), an access key, or a profile already on this computer. Kept in the system keychain.
+ * browser), an access key, a role, or (company runners) a profile already on the runner's computer.
  */
 
 export interface AwsState {
@@ -431,7 +431,7 @@ export function AwsConnect() {
             <TerminalSquare aria-hidden className="size-[18px]" strokeWidth={1.8} />
           </span>
           <div className="min-w-[180px] flex-1">
-            <Select id="aws-profile" label="Or use a profile on this computer" value={profile} onChange={setProfile} placeholder="Choose a profile" options={s.profiles.map((p) => ({ value: p, label: p }))} />
+            <Select id="aws-profile" label="Or use a profile on the runner's computer" value={profile} onChange={setProfile} placeholder="Choose a profile" options={s.profiles.map((p) => ({ value: p, label: p }))} />
           </div>
           <Button disabled={!profile} busy={useProfile.isPending} onClick={() => useProfile.mutate()}>
             Use profile

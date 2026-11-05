@@ -41,7 +41,7 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
   webServer: {
     command: 'node e2e/support/serve.mjs',
-    url: `http://127.0.0.1:${port}/api/health`,
+    url: `http://127.0.0.1:${port}/healthz`,
     reuseExistingServer: false,
     timeout: 120_000,
     env: { TANDEM_E2E_DIR: work, TANDEM_PORT: String(port), TANDEM_E2E_OWN_DIR: own ? '1' : '' },

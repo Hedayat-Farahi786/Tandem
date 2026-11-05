@@ -6,7 +6,7 @@ import { api, post } from '../lib/api';
 import { relativeTime } from '../lib/format';
 import type { DoctorCheck, DoctorReport } from '../lib/types';
 import { Button, ErrorState, Loading, SettingsSection, cx } from '../ui/kit';
-import { isCloud, isCompanyRunner } from '../ui/account-menu';
+import { isCompanyRunner } from '../ui/account-menu';
 
 const ICON = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle, skipped: MinusCircle } as const;
 const COLOR = { pass: 'text-ok', warn: 'text-warn', fail: 'text-danger', skipped: 'text-faint' } as const;
@@ -156,7 +156,7 @@ export function DoctorScreen() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] leading-tight">Doctor</h1>
-          <p className="mt-1 text-[14px] text-muted">{isCompanyRunner() ? "Checks the runner's computer: its tools, repositories, Copilot, AWS and Jira." : isCloud() ? "Checks this workspace's repositories, Copilot, AWS and Jira." : 'Checks your tools, repositories, Copilot, AWS and Jira.'} It never sends a prompt, so it uses none of your budget.</p>
+          <p className="mt-1 text-[14px] text-muted">{isCompanyRunner() ? "Checks the runner's computer: its tools, repositories, Copilot, AWS and Jira." : "Checks this workspace's repositories, Copilot, AWS and Jira."} It never sends a prompt, so it uses none of your budget.</p>
         </div>
         {report && (
           <Button icon={RefreshCw} busy={run.isPending} onClick={() => run.mutate()}>

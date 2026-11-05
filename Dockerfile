@@ -54,7 +54,6 @@ COPY --from=build /src/cli/tandem.tgz cli/tandem.tgz
 RUN mkdir -p /data && chown node:node /data
 USER node
 ENV NODE_ENV=production \
-    TANDEM_MODE=hosted \
     TANDEM_HOME=/data \
     TANDEM_PORT=8080 \
     TANDEM_LISTEN_HOST=0.0.0.0 \

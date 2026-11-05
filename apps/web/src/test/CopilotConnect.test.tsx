@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, catalog, settings } from './fixtures';
-import { mockApi, renderApp } from './helpers';
+import { asCompanyRunner, mockApi, renderApp } from './helpers';
 
 const providers = [
   { kind: 'githubDotCom', label: 'GitHub.com', available: true },
@@ -19,7 +19,12 @@ const routes = (accounts: object, over: Record<string, object> = {}) => ({
   ...over,
 });
 
-describe('Connecting Copilot', () => {
+// Signing in to Copilot happens on a company runner's computer; in the cloud, a member's plan is used.
+describe('Connecting Copilot on a company runner', () => {
+  let leave: () => void;
+  beforeEach(() => void (leave = asCompanyRunner()));
+  afterEach(() => leave());
+
   it('signs in with GitHub.com in the browser, from Settings', async () => {
     let signedIn = false;
     let polls = 0;

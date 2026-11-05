@@ -27,6 +27,24 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **One product: the web app.** The single-user local app is gone; its
+  engine runs inside every workspace, and company runners run it on a
+  company computer.
+  - `tandem start` (and `pnpm tandem`) always starts the web app. On one
+    computer it needs only the GitHub App's client ID and secret: it serves
+    `http://localhost:<port>` on 127.0.0.1, keeps its data in `~/.tandem`,
+    and makes its secret key there once (kept owner-only, and included in
+    `tandem backup`). A server still needs its public address and secret key.
+  - The page has one shape: the account menu (with a test-mode note), no
+    "your name" setting (names come from GitHub), and the runner-only
+    screens (a clone on the computer, AWS profiles, signing in to Copilot
+    there) only for workspaces on a company runner.
+  - The engine serves no page of its own; `tandem doctor` checks a computer
+    for a company runner.
+  - The browser tests and every end-to-end flow run the web app behind a
+    pretend GitHub. The real-Copilot and real-CodeCommit flows run through a
+    company runner on the test computer, as a company would.
+
 - **Connect Jira in a few clicks.** Settings › Jira and the setup wizard
   have one **Connect Jira** button:
   - In the web app (with Tandem's Atlassian app, `TANDEM_JIRA_CLIENT_ID` and

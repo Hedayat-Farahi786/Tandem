@@ -60,7 +60,7 @@ cpSync(join(root, 'docs', 'legal'), join(stage, 'docs', 'legal'), { recursive: t
 for (const f of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) if (existsSync(join(root, f))) cpSync(join(root, f), join(stage, f));
 writeFileSync(
   join(stage, 'README.md'),
-  `# Tandem\n\nThe \`tandem\` command: Tandem on your own computer (\`tandem\`), or a company runner for a workspace in Tandem's web app (\`tandem runner --url … --key …\`).\n\nNeeds Node.js ${rootPkg.engines.node} and git. Run \`tandem doctor\` to check this computer.\n`,
+  `# Tandem\n\nThe \`tandem\` command: a company runner for a workspace of Tandem's web app (\`tandem runner --url … --key …\`), or the web app itself (\`tandem start\`, with a GitHub App).\n\nNeeds Node.js ${rootPkg.engines.node} and git. Run \`tandem doctor\` to check this computer.\n`,
 );
 
 // The versions pnpm installed and Tandem's tests ran with, per package name.
@@ -73,7 +73,7 @@ for (const m of readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').matchAll(/^ {
 const pkg = {
   name: 'tandem',
   version: rootPkg.version,
-  description: 'Tandem: from a chat request to a reviewed pull request. The local app and the company runner.',
+  description: 'Tandem: from a chat request to a reviewed pull request. The company runner, and the web app.',
   type: 'module',
   bin: { tandem: 'apps/server/dist/cli.js' },
   engines: rootPkg.engines,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, catalog, detail, settings, task } from './fixtures';
-import { mockApi, renderApp } from './helpers';
+import { asCompanyRunner, mockApi, renderApp } from './helpers';
 
 const report = (statuses: Array<'pass' | 'warn' | 'fail' | 'skipped'>) => ({
   at: new Date().toISOString(),
@@ -124,11 +124,16 @@ describe('Settings', () => {
     expect(await screen.findByText('Settings saved.')).toBeTruthy();
   });
 
-  it('explains a missing keychain and disables token fields', async () => {
-    mockApi(routes({ 'GET /api/secrets': { keychain: { ok: false, reason: 'No Secret Service' }, jiraToken: false, githubToken: false } }));
-    renderApp('/settings');
-    expect(await screen.findByText('No OS keychain on this machine')).toBeTruthy();
-    expect((screen.getByLabelText('Extra GitHub token') as HTMLInputElement).disabled).toBe(true);
+  it("explains a missing keychain on the runner's computer and disables token fields", async () => {
+    const leave = asCompanyRunner();
+    try {
+      mockApi(routes({ 'GET /api/secrets': { keychain: { ok: false, reason: 'No Secret Service' }, jiraToken: false, githubToken: false } }));
+      renderApp('/settings');
+      expect(await screen.findByText("No OS keychain on the runner's computer")).toBeTruthy();
+      expect((screen.getByLabelText('Extra GitHub token') as HTMLInputElement).disabled).toBe(true);
+    } finally {
+      leave();
+    }
   });
 });
 

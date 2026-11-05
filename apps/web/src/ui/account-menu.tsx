@@ -5,14 +5,12 @@ import { api, del, post } from '../lib/api';
 import { Avatar, Button, Dialog, Input, useToast } from './kit';
 import { ActionMenu, type MenuItem } from './thread-actions';
 
-/** Hosted mode only: the page says so in a meta tag the server adds. */
-export const isHosted = () => document.querySelector('meta[name="tandem-mode"]')?.getAttribute('content') === 'hosted';
-/** A web app workspace that works on a company computer (its runner): there, Tandem acts like the local app. */
-export const isCompanyRunner = () => isHosted() && document.querySelector('meta[name="tandem-runner"]')?.getAttribute('content') === 'company';
-/** The web app's cloud, where nothing of a computer (folders, keychain, profiles) is reachable. */
-export const isCloud = () => isHosted() && !isCompanyRunner();
+/** A workspace that works on a company computer (its runner): its folders, keychain and sign-ins are that computer's. The page says so in a meta tag. */
+export const isCompanyRunner = () => document.querySelector('meta[name="tandem-runner"]')?.getAttribute('content') === 'company';
+/** A workspace in Tandem's cloud, where nothing of a computer (folders, keychain, profiles) is reachable. */
+export const isCloud = () => !isCompanyRunner();
 /** Where secrets are kept, in words. */
-export const secretsKept = () => (isCompanyRunner() ? "in the keychain of the runner's computer" : isHosted() ? 'encrypted, for this workspace only' : 'in your system keychain');
+export const secretsKept = () => (isCompanyRunner() ? "in the keychain of the runner's computer" : 'encrypted, for this workspace only');
 
 interface Me {
   user: { id: string; login: string; name: string; avatarUrl?: string };
@@ -22,12 +20,14 @@ interface Me {
 
 /**
  * Who is signed in, and their workspaces: switch, create one, export your data, delete your
- * account, sign out. Shown in the sidebar of the hosted app instead of "Local · 127.0.0.1".
+ * account, sign out. In the sidebar.
  */
 export function AccountMenu() {
   const qc = useQueryClient();
   const toast = useToast();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/api/me') });
+  const boot = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<{ agent: string; localRepoCopies?: boolean }>('/api/bootstrap') });
+  const testMode = boot.data && (boot.data.agent !== 'copilot' || boot.data.localRepoCopies) ? `Test mode · ${boot.data.agent !== 'copilot' ? `${boot.data.agent} agent` : 'local repos'}` : undefined;
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState('');
@@ -58,6 +58,7 @@ export function AccountMenu() {
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-[13px] font-medium">{user.name}</p>
         <p className="truncate text-[12px] text-faint">{ws?.name ?? 'No workspace'}</p>
+        {testMode && <p className="truncate text-[12px] text-warn">{testMode}</p>}
       </div>
       <ActionMenu label="Account and workspaces" items={items} />
       <Dialog

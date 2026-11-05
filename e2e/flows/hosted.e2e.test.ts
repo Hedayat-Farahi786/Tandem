@@ -1,5 +1,5 @@
 /**
- * The hosted web app end to end: the built server in TANDEM_MODE=hosted, behind a pretend GitHub
+ * The web app end to end: the built server, behind a pretend GitHub
  * (sign-in only), with the scripted agent and local copies of the CodeCommit sandbox repos.
  *
  * Two people sign in with GitHub. Mona owns the workspace and invites Hubot with a link. Mona adds a
@@ -13,7 +13,7 @@
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { createServer, request, type Server } from 'node:http';
+import { request } from 'node:http';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,39 +22,6 @@ import { Harness, WEBHOOK_SECRET, repoName, type Detail } from './harness.js';
 
 const REQUEST = "Add a GET /health endpoint returning {status: 'ok'} and show the status on the main page.";
 const ANSWER = 'Show "Checking status…" while loading and "Status unavailable" if it fails. Authentication and metrics are out of scope.';
-
-/** GitHub's OAuth code exchange and /user, for three people. Nothing else of GitHub is used. */
-const people: Record<string, { id: number; login: string; name: string }> = {
-  'code-mona': { id: 101, login: 'mona', name: 'Mona Lisa' },
-  'code-hubot': { id: 102, login: 'hubot', name: 'Hubot' },
-  'code-eve': { id: 103, login: 'eve', name: 'Eve' },
-};
-let github: Server;
-async function startGitHub(): Promise<string> {
-  github = createServer((req, res) => {
-    let body = '';
-    req.on('data', (c: Buffer) => (body += c.toString()));
-    req.on('end', () => {
-      const url = new URL(req.url ?? '/', 'http://github.test');
-      res.setHeader('content-type', 'application/json');
-      if (req.method === 'POST' && url.pathname === '/login/oauth/access_token') {
-        const { code, grant_type } = JSON.parse(body || '{}') as { code?: string; grant_type?: string };
-        if (grant_type === 'refresh_token') return res.end(JSON.stringify({ error: 'bad_refresh_token' }));
-        return res.end(JSON.stringify(code && people[code] ? { access_token: `ghu_${code}`, expires_in: 28_800, refresh_token: `ghr_${code}`, refresh_token_expires_in: 15_897_600 } : { error: 'bad_verification_code' }));
-      }
-      if (url.pathname === '/user') {
-        const p = people[String(req.headers.authorization ?? '').replace('Bearer ghu_', '')];
-        res.statusCode = p ? 200 : 401;
-        return res.end(JSON.stringify(p ? { ...p, email: null, avatar_url: null } : { message: 'Bad credentials' }));
-      }
-      res.statusCode = 404;
-      res.end('{}');
-    });
-  });
-  await new Promise<void>((r) => github.listen(0, '127.0.0.1', r));
-  const a = github.address();
-  return `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
-}
 
 let h: Harness;
 type Session = { cookie: string; token: string };
@@ -90,8 +57,7 @@ let hubot: Session;
 let projectId = '';
 
 beforeAll(async () => {
-  const gh = await startGitHub();
-  h = new Harness({ hosted: { github: gh, as: 'code-mona' } });
+  h = new Harness({ as: 'code-mona' });
   await h.prepareRemotes(['fullstack']);
   await h.start();
   mona = h.session;
@@ -100,7 +66,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await h?.stop();
   h?.cleanup();
-  await new Promise((r) => github?.close(r));
   console.warn(`Hosted flow: server log ${h?.logFile}`);
 });
 

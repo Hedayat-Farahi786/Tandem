@@ -1,7 +1,8 @@
 # Tandem user guide
 
 This guide covers everyday use: from a request in chat to merged pull
-requests. To install Tandem, see the [README](../README.md).
+requests. Running Tandem is in the [README](../README.md) and
+[Deploying Tandem](DEPLOYMENT.md).
 
 ## The flow
 
@@ -26,35 +27,39 @@ Request ─▶ Readiness ─▶ Spec ─▶ Approvals ─▶ Build ─▶ Checks
 7. **A person reviews and merges.** When every pull request is merged,
    Tandem marks the task done and cleans up.
 
-## First-time setup
+## Getting started
 
-`pnpm tandem` opens the setup wizard on the first launch:
+Open Tandem and choose **Continue with GitHub**. The first time, you get a
+workspace of your own, and a short setup wizard:
 
-1. **Repositories**: paste each repository's URL. CodeCommit accepts the
-   `codecommit::<region>://<profile>@<name>` form your clones use, SSH and
-   HTTPS URLs; GitHub accepts SSH and HTTPS. Tandem clones it once and
-   detects the language, the role (frontend, backend, full-stack) and the
-   commands for install, lint, type-check, build and test. Check and edit
-   the commands: Tandem runs exactly these.
-2. **Project**: group the repositories that change together, for example
+1. **Copilot**: the workspace runs on your Copilot plan (personal, or a
+   Business or Enterprise seat from work). Another member can switch it to
+   theirs later.
+2. **Repositories**: pick them from what your GitHub account and AWS
+   connection can reach, or paste a clone URL. CodeCommit needs AWS first:
+   connect it right there (IAM Identity Center sign-in, an access key, or a
+   role in your account; see below). Tandem clones each repository once
+   and detects the language, the role (frontend, backend, full-stack) and
+   the commands for install, lint, type-check, build and test. Check and
+   edit the commands: Tandem runs exactly these.
+3. **Project**: group the repositories that change together, for example
    one full-stack repo, or a frontend and a backend repo. Choose the task
    key prefix (`TND` gives `TND-1`, `TND-2`…) and how PMs approve specs:
    - **In Tandem**: you record the PM's approval (name, date, evidence).
    - **In Jira**: Tandem posts the spec to the issue and reads the PM's
      reply (needs [Jira](ENABLE_JIRA.md)).
    - **Off**: only your approval is needed.
-3. **Copilot and AWS**: your name (used on approvals), the Copilot host if
-   your Copilot comes from a GitHub Enterprise host, and the AWS profile for
-   CodeCommit.
 4. **Jira (optional)**: skip it, or choose **Connect Jira**: sign in at
    Atlassian, or paste a link from your Jira and a token. See
    [Enable Jira](ENABLE_JIRA.md).
-5. **Check**: the doctor checks the tools, Copilot access and every
-   repository. Fix anything marked red, then open chat.
+5. **Check**: Tandem checks Copilot access and every repository. Fix
+   anything marked red, then open chat.
 
-## The web app: workspaces and company computers
+Then invite your colleagues (Settings › Workspace › Invite).
 
-In the web app, you sign in with GitHub, and each team works in a **workspace**: its projects,
+## Workspaces and company computers
+
+You sign in with GitHub, and each team works in a **workspace**: its projects,
 tasks, chats, connections and history, apart from every other workspace.
 
 - **Members.** Owners invite people in Settings › Workspace with a link that is valid for 7 days.
@@ -64,7 +69,7 @@ tasks, chats, connections and history, apart from every other workspace.
   whole workspace as one file, and the account menu's **Export my data** gives your account. The
   account menu also deletes your account.
 
-### Connecting CodeCommit in the web app
+### Connecting CodeCommit
 
 Settings › AWS › **Connect with a role** is the way for teams:
 

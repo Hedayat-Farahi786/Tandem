@@ -10,7 +10,7 @@ import { Button, Callout, Dialog, Input, Spinner, cx, useToast } from './kit';
  * Connecting GitHub Copilot, for anyone: a personal plan (Free, Pro, Pro+) or a work account
  * (Business or Enterprise on github.com, or GitHub Enterprise Cloud on its own *.ghe.com host).
  * Sign-in happens in the browser through Copilot's own sign-in; Tandem never sees a password, and
- * the sign-in is kept in the system keychain.
+ * the sign-in is kept in the keychain of the runner's computer. In the cloud, Copilot uses a member's plan.
  */
 
 type ProviderKind = 'githubDotCom' | 'proxima' | 'entra';
@@ -192,7 +192,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
 
   const title = kind === 'proxima' ? "Sign in to your company's GitHub" : kind === 'entra' ? 'Sign in with Microsoft' : 'Sign in to GitHub';
   return (
-    <Dialog open onClose={close} title={title} description="Use the account that has your Copilot plan. Tandem never sees your password; the sign-in is kept in your system keychain.">
+    <Dialog open onClose={close} title={title} description="Use the account that has your Copilot plan. Tandem never sees your password; the sign-in is kept in the keychain of the runner's computer.">
       <div className="min-h-[148px]">
         {!step || (busy && step.kind !== 'open-url') ? (
           <p className="flex items-center gap-2.5 py-6 text-[13.5px] text-muted">
@@ -488,7 +488,7 @@ function LocalCopilotConnect({ compact }: { compact?: boolean | undefined }) {
         {s?.error && <p className="text-[12.5px] text-warn">{s.error}</p>}
         <SignInButtons state={s} onPick={setSignIn} />
         <button type="button" onClick={() => setToken(true)} className="self-start text-[12.5px] text-muted underline-offset-2 hover:text-fg hover:underline">
-          No browser on this computer? Use a token instead
+          No browser on the runner's computer? Use a token instead
         </button>
         {dialogs}
       </div>

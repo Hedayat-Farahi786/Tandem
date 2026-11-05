@@ -41,6 +41,6 @@ describe('Moving a workspace to a company computer', () => {
     expect(await screen.findByText('On the company computer, run:')).toBeTruthy();
     expect(screen.getByText('tandem runner --url https://app.example.com --key tdr_y')).toBeTruthy();
     expect(screen.queryByText(/npm install/)).toBeNull();
-    expect(screen.getByText(/a copy of Tandem \(the same one your team runs locally\)/)).toBeTruthy();
+    expect(screen.getByText(/the tandem command installed/)).toBeTruthy();
   });
 });

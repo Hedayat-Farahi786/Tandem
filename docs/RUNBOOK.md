@@ -1,25 +1,32 @@
 # Tandem runbook
 
-How to run, inspect, fix and upgrade a Tandem installation. For everyday use,
-see the [user guide](USER_GUIDE.md).
+How to run, inspect, fix and upgrade Tandem. Running it for a team, on a
+server, is in [Deploying Tandem](DEPLOYMENT.md); everyday use is in the
+[user guide](USER_GUIDE.md). This page covers Tandem on one computer (to try
+it or develop it) and company runners.
 
 ## Start, stop, check
 
 ```sh
-pnpm tandem                # build if needed, start on 127.0.0.1:4317, open the browser
+pnpm tandem                # build if needed, start the web app at http://localhost:4317, open the browser
 pnpm tandem --no-open      # same, without the browser
-pnpm tandem doctor         # all checks in the terminal; exit code 1 if a required one fails
-pnpm tandem doctor --json  # the same as JSON
+tandem runner              # a company runner (after its first start with --url and --key)
+tandem doctor              # check a computer for a company runner; exit code 1 if a required check fails
 ```
+
+`pnpm tandem` needs the GitHub App's client ID and secret
+(`TANDEM_GITHUB_CLIENT_ID`, `TANDEM_GITHUB_CLIENT_SECRET`, in the environment
+or `.env`). Signing in, the first person gets a workspace of their own, and
+its setup wizard.
 
 Ctrl+C stops Tandem. Work in progress is saved after every step: on the next
 start, each task continues from the step it was on, including after a crash
 or a `kill -9`. A step that was running is run again from its start.
 
-Tandem only listens on 127.0.0.1 and only answers requests addressed to
-`127.0.0.1:<port>` or `localhost:<port>`; anything else gets
-`421 Misdirected Request`. Over SSH or VS Code Remote, forward the port to
-the **same** local port (4317 to 4317).
+On one computer, Tandem listens on 127.0.0.1 and answers only requests for
+its own address (`localhost:<port>` or `127.0.0.1:<port>`); anything else
+gets `421 Misdirected Request`. Over SSH or VS Code Remote, forward the port
+to the **same** local port (4317 to 4317).
 
 ## Data on disk
 
@@ -27,39 +34,33 @@ Everything lives in `TANDEM_HOME` (default `~/.tandem`):
 
 | Path | What | Safe to delete? |
 | --- | --- | --- |
-| `tandem.db` (+ `-wal`, `-shm`) | all state: projects, tasks, specs, approvals, runs, chats, settings. No secrets. | No: this is your data. |
-| `logs/tandem-YYYY-MM-DD.log` | JSON logs, redacted, one file per start day, 14 days kept | Yes |
-| `mirrors/<host>/<repo>.git` | one bare clone per repository, fetched before use | Yes, when Tandem is stopped; recloned on next use |
-| `projects/<id>/<repo>/` | read-only checkouts for chat, specs and reviews | Yes, when stopped; recreated |
-| `tasks/<id>/<repo>/` | one git worktree per task and repository | Only for finished or cancelled tasks (Tandem removes those itself) |
-| `tasks/<id>/.tandem/` | check logs and diffs of that task | Same as above |
-| `deps/<repo>/<key>/` | shared installed dependencies (see below) | Yes, when stopped; the next check reinstalls |
+| `directory.db` | people, sessions, workspaces, members, invitations; tokens and workspace secrets, sealed | No: this is who may do what |
+| `secret.key` | the key that seals them (one computer only; a server takes it from its secret manager) | No: without it, every sign-in and connection must be made again |
+| `workspaces/<id>/tandem.db` | one workspace: projects, tasks, specs, approvals, runs, chats, settings, the audit log | No: this is the workspace's data |
+| `workspaces/<id>/mirrors/<host>/<repo>.git` | one bare clone per repository, fetched before use | Yes, when Tandem is stopped; recloned on next use |
+| `workspaces/<id>/projects/<id>/<repo>/` | read-only checkouts for chat, specs and reviews | Yes, when stopped; recreated |
+| `workspaces/<id>/tasks/<id>/<repo>/` | one git worktree per task and repository | Only for finished or cancelled tasks (Tandem removes those itself) |
+| `workspaces/<id>/deps/<repo>/<key>/` | shared installed dependencies (see below) | Yes, when stopped; the next check reinstalls |
+| `logs/` | JSON logs, redacted, one file per day, 14 days kept | Yes |
 
-Secrets (the AWS connection, Jira and GitHub tokens) are in the OS keychain
-under the service name `tandem`, never in these files. The Copilot sign-in
-is kept by the Copilot runtime in the keychain, with its state in
-`copilot/`. `bin/` holds the git credential helper Tandem writes at start
-(it asks the running Tandem for credentials and stores none).
+A company runner keeps its workspace in `~/.tandem-runner`, laid out like
+one `workspaces/<id>/` folder; its secrets (the runner key, AWS, Jira and
+GitHub tokens, the Copilot sign-in) are in that computer's keychain.
 
 ### Backups
 
 Back up while Tandem runs; no extra tool is needed:
 
 ```sh
-pnpm tandem backup --to ~/tandem-backups/2026-11-05
+tandem backup --to ~/tandem-backups/2026-11-05
 ```
 
-The backup holds the database: projects, tasks, chats, approvals and the audit log. It doesn't
-hold repository copies, which come back from the repositories, or secrets, which stay in your
-keychain.
-
-To restore, stop Tandem, move `~/.tandem` aside, then run:
-
-```sh
-pnpm tandem restore --from ~/tandem-backups/2026-11-05
-```
-
-To restore over existing data instead, add `--force`.
+The backup holds every database (the directory and each workspace) and, on
+one computer, the secret key. It doesn't hold repository copies, which come
+back from the repositories. To restore, stop Tandem, move `~/.tandem` aside,
+then run `tandem restore --from ~/tandem-backups/2026-11-05` (`--force`
+restores over existing data). With `TANDEM_HOME=~/.tandem-runner`, the same
+commands back up a company runner.
 
 ## Disk space
 
@@ -79,18 +80,10 @@ The doctor shows free space and the size of the dependency cache.
 
 ## Configuration
 
-Settings edited in the UI are stored in the database. Environment variables
-override them; `.env.example` lists every one. The most useful:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `TANDEM_HOME` | `~/.tandem` | data folder |
-| `TANDEM_PORT` | `4317` | port on 127.0.0.1 |
-| `TANDEM_LOG_LEVEL` | `info` | `debug` for more detail |
-| `TANDEM_AWS_PROFILE`, `TANDEM_AWS_REGION` | default chain | CodeCommit access |
-| `TANDEM_CREDITS_PER_TASK`, `TANDEM_CREDITS_PER_DAY` | 25, 75 | Copilot AI credit limits for a **new install**; then set in Settings |
-| `TANDEM_BUDGET_PER_TASK`, `TANDEM_BUDGET_PER_DAY` | 15, 40 | Copilot prompt limits for a **new install**; then set in Settings |
-| `TANDEM_MAX_CONCURRENT_BUILDS` | 1 | builds at a time |
+`.env.example` lists every setting, and [Deploying Tandem](DEPLOYMENT.md#2-settings)
+explains them. Workspace settings (models, budgets, limits, connections) are
+edited in the app, per workspace; the environment only gives new workspaces
+their starting values.
 
 ## Fixing common problems
 
@@ -101,26 +94,22 @@ allows (often 8 hours to 90 days), then expires. Settings › AWS shows
 **Expired**; choose **Sign in again**, confirm the code in the browser, and
 **Resume** any task that was waiting. The sign-in works from any device:
 the code page can be opened on your phone. With a profile from this
-computer, renew it the way you usually do for that profile. Without permission to create pull
+runner's computer, renew it the way you usually do for that profile. Without permission to create pull
 requests, Tandem gives you a prefilled console link instead.
 
 ### Copilot: "This account can't use Copilot here" (403)
 
-The signed-in GitHub account has no Copilot seat on that host. If your seat
-comes from a GitHub Enterprise host (`yourcompany.ghe.com`):
+The GitHub account whose plan the workspace uses has no Copilot seat. In
+Settings › Copilot, another member with a plan chooses **Use my Copilot
+plan**. On a company runner, sign in on that computer with the account that
+has the seat (for example on `yourcompany.ghe.com`), then run `tandem doctor`
+there.
 
-1. Settings › Copilot › Add another account › Your company's GitHub, and
-   sign in with `yourcompany.ghe.com` in the browser.
-2. Choose "Use this account" next to it.
-3. `pnpm tandem doctor`
+### "No usable OS keychain" (company runner)
 
-When this check fails and the GitHub CLI is signed in to another host, the
-doctor names that host as the likely fix.
-
-### "No usable OS keychain"
-
-Only needed to save a Jira or GitHub token. macOS and Windows always have
-one. On Linux, see [Enable Jira › Keychain on Linux](ENABLE_JIRA.md#keychain-on-linux).
+A company runner keeps its key and sign-ins in that computer's keychain.
+macOS and Windows always have one. On Linux, see
+[Enable Jira › Keychain on Linux](ENABLE_JIRA.md#keychain-on-linux).
 
 ### A task is waiting
 
@@ -130,13 +119,13 @@ error; **Retry** runs that step again. The task's timeline shows every
 transition with its reason; the log has the details:
 
 ```sh
-grep '"taskId":"<id>"' ~/.tandem/logs/tandem-$(date +%F).log | tail
+grep '"taskId":"<id>"' ~/.tandem/logs/*-$(date +%F).log | tail
 ```
 
 ### Copilot limit reached
 
-A run stopped at the per-task or per-day limit. Raise it in Settings ›
-Copilot budget, then **Resume**. Today's use is shown on the same card. The
+A run stopped at the per-task or per-day limit. An owner raises it in
+Settings › Budget, then **Resume**. Today's use is shown on the same card. The
 day resets at midnight local time.
 
 ### Conflicts
@@ -150,7 +139,7 @@ day resets at midnight local time.
 
 ### A repository is in a bad state
 
-Stop Tandem, delete `mirrors/<host>/<repo>.git` and `projects/<id>/<repo>`,
+Stop Tandem, delete the workspace's `mirrors/<host>/<repo>.git` and `projects/<id>/<repo>`,
 and start again: Tandem clones it again. Do this only when no task is
 working on that repository: task worktrees live inside the mirror, so a
 task's unpushed work would be lost. A worktree left half-made by a crash
@@ -164,7 +153,10 @@ pnpm install
 pnpm tandem      # rebuilds because the source changed
 ```
 
-The database is migrated on start. Back it up first (see above).
+The databases are migrated on start. Back them up first (see above). A
+server upgrades by its new image (see [Deploying Tandem](DEPLOYMENT.md)); a
+company runner with `npm install -g https://app.[domain]/download/tandem.tgz`
+again.
 
 ## Test modes
 
@@ -174,9 +166,9 @@ These are for developing Tandem; none of them call Copilot unless stated.
 | --- | --- |
 | `pnpm test` | unit, integration and web tests |
 | `pnpm test:ui` | browser tests with axe checks in light and dark (`TANDEM_SCREENSHOTS=1` saves screenshots) |
-| `pnpm test:flows` | end-to-end flows through the real server on local bare git remotes, scripted agent |
-| `TANDEM_E2E_REAL=1 TANDEM_AWS_PROFILE=<p> pnpm test:flows` | the same flows on real CodeCommit sandbox repositories |
-| `TANDEM_E2E_COPILOT=1 pnpm test:flows e2e/flows/copilot.e2e.test.ts` | **live Copilot, spends AI credits**: two short tasks with hard caps (15 credits per task, 40 per day), cheapest model by default (`TANDEM_E2E_MODEL`) |
+| `pnpm test:flows` | end-to-end flows through the real web app behind a pretend GitHub, on local bare git remotes, scripted agent |
+| `TANDEM_E2E_REAL=1 TANDEM_AWS_PROFILE=<p> pnpm test:flows` | the same flows on real CodeCommit sandbox repositories, through a company runner on this computer |
+| `TANDEM_E2E_COPILOT=1 pnpm test:flows e2e/flows/copilot.e2e.test.ts` | **live Copilot, spends AI credits**, through a company runner on this computer (its Copilot sign-in): two short tasks with hard caps (15 credits per task, 40 per day), cheapest model by default (`TANDEM_E2E_MODEL`) |
 
 `TANDEM_E2E_PORT=<port>` runs a flow on a fixed port so you can watch it in
 the browser, and `TANDEM_E2E_DIR=<dir>` keeps its data afterwards.
@@ -184,4 +176,4 @@ the browser, and `TANDEM_E2E_DIR=<dir>` keeps its data afterwards.
 the flows' own data, on a machine short of disk.
 `TANDEM_AGENT=scripted` starts Tandem with the scripted agent, and
 `TANDEM_TEST_REMOTE_ROOT=<dir>` serves CodeCommit repositories from local
-copies in `<dir>/<name>.git`; the sidebar then shows a test-mode badge.
+copies in `<dir>/<name>.git`; the account menu then shows a test-mode note.

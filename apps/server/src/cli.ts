@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { KeychainSecrets, ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
 import { runDoctor, type DoctorCheck } from './doctor.js';
-import { LEGAL_DIR, VERSION, WEB_DIR, readConfig, startServer } from './start.js';
+import { LEGAL_DIR, VERSION, WEB_DIR, loadDotenv, readConfig } from './start.js';
 import { readHostedConfig, startHosted } from './hosted/server.js';
 import { startRunner } from './runner.js';
 import { Directory } from './hosted/directory.js';
@@ -29,11 +29,13 @@ function printCheck(c: DoctorCheck): void {
   if (c.fix && c.status !== 'pass') console.log(`    ${' '.repeat(12)} → ${c.fix}`);
 }
 
+/** `tandem doctor`: whether this computer can run a company runner (git, Copilot, repositories, keychain). */
 async function doctor(json: boolean): Promise<number> {
   const config = readConfig();
+  if (!process.env.TANDEM_HOME) config.home = join(homedir(), '.tandem-runner');
   const t = await createTandem({ home: config.home, overrides: config.overrides, seeds: config.seeds, ...(config.agent === 'scripted' ? { agent: new ScriptedAgent(defaultScript) } : {}) });
   try {
-    if (!json) console.log(`Tandem ${VERSION} doctor (${config.home})\n`);
+    if (!json) console.log(`Tandem ${VERSION} doctor: this computer, for a company runner (${config.home})\n`);
     const report = await runDoctor(t, t.agent, json ? {} : { onCheck: printCheck });
     if (json) console.log(JSON.stringify(report, null, 2));
     else {
@@ -47,35 +49,18 @@ async function doctor(json: boolean): Promise<number> {
   }
 }
 
-async function startHostedMode(): Promise<void> {
-  const cfg = readHostedConfig(process.env);
-  const h = await startHosted(cfg, { webDir: WEB_DIR, legalDir: LEGAL_DIR });
-  console.log(`Tandem ${VERSION} (hosted) is running on ${cfg.listenHost}:${new URL(h.url).port} for ${cfg.publicUrl}`);
-  const shutdown = async () => {
-    await h.stop();
-    process.exit(0);
-  };
-  process.once('SIGINT', () => void shutdown());
-  process.once('SIGTERM', () => void shutdown());
-}
-
+/** `tandem start`: Tandem, the web app (GitHub sign-in, a workspace per team). */
 async function start(open: boolean): Promise<void> {
-  // Hosted: the web app with GitHub sign-in and one workspace per team (see docs/WEB_PLAN.md).
-  if (process.env.TANDEM_MODE === 'hosted') return startHostedMode();
-  const config = readConfig();
-  const r = await startServer(config);
-  console.log(`Tandem ${VERSION} is running at ${r.url}`);
-  console.log(`Data: ${config.home} · Agent: ${r.tandem.agent.name}${process.env.TANDEM_TEST_REMOTE_ROOT ? " · Test mode: local copies of CodeCommit repos" : ""} · Stop with Ctrl+C`);
-  if (r.firstDoctor) {
-    console.log('\nFirst launch: running doctor…');
-    const report = await r.firstDoctor.catch(() => undefined);
-    if (report) for (const c of report.checks) printCheck(c);
-    console.log('\nOpen the setup wizard in your browser to add repositories.');
-  }
-  if (open) openBrowser(r.url);
+  loadDotenv();
+  const madeKey = !process.env.TANDEM_SECRET_KEY && !existsSync(join((process.env.TANDEM_HOME || join(homedir(), '.tandem')).replace(/^~(?=$|\/)/, homedir()), 'secret.key'));
+  const cfg = readHostedConfig(process.env);
+  if (madeKey) console.log(`Made a secret key for this computer in ${join(cfg.home, 'secret.key')}. It seals the sign-ins Tandem keeps: back it up with the data (tandem backup does).`);
+  const h = await startHosted(cfg, { webDir: WEB_DIR, legalDir: LEGAL_DIR });
+  console.log(`Tandem ${VERSION} is running at ${cfg.publicUrl} (listening on ${cfg.listenHost}:${new URL(h.url).port}) · data in ${cfg.home} · stop with Ctrl+C`);
+  if (open && /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(cfg.publicUrl)) openBrowser(cfg.publicUrl);
   const shutdown = async () => {
     console.log('\nStopping Tandem… (unfinished work resumes on the next start)');
-    await r.stop();
+    await h.stop();
     process.exit(0);
   };
   process.once('SIGINT', () => void shutdown());
@@ -175,8 +160,8 @@ async function backupOrRestore(kind: 'backup' | 'restore'): Promise<void> {
 
 const USAGE = `Tandem ${VERSION}
 
-  tandem [start] [--no-open]        Tandem on this computer, in your browser
-  tandem doctor [--json]            Check this computer: git, Copilot, repositories
+  tandem [start] [--no-open]        Tandem, the web app (GitHub sign-in; see docs/DEPLOYMENT.md)
+  tandem doctor [--json]            Check this computer for a company runner: git, Copilot, keychain
   tandem runner [--url <web app>] [--key <runner key>]
                                     Run a web app workspace on this computer (a company runner)
   tandem backup --to <folder>       Copy Tandem's databases while it runs

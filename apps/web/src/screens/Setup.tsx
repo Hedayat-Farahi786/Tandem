@@ -231,20 +231,7 @@ function ProjectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
   );
 }
 
-function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
-  const qc = useQueryClient();
-  const [owner, setOwner] = useState(boot.settings.ownerName);
-  const save = useMutation({
-    mutationFn: async () => {
-      // The latest settings: connecting Copilot just above may have set its address.
-      const fresh = await api<Bootstrap>('/api/bootstrap');
-      return put('/api/settings', { ...fresh.settings, ownerName: owner });
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['bootstrap'] });
-      onNext();
-    },
-  });
+function ConnectStep({ onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
   return (
     <Card
       title={
@@ -254,14 +241,10 @@ function ConnectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
         </h2>
       }
     >
-      <div className="flex flex-col gap-4">
-        <Input label="Your name" value={owner} onChange={(e) => setOwner(e.target.value)} help="Shown on your approvals." />
-        <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
-          <CopilotConnect />
-        </div>
-        {save.isError && <ErrorState error={save.error} />}
+      <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
+        <CopilotConnect />
       </div>
-      <Nav onBack={onBack} onNext={() => save.mutate()} busy={save.isPending} />
+      <Nav onBack={onBack} onNext={onNext} />
     </Card>
   );
 }

@@ -18,10 +18,15 @@ export const WEB_DIR = join(here, '..', '..', 'web', 'dist');
 export const LEGAL_DIR = process.env.TANDEM_LEGAL_DIR || join(here, '..', '..', '..', 'docs', 'legal');
 export const VERSION = (JSON.parse(readFileSync(join(here, '..', '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
 
-/** Reads .env from the repo root (development) before the typed config. */
-export function readConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+/** Development: .env in the repository root, under what the environment already sets. */
+export function loadDotenv(): void {
   const dotenv = join(here, '..', '..', '..', '.env');
-  if (existsSync(dotenv) && env === process.env) process.loadEnvFile(dotenv);
+  if (existsSync(dotenv)) process.loadEnvFile(dotenv);
+}
+
+/** The engine's settings (a company runner, tandem doctor), after .env (development). */
+export function readConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+  if (env === process.env) loadDotenv();
   const e = { ...env };
   if (e.TANDEM_HOME?.startsWith('~')) e.TANDEM_HOME = join(homedir(), e.TANDEM_HOME.slice(1));
   return loadConfig(e, homedir(), join);
@@ -86,7 +91,7 @@ export interface Cell {
  * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
  * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
  */
-export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined }; sandbox?: TandemOptions['sandbox']; jiraOAuth?: JiraOAuth | undefined; jiraFetch?: JiraFetch }): Promise<Cell> {
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined; awsTemplateUrl?: string | undefined }; sandbox?: TandemOptions['sandbox']; jiraOAuth?: JiraOAuth | undefined; jiraFetch?: JiraFetch }): Promise<Cell> {
   const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
@@ -117,7 +122,7 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
   const ctx: ServerContext = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> }, ...(o.hosted ? { hosted: { githubInstallUrl: o.hosted.githubInstallUrl, awsTemplateUrl: o.hosted.awsTemplateUrl } } : {}) };
-  const { app, token, gitKey } = await buildApp(ctx, { port: o.port, webDir: o.webDir, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}), ...(o.trustActor ? { trustActor: true } : {}) });
+  const { app, token, gitKey } = await buildApp(ctx, { port: o.port, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}), ...(o.trustActor ? { trustActor: true } : {}) });
   let jiraTimer: NodeJS.Timeout | undefined;
   let stopped = false;
   let firstDoctor: Promise<DoctorReport> | undefined;
@@ -179,10 +184,10 @@ export function localJiraOAuth(env: NodeJS.ProcessEnv, port: number): JiraOAuth 
   return atlassianOAuth({ clientId, clientSecret, redirectUri: env.TANDEM_JIRA_REDIRECT_URL?.trim() || `http://localhost:${port}/auth/jira/callback` });
 }
 
-export async function startServer(config: RuntimeConfig, o: { webDir?: string | undefined; quiet?: boolean; trustActor?: boolean; jiraOAuth?: JiraOAuth } = {}): Promise<Running> {
+export async function startServer(config: RuntimeConfig, o: { quiet?: boolean; trustActor?: boolean; jiraOAuth?: JiraOAuth } = {}): Promise<Running> {
   const logger = createLogger(join(config.home, 'logs'), config.logLevel === 'silent' ? 'silent' : config.logLevel);
   const jiraOAuth = o.jiraOAuth ?? localJiraOAuth(process.env, config.port);
-  const cell = await openCell({ home: config.home, config, logger, webDir: 'webDir' in o ? o.webDir : WEB_DIR, port: config.port, ...(o.trustActor ? { trustActor: true } : {}), ...(jiraOAuth ? { jiraOAuth } : {}) });
+  const cell = await openCell({ home: config.home, config, logger, port: config.port, ...(o.trustActor ? { trustActor: true } : {}), ...(jiraOAuth ? { jiraOAuth } : {}) });
   const { app, tandem, token, bus } = cell;
   try {
     await app.listen({ host: '127.0.0.1', port: config.port });

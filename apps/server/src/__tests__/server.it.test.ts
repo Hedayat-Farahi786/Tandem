@@ -51,7 +51,7 @@ beforeAll(async () => {
 
   process.env.TANDEM_TEST_REMOTE_ROOT = remotes;
   const config = readConfig({ TANDEM_HOME: join(dir, 'home'), TANDEM_PORT: String(PORT), TANDEM_AGENT: 'scripted', TANDEM_LOG_LEVEL: 'silent' });
-  server = await startServer(config, { webDir: join(dir, 'no-web'), quiet: true });
+  server = await startServer(config, { quiet: true });
 
   abort = new AbortController();
   void (async () => {

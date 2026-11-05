@@ -25,7 +25,7 @@ This is done once, by the operator, at github.com → Settings → Developer set
 | Field | Value |
 | --- | --- |
 | Homepage URL | `https://app.[domain]` |
-| Callback URL | `https://app.[domain]/auth/github/callback` |
+| Callback URL | `https://app.[domain]/auth/github/callback`. To run Tandem on one computer too (a trial, development), add `http://localhost:4317/auth/github/callback` as a second callback URL, or make a separate App for it |
 | Expire user authorization tokens | **On** (8-hour tokens, renewed with a 6-month refresh token) |
 | Request user authorization (OAuth) during installation | On |
 | Webhook | On. URL `https://app.[domain]/hooks/github`, with a random secret (at least 16 characters) → `TANDEM_GITHUB_WEBHOOK_SECRET`. Events: Pull request, Pull request review, Pull request review comment, Pull request review thread, Issue comment, Check suite, Check run. Without it, Tandem polls pull requests every few minutes. |
@@ -68,7 +68,6 @@ covers Jira Data Center).
 
 | Variable | Required | Value |
 | --- | --- | --- |
-| `TANDEM_MODE` | yes (set in the image) | `hosted` |
 | `TANDEM_PUBLIC_URL` | yes | The app's public address, e.g. `https://app.[domain]`. Requests for any other Host are refused. |
 | `TANDEM_GITHUB_CLIENT_ID` | yes | From the GitHub App |
 | `TANDEM_GITHUB_CLIENT_SECRET` | yes | From the GitHub App. Keep it in your secret manager. |
@@ -239,7 +238,7 @@ The first line installs the `tandem` command from the web app itself; that compu
 (`pnpm pack:cli` builds the same one). It bundles Tandem's own code and pins every library to the
 versions Tandem was tested with (an `npm-shrinkwrap.json`), so each company computer gets the
 same tree. Without `TANDEM_CLI_PACKAGE`, the app shows only the second line, and the company
-installs Tandem as for the local app.
+installs the `tandem` command from a package you give it (`pnpm pack:cli` builds one).
 
 The runner opens **one outbound WebSocket** to `wss://app.[domain]/runner/connect`. The web app
 sends the workspace's API requests over it, after its own checks, and streams the answers back.
