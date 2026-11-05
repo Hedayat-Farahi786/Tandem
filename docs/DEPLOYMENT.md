@@ -115,12 +115,35 @@ that code as untrusted.
   builds need (`registry.npmjs.org`, …).
 - **Non-root.** The container already runs as the `node` user. Don't add capabilities.
 
-Each workspace's clones live in its own folder and are reached only through its own cell. When a
-company does not want its code on the hosted runner, a company runner keeps code and builds on
-the company's own machines. That runner is planned and not built yet; see
-[WEB_PLAN.md](WEB_PLAN.md).
+Each workspace's clones live in its own folder and are reached only through its own cell.
 
-## 6. Before going live
+## 6. Company runners
+
+When a company does not want its code in the cloud, an owner moves the workspace to a computer of
+the company's: Settings › Workspace › **Use a company computer**. That shows a runner key once,
+and the command to run there:
+
+```sh
+tandem runner --url https://app.[domain] --key tdr_…
+```
+
+The runner opens **one outbound WebSocket** to `wss://app.[domain]/runner/connect`. The web app
+sends the workspace's API requests over it, after its own checks, and streams the answers back.
+The workspace's data, repositories, Copilot sign-in and AWS or SSH access stay on that computer,
+and nothing is stored in the cloud for it.
+
+For the load balancer, this means:
+
+- **Allow WebSocket upgrades** on `/runner/connect`.
+- **Idle timeout of at least 120 seconds.** The web app pings every 25 seconds.
+- **Sticky routing is not needed** with the single replica.
+
+Answers from a runner are passed on only with safe content types, and are sandboxed (`CSP:
+sandbox`), so a runner can never serve a page or a script on the app's address. A runner key is
+stored as a hash. It stops working when an owner makes a new one, moves the workspace back to the
+cloud, or deletes it.
+
+## 7. Before going live
 
 - [ ] Hosting, backups and logs are in an EU region, and the cloud provider's DPA is signed.
 - [ ] The placeholders in [docs/legal](legal/README.md) are completed and the documents are
@@ -132,5 +155,7 @@ the company's own machines. That runner is planned and not built yet; see
 - [ ] `TANDEM_PUBLIC_URL` matches the address users open, and HTTPS works end to end.
 - [ ] Build isolation is in place: sandboxed runtime, metadata endpoint blocked, egress restricted.
 - [ ] Backups are taken and a restore has been tried once.
+- [ ] The load balancer passes WebSocket upgrades on `/runner/connect` (see section 6).
 - [ ] Sign in, invite a second person, add a repository, run one small task to its pull request,
-      then export and delete a test account.
+      then export and delete a test account. Then move a test workspace to a company runner and
+      run a task there too.

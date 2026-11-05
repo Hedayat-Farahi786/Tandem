@@ -6,7 +6,7 @@ import { relativeTime } from '../lib/format';
 import { AwsConnect, AWS_REGIONS, useAws } from './aws-connect';
 import { BrandLogo } from './brands';
 import { CopilotConnect, useCopilotAccounts } from './copilot-connect';
-import { isHosted } from './account-menu';
+import { isCloud, isCompanyRunner } from './account-menu';
 import { Button, Callout, Input, Select, Spinner, Tabs, cx } from './kit';
 
 /*
@@ -224,7 +224,7 @@ export function RepoImporter({ busy, onPick, onPickLocal }: { busy: string | nul
         tabs={[
           { id: 'github', label: 'GitHub' },
           { id: 'codecommit', label: 'AWS CodeCommit' },
-          ...(isHosted() ? [] : [{ id: 'local' as const, label: 'On this computer' }]),
+          ...(isCloud() ? [] : [{ id: 'local' as const, label: isCompanyRunner() ? "On the runner's computer" : 'On this computer' }]),
           { id: 'url', label: 'Clone URL' },
         ]}
       />

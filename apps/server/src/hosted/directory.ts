@@ -52,7 +52,19 @@ const MIGRATIONS = [
   `CREATE TABLE workspace_secrets (workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, name TEXT NOT NULL, sealed TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (workspace_id, name));
    ALTER TABLE workspaces ADD COLUMN copilot_user_id TEXT;
    CREATE TABLE invites (token_hash TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);`,
+  // Where a workspace works: Tandem's cloud, or a company's own computer (its runner and the runner's key).
+  `ALTER TABLE workspaces ADD COLUMN runner TEXT NOT NULL DEFAULT 'cloud';
+   CREATE TABLE runners (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen_at INTEGER, machine TEXT);`,
 ];
+
+export type RunnerMode = 'cloud' | 'company';
+export interface RunnerKey {
+  workspaceId: string;
+  createdBy: string;
+  createdAt: number;
+  lastSeenAt?: number | undefined;
+  machine?: string | undefined;
+}
 
 const SESSION_DAYS = 14;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -254,5 +266,45 @@ export class Directory {
   }
   deleteWorkspace(id: string) {
     this.db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+  }
+
+  /* ---------------------------------------------------------------- company runners */
+
+  runnerMode(workspaceId: string): RunnerMode {
+    const r = this.db.prepare('SELECT runner FROM workspaces WHERE id = ?').get(workspaceId) as { runner: string } | undefined;
+    return r?.runner === 'company' ? 'company' : 'cloud';
+  }
+  /** Works on a company computer from now on: a new runner key (shown once; only its hash is kept). */
+  useCompanyRunner(workspaceId: string, createdBy: string): string {
+    const token = `tdr_${randomBytes(32).toString('base64url')}`;
+    this.db.exec('BEGIN');
+    this.db.prepare("UPDATE workspaces SET runner = 'company' WHERE id = ?").run(workspaceId);
+    this.db.prepare('DELETE FROM runners WHERE workspace_id = ?').run(workspaceId);
+    this.db.prepare('INSERT INTO runners (workspace_id, token_hash, created_by, created_at) VALUES (?, ?, ?, ?)').run(workspaceId, hash(token), createdBy, this.now());
+    this.db.exec('COMMIT');
+    return token;
+  }
+  /** Back to Tandem's cloud; the runner's key stops working. */
+  useCloudRunner(workspaceId: string) {
+    this.db.exec('BEGIN');
+    this.db.prepare("UPDATE workspaces SET runner = 'cloud' WHERE id = ?").run(workspaceId);
+    this.db.prepare('DELETE FROM runners WHERE workspace_id = ?').run(workspaceId);
+    this.db.exec('COMMIT');
+  }
+  /** The workspace a runner key belongs to, while that workspace works on a company computer. */
+  runnerByToken(token: string | undefined): RunnerKey | undefined {
+    if (!token || !token.startsWith('tdr_')) return undefined;
+    const r = this.db.prepare("SELECT r.* FROM runners r JOIN workspaces w ON w.id = r.workspace_id WHERE r.token_hash = ? AND w.runner = 'company'").get(hash(token)) as Record<string, unknown> | undefined;
+    return r ? this.toRunner(r) : undefined;
+  }
+  runnerOf(workspaceId: string): RunnerKey | undefined {
+    const r = this.db.prepare('SELECT * FROM runners WHERE workspace_id = ?').get(workspaceId) as Record<string, unknown> | undefined;
+    return r ? this.toRunner(r) : undefined;
+  }
+  runnerSeen(workspaceId: string, machine: string) {
+    this.db.prepare('UPDATE runners SET last_seen_at = ?, machine = ? WHERE workspace_id = ?').run(this.now(), machine.slice(0, 120), workspaceId);
+  }
+  private toRunner(r: Record<string, unknown>): RunnerKey {
+    return { workspaceId: String(r.workspace_id), createdBy: String(r.created_by), createdAt: Number(r.created_at), ...(r.last_seen_at ? { lastSeenAt: Number(r.last_seen_at) } : {}), ...(r.machine ? { machine: String(r.machine) } : {}) };
   }
 }

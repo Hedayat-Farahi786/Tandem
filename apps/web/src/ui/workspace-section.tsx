@@ -4,6 +4,7 @@ import { Link2, LogOut, Trash2, Users } from 'lucide-react';
 import { api, del, patch, post } from '../lib/api';
 import { Avatar, Button, CopyButton, Dialog, Input, Row, Select, SettingsSection, Spinner, useToast } from './kit';
 import { IconTile } from './visual';
+import { RunnerControls } from './runner-section';
 
 interface WorkspaceInfo {
   id: string;
@@ -11,6 +12,7 @@ interface WorkspaceInfo {
   role: 'owner' | 'member';
   me: string;
   copilotUserId: string | null;
+  runner?: { mode: 'cloud' | 'company' };
   members: Array<{ id: string; login: string; name: string; role: 'owner' | 'member' }>;
 }
 
@@ -89,7 +91,7 @@ export function WorkspaceSection() {
                 </p>
                 <p className="truncate text-[12px] text-muted">
                   @{m.login}
-                  {m.id === w.copilotUserId ? ' · Copilot plan used here' : ''}
+                  {m.id === w.copilotUserId && w.runner?.mode !== 'company' ? ' · Copilot plan used here' : ''}
                 </p>
               </div>
               {owner ? (
@@ -107,6 +109,9 @@ export function WorkspaceSection() {
             </li>
           ))}
         </ul>
+      </div>
+      <div className="border-t border-line">
+        <RunnerControls />
       </div>
       {owner && (
         <Row label="Delete workspace" description="Deletes its projects, tasks, chats, connections and history for everyone. This can't be undone.">

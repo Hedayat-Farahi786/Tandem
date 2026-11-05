@@ -86,7 +86,7 @@ export interface Cell {
  * One Tandem: its data, engine, API and background work, not yet listening. The local app runs one
  * cell on 127.0.0.1; the hosted app runs one cell per workspace behind its sign-in.
  */
-export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined } }): Promise<Cell> {
+export async function openCell(o: { home: string; config: RuntimeConfig; logger: Logger; webDir?: string | undefined; port: number; allowedHost?: string; trustActor?: boolean; hosted?: TandemOptions['hosted'] & { githubInstallUrl?: string | undefined } }): Promise<Cell> {
   const { config, logger } = o;
   const bus = new EventBus();
   const tandem = await createTandem({
@@ -115,7 +115,7 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
   // A "needs you" message whose problem was sorted out while Tandem was off (or before it said so).
   for (const t of await tandem.store.tasks.listByState(['PR_OPEN', 'DONE'])) void chat.notifyResolved(t.id).catch(() => undefined);
   const ctx: ServerContext = { tandem, bus, chat, logger, doctor: {} as { last?: DoctorReport; running?: Promise<DoctorReport> }, ...(o.hosted ? { hosted: { githubInstallUrl: o.hosted.githubInstallUrl } } : {}) };
-  const { app, token, gitKey } = await buildApp(ctx, { port: o.port, webDir: o.webDir, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}) });
+  const { app, token, gitKey } = await buildApp(ctx, { port: o.port, webDir: o.webDir, version: VERSION, ...(o.allowedHost ? { allowedHost: o.allowedHost } : {}), ...(o.trustActor ? { trustActor: true } : {}) });
   let jiraTimer: NodeJS.Timeout | undefined;
   let stopped = false;
   let firstDoctor: Promise<DoctorReport> | undefined;
@@ -165,9 +165,9 @@ export async function openCell(o: { home: string; config: RuntimeConfig; logger:
 }
 
 /** Starts the local app on 127.0.0.1: one cell, its runner and pollers. */
-export async function startServer(config: RuntimeConfig, o: { webDir?: string; quiet?: boolean } = {}): Promise<Running> {
+export async function startServer(config: RuntimeConfig, o: { webDir?: string | undefined; quiet?: boolean; trustActor?: boolean } = {}): Promise<Running> {
   const logger = createLogger(join(config.home, 'logs'), config.logLevel === 'silent' ? 'silent' : config.logLevel);
-  const cell = await openCell({ home: config.home, config, logger, webDir: o.webDir ?? WEB_DIR, port: config.port });
+  const cell = await openCell({ home: config.home, config, logger, webDir: 'webDir' in o ? o.webDir : WEB_DIR, port: config.port, ...(o.trustActor ? { trustActor: true } : {}) });
   const { app, tandem, token, bus } = cell;
   try {
     await app.listen({ host: '127.0.0.1', port: config.port });

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Building2, Check, CheckCircle2, ChevronDown, KeyRound, LogOut, Plus } from 'lucide-react';
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
-import { isHosted } from './account-menu';
+import { isCloud } from './account-menu';
 import { Button, Callout, Dialog, Input, Spinner, cx, useToast } from './kit';
 
 /*
@@ -368,7 +368,7 @@ function TokenDialog({ onClose }: { onClose: () => void }) {
  * ways to connect one. Used in setup and in Settings.
  */
 export function CopilotConnect({ compact }: { compact?: boolean }) {
-  if (isHosted()) return <HostedCopilot />;
+  if (isCloud()) return <HostedCopilot />;
   return <LocalCopilotConnect compact={compact} />;
 }
 

@@ -7,6 +7,12 @@ import { ActionMenu, type MenuItem } from './thread-actions';
 
 /** Hosted mode only: the page says so in a meta tag the server adds. */
 export const isHosted = () => document.querySelector('meta[name="tandem-mode"]')?.getAttribute('content') === 'hosted';
+/** A web app workspace that works on a company computer (its runner): there, Tandem acts like the local app. */
+export const isCompanyRunner = () => isHosted() && document.querySelector('meta[name="tandem-runner"]')?.getAttribute('content') === 'company';
+/** The web app's cloud, where nothing of a computer (folders, keychain, profiles) is reachable. */
+export const isCloud = () => isHosted() && !isCompanyRunner();
+/** Where secrets are kept, in words. */
+export const secretsKept = () => (isCompanyRunner() ? "in the keychain of the runner's computer" : isHosted() ? 'encrypted, for this workspace only' : 'in your system keychain');
 
 interface Me {
   user: { id: string; login: string; name: string; avatarUrl?: string };

@@ -50,6 +50,38 @@ Request ─▶ Readiness ─▶ Spec ─▶ Approvals ─▶ Build ─▶ Checks
 5. **Check**: the doctor checks the tools, Copilot access and every
    repository. Fix anything marked red, then open chat.
 
+## The web app: workspaces and company computers
+
+In the web app, you sign in with GitHub, and each team works in a **workspace**: its projects,
+tasks, chats, connections and history, apart from every other workspace.
+
+- **Members.** Owners invite people in Settings › Workspace with a link that is valid for 7 days.
+  Owners rename, invite, change roles and delete the workspace. Members do everything else.
+- **Who did what.** Approvals and the audit log name the member who acted.
+- **Your data.** You can download it at any time: Settings › Audit log › **All data** gives the
+  whole workspace as one file, and the account menu's **Export my data** gives your account. The
+  account menu also deletes your account.
+
+### Working on a company computer
+
+Some companies don't want their code cloned anywhere else. A workspace can work on a computer of
+the company's instead of Tandem's cloud: a work laptop, a VM or a server that already has the
+repositories, the git and SSH access, the AWS sign-in and the Copilot account.
+
+1. An owner chooses Settings › Workspace › **Use a company computer**, and copies the command it
+   shows.
+2. On that computer, with Node.js 22 and a copy of Tandem, run the command:
+   `tandem runner --url https://app.[domain] --key tdr_…`. The key is saved in that computer's
+   keychain, so the next start is just `tandem runner`.
+3. Everyone keeps using the web app as before. Tandem now works on that computer: it adds
+   repositories from clones already there (**On the runner's computer**), signs in to Copilot
+   there, and pushes with that computer's own access.
+
+The runner only connects out, so no port is opened on that computer. The workspace's data stays
+there: while the runner isn't running, the web app shows how to start it, and nothing else of the
+workspace. **Move back to the cloud** in Settings › Workspace undoes it. The runner's key then
+stops working.
+
 ## Chat
 
 The sidebar has **New chat**, your **Tasks** and **Projects**, and

@@ -10,7 +10,12 @@
  *
  *   pnpm build && pnpm test:flows e2e/flows/hosted.e2e.test.ts
  */
-import { createServer, type Server } from 'node:http';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createServer, request, type Server } from 'node:http';
+import { hostname } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Harness, repoName, type Detail } from './harness.js';
 
@@ -63,6 +68,21 @@ const as = async <T>(s: Session, fn: () => Promise<T>): Promise<T> => {
 };
 const raw = (s: Session, method: string, path: string, body?: unknown) =>
   fetch(`${h.url}${path}`, { method, redirect: 'manual', headers: { cookie: s.cookie, ...(method !== 'GET' ? { 'x-tandem-token': s.token } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+
+const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'server', 'dist', 'cli.js');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Request mode as a person uses it: the request, Tandem's questions as choices, the answers, then the task. */
+async function taskFromChat(projectId: string): Promise<{ id: string; key: string }> {
+  const first = await h.request(projectId, [REQUEST]);
+  type Asked = { thread: { pendingQuestions?: { questions: Array<{ id: string; header: string; question: string; options: Array<{ label: string }> }> } } };
+  const asked = (await h.api<Asked>('GET', `/api/threads/${first.threadId}`)).thread.pendingQuestions?.questions ?? [];
+  expect(asked.length).toBeGreaterThan(0);
+  const answers = asked.map((q) => ({ questionId: q.id, header: q.header, question: q.question, answers: [q.options[0]!.label] }));
+  const text = `${answers.map((a) => `${a.header}: ${a.answers.join(', ')}`).join('\n')}\n${ANSWER}`;
+  expect((await h.api<{ readiness?: { ready: boolean } }>('POST', `/api/threads/${first.threadId}/messages`, { text, answers })).readiness?.ready).toBe(true);
+  return h.api<{ id: string; key: string }>('POST', `/api/threads/${first.threadId}/create-task`);
+}
 
 let mona: Session;
 let hubot: Session;
@@ -167,6 +187,18 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
       ]),
     );
     expect(trace.integrity.ok).toBe(true);
+
+    // The workspace's data, all of it, as one file (GDPR data portability), and no secrets in it.
+    const res = await raw(mona, 'GET', '/api/export');
+    expect(res.headers.get('content-disposition')).toMatch(/tandem-data-\d{4}-\d{2}-\d{2}\.json/);
+    const file = await res.text();
+    const data = JSON.parse(file) as { format: string; projects: unknown[]; chats: Array<{ messages: unknown[] }>; tasks: Array<{ key: string; specs: unknown[]; approvals: unknown[]; pullRequests: unknown[]; copilotSteps: unknown[] }>; auditLog: unknown[] };
+    expect(data).toMatchObject({ format: 'tandem-export', projects: [expect.objectContaining({ name: 'Shop' })] });
+    expect(data.tasks).toEqual([expect.objectContaining({ key: task.key })]);
+    expect(data.tasks[0]!.specs.length && data.tasks[0]!.approvals.length && data.tasks[0]!.pullRequests.length && data.tasks[0]!.copilotSteps.length).toBeTruthy();
+    expect(data.chats[0]!.messages.length).toBeGreaterThan(1);
+    expect(data.auditLog.length).toBeGreaterThan(5);
+    expect(file).not.toMatch(/ghu_|ghr_|x-access-token|aws_secret/i);
   });
 
   it("keeps every other workspace out: a third person sees nothing of Mona's", async () => {
@@ -197,5 +229,81 @@ describe('Tandem as a hosted web app · scripted agent · local remotes', () => 
     expect((await raw(hubot, 'GET', '/api/me')).status).toBe(401);
     // Mona's workspace and task are untouched.
     expect((await h.api<unknown[]>('GET', '/api/tasks')).length).toBe(1);
+  });
+  it('works on a company computer: the runner keeps the data and the code, the web app stays the way in', async () => {
+    // A second workspace of Mona's, moved to a company computer.
+    await h.api('POST', '/api/workspaces', { name: 'Acme on-premises' });
+    expect(await h.api<{ runner: { mode: string } }>('GET', '/api/workspace')).toMatchObject({ runner: { mode: 'cloud' } });
+    const made = await h.api<{ key: string; command: string }>('POST', '/api/workspace/runner', {});
+    expect(made.key).toMatch(/^tdr_[\w-]{40,}$/);
+    expect(made.command).toBe(`tandem runner --url ${h.url} --key ${made.key}`);
+
+    // Until the runner is started, the app says so instead of failing somewhere deep.
+    const off = await raw(mona, 'GET', '/api/bootstrap');
+    expect(off.status).toBe(503);
+    expect(await off.json()).toMatchObject({ runnerOffline: true });
+    expect(await (await fetch(`${h.url}/`, { headers: { cookie: mona.cookie } })).text()).toContain('<meta name="tandem-runner" content="company">');
+    // A wrong key gets no connection.
+    const upgrade = (key: string) =>
+      new Promise<number>((resolve, reject) => {
+        const r = request(`${h.url}/runner/connect`, { headers: { authorization: `Bearer ${key}`, connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==' } });
+        r.on('response', (res) => resolve(res.statusCode ?? 0));
+        r.on('upgrade', (res, socket) => (socket.destroy(), resolve(res.statusCode ?? 0)));
+        r.on('error', reject);
+        r.end();
+      });
+    expect(await upgrade('tdr_wrong')).toBe(401);
+
+    // The runner, on "the company computer": its own data folder, this machine's git, outbound only.
+    const runnerHome = join(h.work, 'company-computer');
+    let log = '';
+    const proc = spawn(process.execPath, [CLI, 'runner', '--url', h.url], {
+      env: { ...process.env, TANDEM_HOME: runnerHome, TANDEM_RUNNER_KEY: made.key, TANDEM_AGENT: 'scripted', TANDEM_TEST_REMOTE_ROOT: h.remotes, TANDEM_BUDGET_PER_DAY: '5000', TANDEM_BUDGET_PER_TASK: '200', TANDEM_PORT: '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout.on('data', (d: Buffer) => (log += d.toString()));
+    proc.stderr.on('data', (d: Buffer) => (log += d.toString()));
+    const exited = new Promise<number | null>((r) => proc.once('exit', r));
+    try {
+      const end = Date.now() + 60_000;
+      while (!(await h.api<{ runner: { connected: boolean } }>('GET', '/api/workspace')).runner.connected) {
+        if (Date.now() > end || proc.exitCode !== null) throw new Error(`The runner did not connect:\n${log}`);
+        await sleep(250);
+      }
+      expect(log).toContain('Connected to');
+      expect(await h.api('GET', '/api/workspace')).toMatchObject({ runner: { mode: 'company', connected: true, machine: hostname() } });
+
+      // The workspace's data now comes from the runner; live updates stream through it too.
+      expect(await h.api('GET', '/api/bootstrap')).toMatchObject({ setupComplete: false, projects: [] });
+      const ctl = new AbortController();
+      const events = await fetch(`${h.url}/api/events`, { headers: { cookie: mona.cookie }, signal: ctl.signal });
+      expect(events.headers.get('content-type')).toContain('text/event-stream');
+      expect(events.headers.get('content-security-policy')).toContain('sandbox');
+      expect(new TextDecoder().decode((await events.body!.getReader().read()).value)).toContain(': connected');
+      ctl.abort();
+
+      // The whole flow, answered by the runner: repository, project, chat, task, checks, pull request.
+      const detected = await h.api<{ repo: Record<string, unknown> }>('POST', '/api/repos/detect', { url: `codecommit::eu-central-1://${repoName('fullstack')}` });
+      const repo = await h.api<{ id: string }>('POST', '/api/repos', { ...detected.repo, defaultBranch: h.base });
+      const project = await h.project('Acme shop', [repo.id], 'ACME');
+      const task = await taskFromChat(project.id);
+      await h.waitFor(task.id, 'spec review', (d) => d.task.state === 'SPEC_REVIEW' && Boolean(d.spec));
+      await h.api('POST', `/api/tasks/${task.id}/pm-approval`, { name: 'Pat Lee', date: new Date().toISOString(), evidence: 'Approved in the planning channel' });
+      const d = await h.waitFor(task.id, 'the pull request', (x) => x.task.state === 'PR_OPEN' && x.prs.length === 1, { ms: 420_000 });
+      expect(d.task.key).toBe('ACME-1');
+      expect(d.approvalState).toMatchObject({ owner: { name: 'Mona Lisa' }, complete: true });
+      expect(h.remoteBranches('fullstack').has(d.task.branch)).toBe(true);
+      // Everything lives on the company computer.
+      expect(existsSync(join(runnerHome, 'tandem.db'))).toBe(true);
+
+      // Back to the cloud: the runner's key stops working and the runner stops; the cloud copy never saw the task.
+      expect((await raw(mona, 'DELETE', '/api/workspace/runner')).status).toBe(200);
+      expect(await Promise.race([exited, sleep(30_000).then(() => 'still running')])).toBe(3);
+      expect(log).toContain('did not accept this runner key');
+      expect(await h.api('GET', '/api/bootstrap')).toMatchObject({ projects: [] });
+      expect(await h.api('GET', '/api/workspace')).toMatchObject({ runner: { mode: 'cloud', connected: false } });
+    } finally {
+      if (proc.exitCode === null) proc.kill('SIGTERM');
+    }
   });
 });

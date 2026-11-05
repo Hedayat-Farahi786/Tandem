@@ -27,6 +27,29 @@ All notable changes to Tandem. The format follows
 
   The local app is unchanged: it now runs one cell.
 
+- **Company runners: the web app, working on a company's own computer.**
+  An owner moves a workspace to a work laptop, a VM or a server with
+  Settings › Workspace › "Use a company computer", then starts
+  `tandem runner --url … --key …` there.
+  - **What stays there:** the workspace's projects, tasks, chats,
+    repositories and sign-ins (git, SSH, AWS, Copilot). Clones already on
+    that computer are used as they are.
+  - **How it connects:** one outbound WebSocket. The web app passes the
+    members' requests to it after its own checks and streams the answers
+    back. No port is opened on the company's side.
+  - **Safety:** answers from a runner are sandboxed and limited to safe
+    content types. Runner keys are stored as hashes, saved in the computer's
+    keychain, and stop working when replaced or when the workspace moves
+    back to the cloud.
+  - **When it's not running:** the app says so and shows the command to
+    start it.
+  - **Tested end to end:** a real runner process takes a task from chat to
+    its pull request through the web app.
+- **All data, as one file.** Settings › Audit log › All data downloads every
+  project, task, chat, approval, Copilot run and audit entry as JSON, with
+  no secrets in it (GDPR data portability). The export is recorded in the
+  audit log.
+
 - **Hosted mode, working end to end.**
   - **Teams:**
     - Owners invite people with a link that is valid for 7 days. Joining

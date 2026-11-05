@@ -26,7 +26,8 @@ import { useTheme } from "./lib/theme";
 import { CommandPalette } from "./ui/command";
 import { ProjectAvatar } from "./ui/visual";
 import { ChatRecents } from "./ui/thread-actions";
-import { AccountMenu, isHosted } from "./ui/account-menu";
+import { AccountMenu, isCompanyRunner, isHosted } from "./ui/account-menu";
+import { RunnerOffline } from "./ui/runner-section";
 import { useChatProject } from "./lib/project";
 import {
   Avatar,
@@ -480,7 +481,9 @@ function Shell() {
             id="main"
             className={cx("mx-auto w-full max-w-[1120px] flex-1 has-[[data-layout=split]]:max-w-[1640px] lg:has-[[data-layout=app]]:!max-w-none lg:has-[[data-layout=app]]:!p-0", path.startsWith("/chat") ? "px-4 pb-4 md:px-8" : "px-5 py-8 md:px-10 md:py-10")}
           >
-            {boot.isError ? (
+            {boot.isError && isCompanyRunner() && [502, 503, 504].includes((boot.error as { status?: number }).status ?? 0) ? (
+              <RunnerOffline retry={() => void boot.refetch()} />
+            ) : boot.isError ? (
               <ErrorState
                 title="Tandem could not load"
                 error={boot.error}

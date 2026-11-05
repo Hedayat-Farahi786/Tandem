@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { KeychainSecrets, ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
 import { runDoctor, type DoctorCheck } from './doctor.js';
 import { LEGAL_DIR, VERSION, WEB_DIR, readConfig, startServer } from './start.js';
 import { readHostedConfig, startHosted } from './hosted/server.js';
+import { startRunner } from './runner.js';
 
 const ICON: Record<DoctorCheck['status'], string> = { pass: '✔', warn: '!', fail: '✖', skipped: '–' };
 
@@ -76,17 +80,65 @@ async function start(open: boolean): Promise<void> {
   process.once('SIGTERM', () => void shutdown());
 }
 
+/**
+ * `tandem runner [--url <web app>] [--key <runner key>]`: a web app workspace, working on this
+ * computer. The key goes to the OS keychain and the address to <home>/runner.json, so the next
+ * start is just `tandem runner`. Its data lives apart from the local app's (~/.tandem-runner).
+ */
+async function runner(): Promise<void> {
+  const flag = (name: string) => {
+    const i = args.indexOf(`--${name}`);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const config = readConfig();
+  if (!process.env.TANDEM_HOME) config.home = join(homedir(), '.tandem-runner');
+  if (!process.env.TANDEM_PORT) config.port = 0;
+  mkdirSync(config.home, { recursive: true, mode: 0o700 });
+  const savedFile = join(config.home, 'runner.json');
+  const saved = existsSync(savedFile) ? (JSON.parse(readFileSync(savedFile, 'utf8')) as { url?: string }) : {};
+  const url = (flag('url') ?? process.env.TANDEM_RUNNER_URL ?? saved.url)?.replace(/\/+$/, '');
+  if (!url || !/^https?:\/\//.test(url)) throw new Error('Give the web app\'s address: tandem runner --url https://app.example.com --key <runner key> (Settings › Workspace shows the whole command).');
+  const keychain = new KeychainSecrets();
+  const given = flag('key') ?? process.env.TANDEM_RUNNER_KEY;
+  const key = given ?? (await keychain.get('runner-key').catch(() => undefined));
+  if (!key) throw new Error('No runner key yet. An owner makes one in the web app, Settings › Workspace › "Use a company computer", which shows the command to run here.');
+  if (flag('key')) {
+    const kc = await keychain.available();
+    if (kc.ok) await keychain.set('runner-key', key);
+    else console.log('No OS keychain here, so the key is not saved: pass it again next time, or set TANDEM_RUNNER_KEY.');
+  }
+  writeFileSync(savedFile, JSON.stringify({ url }, null, 2), { mode: 0o600 });
+  console.log(`Tandem ${VERSION} runner · data in ${config.home}`);
+  const r = await startRunner({
+    url,
+    key,
+    config,
+    onRefused: (why) => {
+      console.error(why);
+      void keychain.delete('runner-key').catch(() => undefined);
+      void r.stop().finally(() => process.exit(3));
+    },
+  });
+  const shutdown = async () => {
+    await r.stop();
+    process.exit(0);
+  };
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
+}
+
 const args = process.argv.slice(2);
 const cmd = args.find((a) => !a.startsWith('-')) ?? 'start';
 try {
   if (args.includes('--version') || args.includes('-v')) console.log(VERSION);
   else if (cmd === 'doctor') process.exitCode = await doctor(args.includes('--json'));
   else if (cmd === 'start') await start(!args.includes('--no-open'));
+  else if (cmd === 'runner') await runner();
   else {
-    console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json]`);
+    console.error(`Unknown command "${cmd}". Use: tandem [start] [--no-open] | tandem doctor [--json] | tandem runner [--url <web app>] [--key <runner key>]`);
     process.exitCode = 2;
   }
 } catch (err) {
-  console.error(`Tandem could not ${cmd === 'doctor' ? 'run doctor' : 'start'}: ${(err as Error).message ?? String(err)}`);
+  console.error(`Tandem could not ${cmd === 'doctor' ? 'run doctor' : cmd === 'runner' ? 'start the runner' : 'start'}: ${(err as Error).message ?? String(err)}`);
   process.exitCode = 1;
 }

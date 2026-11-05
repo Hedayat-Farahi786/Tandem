@@ -16,6 +16,7 @@ import { registerAuditRoutes } from './routes/audit.js';
 import { registerIconRoutes } from './routes/icons.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
 import { registerConnectionRoutes } from './routes/connections.js';
+import { registerExportRoutes } from './routes/export.js';
 
 export interface ServerContext {
   tandem: Tandem;
@@ -40,6 +41,8 @@ export interface AppOptions {
    * workspace's cell (the cell itself is never reachable from outside).
    */
   allowedHost?: string;
+  /** Requests carrying this app's token may name the member acting (hosted cells, company runners). */
+  trustActor?: boolean;
 }
 
 /** Plain-language HTTP errors: what happened, and what to do next. */
@@ -87,7 +90,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   // Hosted: the front server names the member acting (only it holds this cell's token), so
   // approvals and the audit log record who did what in a shared workspace.
   // (preHandler: after the body is read, whose stream events would lose the context.)
-  if (ctx.hosted)
+  if (ctx.hosted || o.trustActor)
     app.addHook('preHandler', (req, _reply, done) => {
       const actor = req.headers['x-tandem-actor'];
       let name: string;
@@ -116,6 +119,7 @@ export async function buildApp(ctx: ServerContext, o: AppOptions): Promise<{ app
   registerTaskRoutes(app, ctx);
   registerCopilotRoutes(app, ctx);
   registerConnectionRoutes(app, ctx);
+  registerExportRoutes(app, ctx);
 
   /** git asks for the credentials of a remote Tandem manages (CodeCommit signature, GitHub token). Only the helper knows the key. */
   app.post('/git/credential', async (req, reply) => {

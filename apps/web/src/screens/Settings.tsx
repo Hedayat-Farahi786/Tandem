@@ -9,7 +9,7 @@ import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
 import { CopilotConnect } from '../ui/copilot-connect';
-import { isHosted } from '../ui/account-menu';
+import { isCompanyRunner, isCloud, isHosted, secretsKept } from '../ui/account-menu';
 import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
 import { Button, Callout, CopyButton, ErrorState, Input, LinkButton, Loading, Row, Select, SettingsSection, Switch, cx, useToast } from '../ui/kit';
@@ -69,7 +69,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
     mutationFn: () => put(`/api/secrets/${name}`, { value }),
     onSuccess: () => {
       setValue('');
-      toast(isHosted() ? 'Saved, encrypted for this workspace.' : 'Saved to the OS keychain.', 'ok');
+      toast(`Saved ${secretsKept()}.`, 'ok');
       void qc.invalidateQueries({ queryKey: ['secrets'] });
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
     },
@@ -77,7 +77,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
   const remove = useMutation({
     mutationFn: () => del(`/api/secrets/${name}`),
     onSuccess: () => {
-      toast(isHosted() ? 'Removed.' : 'Removed from the OS keychain.', 'ok');
+      toast('Removed.', 'ok');
       void qc.invalidateQueries({ queryKey: ['secrets'] });
       void qc.invalidateQueries({ queryKey: ['bootstrap'] });
     },
@@ -94,7 +94,7 @@ function SecretField({ id, name, present, disabled }: { id: string; name: 'jira-
       </div>
       <p className="flex items-center gap-2 text-[13px] text-muted">
         <span className={cx('size-1.5 rounded-full', present ? 'bg-ok' : 'bg-faint')} aria-hidden />
-        {present ? (isHosted() ? 'Saved, encrypted' : 'Saved in your OS keychain') : 'Not set'}
+        {present ? `Saved ${secretsKept()}` : 'Not set'}
         {present && (
           <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="ml-1 font-medium text-danger hover:underline">
             Remove
@@ -139,6 +139,11 @@ function AuditSection() {
           </LinkButton>
         </span>
       </Row>
+      <Row label="All data" description={`Every project, task, chat, approval, Copilot run and audit entry ${isHosted() ? 'of this workspace' : 'Tandem keeps'}, as one JSON file. Secrets are never included.`}>
+        <LinkButton to="/api/export" size="sm" download>
+          Download
+        </LinkButton>
+      </Row>
     </SettingsSection>
   );
 }
@@ -157,7 +162,7 @@ const NAV_ALL = [
 /** The workspace section exists only in the web app; there, names come from GitHub (no General section). */
 const NAV = NAV_ALL.filter(([id]) => (isHosted() ? id !== 'general' : id !== 'workspace'));
 /** Where secrets are kept, in words. */
-const KEPT = isHosted() ? 'encrypted, for this workspace only' : 'in your system keychain';
+const KEPT = secretsKept();
 
 /** The section menu beside Settings, following the section in view. */
 function SectionNav() {
@@ -251,7 +256,7 @@ export function SettingsScreen() {
     <div className="mx-auto w-full max-w-[1000px] pb-24">
       <div className="mb-10">
         <h1 className="font-display text-[26px] leading-tight">Settings</h1>
-        <p className="mt-1 text-[14px] text-muted">{isHosted() ? "This workspace's settings, shared by its members. Tokens are encrypted and used only for this workspace." : 'Stored on this machine. Tokens go only to your OS keychain.'}</p>
+        <p className="mt-1 text-[14px] text-muted">{isCompanyRunner() ? "This workspace's settings, shared by its members. It works on a company computer: its data, repositories and sign-ins stay there." : isHosted() ? "This workspace's settings, shared by its members. Tokens are encrypted and used only for this workspace." : 'Stored on this machine. Tokens go only to your OS keychain.'}</p>
       </div>
       <div className="grid gap-10 lg:grid-cols-[180px_minmax(0,1fr)]">
       <SectionNav />
@@ -267,7 +272,7 @@ export function SettingsScreen() {
         </SettingsSection>
       )}
 
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isHosted() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain."}>
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : isCompanyRunner() ? "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays in that computer's keychain." : "The GitHub account whose Copilot plan Tandem uses: personal (Free, Pro, Pro+) or from work (Business, Enterprise). The sign-in stays in your system keychain."}>
         <div className="py-4">
           <CopilotConnect />
         </div>

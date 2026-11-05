@@ -10,7 +10,7 @@ import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
 import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
 import { CopilotConnect } from '../ui/copilot-connect';
 import { RepoImporter } from '../ui/repo-importer';
-import { isHosted } from '../ui/account-menu';
+import { isCloud, secretsKept } from '../ui/account-menu';
 import { DoctorList, DoctorSummary } from './Doctor';
 import { RepoCommandsEditor } from './Projects';
 
@@ -293,7 +293,7 @@ function JiraStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => voi
       <div className="flex flex-col gap-4">
         <Input label="Jira URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://your-company.atlassian.net" />
         <Input label="Account email (Jira Cloud)" value={email} onChange={(e) => setEmail(e.target.value)} help="Leave empty for Jira Data Center with a personal access token." />
-        <Input label="API token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} help={isHosted() ? 'Encrypted, and used only for this workspace.' : 'Stored in your OS keychain, never in files or the database.'} />
+        <Input label="API token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} help={isCloud() ? 'Encrypted, and used only for this workspace.' : `Stored ${secretsKept()}, never in files or the database.`} />
         {save.isError && <ErrorState error={save.error} />}
       </div>
       <div className="mt-6 flex justify-between">

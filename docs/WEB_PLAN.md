@@ -106,13 +106,16 @@ the App installation. Hosted workspaces connect CodeCommit with IAM Identity Cen
 key, never with the server's own credentials. The legal drafts are served at `/legal/*`, and
 account export and deletion work.
 
+The company runner is built (`tandem runner`). Instead of a job queue, it holds the whole
+workspace on the company's computer, so data and code never reach the cloud, and the web app
+passes requests to it over one outbound WebSocket. Workspace data export (Settings › Audit log ›
+All data) is built too.
+
 Still to come:
 
-* the job queue with one sandbox per task;
-* the company runner;
+* one sandbox per task for cloud workspaces;
 * the CloudFormation role connection;
 * GitHub webhooks;
-* workspace data export;
 * Postgres, for more than one replica;
 * the hardening of phase 5.
 
