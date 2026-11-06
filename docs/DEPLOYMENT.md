@@ -30,11 +30,10 @@ This is done once, by the operator, at github.com → Settings → Developer set
 | Request user authorization (OAuth) during installation | On |
 | Webhook | On. URL `https://app.[domain]/hooks/github`, with a random secret (at least 16 characters) → `TANDEM_GITHUB_WEBHOOK_SECRET`. Events: Pull request, Pull request review, Pull request review comment, Pull request review thread, Issue comment, Check suite, Check run. Without it, Tandem polls pull requests every few minutes. |
 | Repository permissions | Contents: read and write · Pull requests: read and write · Metadata: read |
-| Account permissions | Copilot Requests (so Copilot runs on the member's own plan), plus Email addresses: read |
+| Account permissions | Email addresses: read. Copilot needs no permission here: a member's sign-in token runs Copilot on that member's own plan (GitHub Apps have no "Copilot Requests" permission; that one is for fine-grained personal tokens) |
 | Where can it be installed | Any account |
 
-Before relying on the Copilot permission, check its exact name and level in GitHub's form at the
-time you create the App.
+Leave "Enable Device Flow" off: Tandem signs people in through the callback.
 
 Afterwards, keep:
 
