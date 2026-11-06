@@ -5,12 +5,12 @@ third-party requests (no external fonts, analytics or trackers), so no cookie ba
 
 * **Preview:** serve the folder (`python3 -m http.server -d apps/site 8000`) and open it, or open
   `index.html` directly.
-* **Files:** `index.html`, `site.css`, `site.js`; `fonts/` (Inter for text and Source Serif 4 for
-  display type, both SIL OFL, licences beside them); `favicon.svg` and `social.png` from
+* **Files:** `index.html`, `site.css`, `site.js`; `fonts/` (Geist and Geist Mono, SIL OFL, licence
+  beside them); `favicon.svg` and `social.png` from
   `docs/brand`; `llms.txt`, a plain summary for AI agents.
-* **Look:** a warm ivory canvas (warm near-black in dark mode), Tandem's deep teal and mint, an
-  editorial serif for headlines with the words that are yours in italic, Inter for everything
-  functional.
+* **Look:** a warm ivory canvas (warm near-black in dark mode), Tandem's deep teal and mint, and
+  one crisp grotesque, Geist, set tight and large for headlines, with the words that are yours in
+  teal.
 * **Motion:** the headline rises out of a blur; the product window stands up as you scroll and
   plays a task, with callouts on your three decisions; logos drift past; the problem cards'
   pictures play once; a pulse runs along the "How it works" seam; the feature stage stays while
