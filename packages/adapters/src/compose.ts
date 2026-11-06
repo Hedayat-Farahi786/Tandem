@@ -64,7 +64,16 @@ export interface TandemOptions {
    * Copilot and GitHub use the workspace's GitHub identity, and nothing of the server's own is
    * reachable: no AWS profiles or default credentials, no SSH keys, no folders on the server.
    */
-  hosted?: { secrets: SecretStore; identity: () => Promise<GitHubIdentity | undefined>; accounts: CopilotAccounts; awsRoleSource?: RoleSource | undefined };
+  hosted?: {
+    secrets: SecretStore;
+    identity: () => Promise<GitHubIdentity | undefined>;
+    accounts: CopilotAccounts;
+    awsRoleSource?: RoleSource | undefined;
+    /** A work account signed in with a code: its token, to keep for the workspace. */
+    onToken?: (host: string, token: string) => Promise<{ login?: string; host: string; saved: boolean }>;
+    /** Given the runtime's code sign-in, once the runtime exists. */
+    useCodeSignIn?: (signIn: CopilotAccounts) => void;
+  };
   /** Tandem's cloud: checks, installs and the Copilot runtime run isolated (see sandbox/namespace-sandbox.ts). */
   sandbox?: NamespaceSandbox;
 }
@@ -140,7 +149,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     const s = await store.settings.get();
     if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
   };
-  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? {} : { keep: secrets }), ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.sandbox ? { sandbox: o.sandbox } : {}), ...(o.logger ? { logger: o.logger } : {}) });
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? {} : { keep: secrets }), ...(o.hosted ? { identity: o.hosted.identity, ...(o.hosted.onToken ? { onToken: o.hosted.onToken } : {}) } : {}), ...(o.sandbox ? { sandbox: o.sandbox } : {}), ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();
@@ -148,6 +157,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   }
   const accounts: CopilotAccounts = o.hosted?.accounts ?? (agent instanceof CopilotRuntime ? agent.accounts : new ScriptedAccounts());
   accountsRef.current = accounts;
+  if (o.hosted?.useCodeSignIn && agent instanceof CopilotRuntime) o.hosted.useCodeSignIn(agent.accounts);
   const deps: WorkflowDeps = {
     store,
     clock,

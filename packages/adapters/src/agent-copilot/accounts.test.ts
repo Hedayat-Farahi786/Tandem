@@ -4,7 +4,7 @@ import { RuntimeAccounts, hostName, settingsHost, type AccountClientLike, type A
 type Step = { kind: string; url?: string; prompt?: string; message?: string; result?: { status: string; host?: string; login?: string; accounts?: Array<{ selectionId: string; host: string; login: string }> } };
 
 /** A pretend runtime: a scripted list of login steps, and a record of what Tandem asked for. */
-function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; login: string; id: string }> = [], fetch?: ConstructorParameters<typeof RuntimeAccounts>[0]['fetch']) {
+function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; login: string; id: string }> = [], fetch?: ConstructorParameters<typeof RuntimeAccounts>[0]['fetch'], onToken?: ConstructorParameters<typeof RuntimeAccounts>[0]['onToken']) {
   const calls: string[] = [];
   const hosts: string[] = [];
   const tokens: string[] = [];
@@ -52,7 +52,7 @@ function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; l
     },
     createSession: async () => session,
   };
-  const accounts = new RuntimeAccounts({ client: async () => client, useHost: async (h) => void hosts.push(settingsHost(h)), ...(fetch ? { fetch } : {}) });
+  const accounts = new RuntimeAccounts({ client: async () => client, useHost: async (h) => void hosts.push(settingsHost(h)), ...(fetch ? { fetch } : {}), ...(onToken ? { onToken } : {}) });
   return { accounts, calls, hosts, tokens };
 }
 
@@ -168,6 +168,23 @@ describe('Copilot accounts', () => {
       expect(hosts).toContain('acme.ghe.com');
       // Finished flows are gone.
       expect(await accounts.advance(b.flowId)).toMatchObject({ kind: 'error', message: expect.stringMatching(/expired/) });
+    });
+
+    it('hands the token to the web app instead of the runtime, when it keeps work accounts itself', async () => {
+      const g = github([{ access_token: 'gho_work', token_type: 'bearer' }]);
+      const kept: string[] = [];
+      const { accounts, calls, hosts, tokens } = fakeRuntime([{ kind: 'input-required', prompt: 'host?' }, { kind: 'open-url', url: authorize }], [], g.fetch, async (host, token) => {
+        kept.push(`${host}:${token}`);
+        return { host, login: 'mona-work', saved: true };
+      });
+      const b = await accounts.begin('proxima');
+      await accounts.advance(b.flowId, 'https://acme.ghe.com');
+      expect(await accounts.advance(b.flowId)).toEqual({ kind: 'done', login: 'mona-work', host: 'acme.ghe.com', saved: true });
+      expect(kept).toEqual(['acme.ghe.com:gho_work']);
+      // The runtime never gets it; the workspace now works on that host.
+      expect(tokens).toEqual([]);
+      expect(calls.some((c) => c.startsWith('token-login'))).toBe(false);
+      expect(hosts).toContain('acme.ghe.com');
     });
 
     it('says plainly when the person cancels at GitHub, or the code runs out', async () => {

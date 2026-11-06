@@ -9,7 +9,7 @@ import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { loadConfig, type Logger } from '@tandem/core';
 import type { RuntimeConfig } from '@tandem/shared';
-import { JiraError, NamespaceSandbox, atlassianOAuth, guardWorktrees, restrictOutbound, serverRoleSource, type Fetch as JiraFetch, type JiraOAuth, type RoleSource } from '@tandem/adapters';
+import { JiraError, NamespaceSandbox, atlassianOAuth, guardWorktrees, restrictOutbound, serverRoleSource, type CopilotAccounts, type Fetch as JiraFetch, type JiraOAuth, type RoleSource } from '@tandem/adapters';
 import { createLogger } from '../logger.js';
 import { openCell, type Cell } from '../start.js';
 import { JiraFrom, jiraBack } from '../routes/jira.js';
@@ -291,8 +291,18 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
       // a program of theirs on this server, or send the workspace's GitHub token elsewhere.
       const overrides = { ...cfg.overrides, 'copilot.cliPath': cfg.overrides['copilot.cliPath'] ?? '', 'github.apiBase': 'https://api.github.com' };
       const config: RuntimeConfig = { home, host: '127.0.0.1', port: listenPort, logLevel: cfg.logLevel, agent: cfg.agent, overrides, seeds: cfg.seeds };
-      const accounts = new WorkspaceAccounts(directory, id, tokens);
-      const hosted = { secrets: new WorkspaceSecrets(directory, id), identity: () => accounts.identity(), accounts, githubInstallUrl: installUrl, awsRoleSource, awsTemplateUrl: cfg.aws.templateUrl };
+      const secrets = new WorkspaceSecrets(directory, id);
+      const accounts = new WorkspaceAccounts(directory, id, tokens, secrets, http);
+      const hosted = {
+        secrets,
+        identity: () => accounts.identity(),
+        accounts,
+        onToken: (host: string, token: string) => accounts.keepWork(host, token),
+        useCodeSignIn: (signIn: CopilotAccounts) => accounts.useCodeSignIn(signIn),
+        githubInstallUrl: installUrl,
+        awsRoleSource,
+        awsTemplateUrl: cfg.aws.templateUrl,
+      };
       const sandbox = cfg.sandbox === 'on' ? new NamespaceSandbox(cellSandbox(cfg.home, home)) : undefined;
       c = openCell({ home, config, logger, port: listenPort, allowedHost: CELL_HOST, hosted, ...(sandbox ? { sandbox } : {}), ...(cellJira ? { jiraOAuth: cellJira } : {}), ...(o.fetch ? { jiraFetch: o.fetch as unknown as JiraFetch } : {}) }).then(async (cell) => {
         await cell.app.ready();
@@ -656,6 +666,8 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!c) return reply;
     if (!(await tokens.identity(c.s.session.userId))) return reply.code(409).send({ error: 'Your GitHub sign-in has expired. Sign out and in again first.' });
     await directory.setCopilotUser(c.w.id, c.s.session.userId);
+    // A work account connected with a code gives way to this member's plan.
+    await directory.deleteSecret(c.w.id, 'copilot-work');
     return { ok: true };
   });
 
@@ -664,7 +676,9 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
     if (!c) return reply;
     const copilot = await directory.copilotUser(c.w.id);
     const members = await directory.members(c.w.id);
-    return { id: c.w.id, name: c.w.name, role: c.role, me: c.s.session.userId, copilotUserId: copilot ?? null, runner: await runnerInfo(c.w.id), members: members.map((m) => ({ id: m.id, login: m.login, name: m.name, avatarUrl: m.avatarUrl, role: m.role })) };
+    // While a work account is connected, Copilot runs on it, not on a member's plan.
+    const work = Boolean(await directory.secretOf(c.w.id, 'copilot-work').catch(() => undefined));
+    return { id: c.w.id, name: c.w.name, role: c.role, me: c.s.session.userId, copilotUserId: work ? null : (copilot ?? null), runner: await runnerInfo(c.w.id), members: members.map((m) => ({ id: m.id, login: m.login, name: m.name, avatarUrl: m.avatarUrl, role: m.role })) };
   });
 
   app.patch('/api/workspace', async (req, reply) => {

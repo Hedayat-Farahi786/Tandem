@@ -206,10 +206,13 @@ describe('Projects', () => {
 });
 
 describe('Setup wizard', () => {
-  it('says plainly when the GitHub account has no Copilot plan, and offers a company computer', async () => {
+  it('says plainly when the GitHub account has no Copilot plan, and connects the work account with a code', async () => {
+    let asked: unknown;
     mockApi({
       'GET /api/bootstrap': boot({ setupComplete: false, projects: [], repos: [] }),
-      'GET /api/copilot/accounts': { signedIn: true, active: { id: 'u1', login: 'mona', host: 'github.com', active: true, source: 'copilot' }, accounts: [], providers: [] },
+      'GET /api/copilot/accounts': { signedIn: true, active: { id: 'u1', login: 'mona', host: 'github.com', active: true, source: 'copilot' }, accounts: [], providers: [{ kind: 'proxima', label: "Your company's GitHub", available: true }] },
+      'POST /api/copilot/sign-in': (b: unknown) => ((asked = b), { flowId: 'f1', step: { kind: 'input-required', prompt: 'host?' } }),
+      'POST /api/copilot/sign-in/f1/next': (b: { input?: string } | undefined) => (b?.input ? { kind: 'device-code', code: 'WDJB-MJHT', url: 'https://acme.ghe.com/login/device', expiresAt: '' } : new Promise((r) => setTimeout(() => r({ kind: 'awaiting' }), 300))),
       'GET /api/copilot/models': new Response(JSON.stringify({ error: 'This GitHub account has no Copilot plan Tandem can use. Sign in with the account that has one; for Copilot from work, use a company computer (Settings › Workspace).' }), { status: 409 }),
       'GET /api/me': { user: { id: 'u1', login: 'mona', name: 'Mona' }, workspaces: [] },
       'GET /api/workspace': { role: 'owner', runner: { mode: 'cloud', connected: false } },
@@ -219,10 +222,19 @@ describe('Setup wizard', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/setup'));
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     expect(await screen.findByText('No Copilot plan')).toBeTruthy();
-    expect(screen.getByText(/has no Copilot plan Tandem can use/)).toBeTruthy();
+    expect(screen.getByText('Is your Copilot from work?')).toBeTruthy();
     expect(screen.getByText('Not connected')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Skip for now' })).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Use a company computer' })).toBeTruthy();
+    // The way forward is right there: the work account, signed in with a code.
+    await user.click(screen.getByRole('button', { name: 'Connect your work account' }));
+    const dialog = await screen.findByRole('dialog', { name: "Sign in to your company's GitHub" });
+    expect(asked).toEqual({ kind: 'proxima', method: 'code' });
+    await user.type(within(dialog).getByLabelText("Your company's GitHub address"), 'acme.ghe.com');
+    await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+    expect(await within(dialog).findByLabelText('Your sign-in code')).toBeTruthy();
+    expect(within(dialog).getByText('WDJB-MJHT')).toBeTruthy();
+    // No browser fallback in the web app: a code works from anywhere.
+    expect(within(dialog).queryByText('Sign in through the browser instead')).toBeNull();
   });
 
   it('redirects to setup on first launch and adds a detected repository', async () => {

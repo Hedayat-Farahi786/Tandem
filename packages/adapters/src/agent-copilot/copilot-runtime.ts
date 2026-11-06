@@ -76,6 +76,11 @@ export interface CopilotRuntimeOptions {
    * keychain); they are handed back to the runtime each time it starts. Not in hosted mode.
    */
   keep?: SecretStore;
+  /**
+   * Hosted: a code sign-in's token goes here (kept per workspace) instead of into the runtime, and
+   * becomes the identity the workspace works as.
+   */
+  onToken?: (host: string, token: string) => Promise<{ login?: string; host: string; saved: boolean }>;
   /** Tandem's cloud: the runtime, and every command Copilot runs, start inside this sandbox. */
   sandbox?: { wrap(argv: readonly string[], cwd?: string): { file: string; args: string[]; env: Record<string, string> } };
 }
@@ -138,6 +143,7 @@ export class CopilotRuntime implements AgentRuntime {
     this.kept = o.keep && !o.identity ? keptSignIns(o.keep) : undefined;
     this.accounts = new RuntimeAccounts({
       ...(this.kept ? { kept: this.kept } : {}),
+      ...(o.onToken ? { onToken: o.onToken } : {}),
       client: async () => (await this.ensureClient()) as unknown as AccountClientLike,
       useHost: async (host) => {
         // Another account means other models and prices; a new host also restarts the runtime.
@@ -150,7 +156,9 @@ export class CopilotRuntime implements AgentRuntime {
 
   private async ensureClient(): Promise<ClientLike> {
     const s = await this.o.settings();
-    const key = `${s.copilot.host}|${s.copilot.cliPath}`;
+    // Hosted: the runtime talks to the host of the identity it works as (github.com, or a company's).
+    const host = this.o.identity ? settingsHost((await this.o.identity().catch(() => undefined))?.host) : s.copilot.host;
+    const key = `${host}|${s.copilot.cliPath}`;
     if (this.client && this.clientKey === key) return this.client;
     if (this.starting && this.clientKey === key) return this.starting;
     if (this.client) await this.client.stop().catch(() => undefined);
@@ -160,7 +168,7 @@ export class CopilotRuntime implements AgentRuntime {
     this.priceUnits = undefined;
     const home = this.o.home ? { copilot: join(this.o.home, 'copilot'), gh: join(this.o.home, 'copilot', 'gh-none') } : undefined;
     if (home) mkdirSync(home.gh, { recursive: true, mode: 0o700 });
-    const env = copilotRuntimeEnv(this.o.env ?? process.env, s.copilot.host || undefined, home);
+    const env = copilotRuntimeEnv(this.o.env ?? process.env, host || undefined, home);
     const cliPath = s.copilot.cliPath || undefined;
     // Isolated: start the runtime the SDK would start, inside the sandbox (its arguments follow ours).
     const isolated = (): Record<string, unknown> => {

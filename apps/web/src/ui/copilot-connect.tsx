@@ -59,15 +59,19 @@ export function useCopilotAccounts() {
 export function useCopilotReady() {
   const q = useCopilotAccounts();
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<unknown>('/api/copilot/models'), staleTime: 5 * 60_000, retry: false, enabled: Boolean(q.data?.signedIn) && isCloud() });
-  const noPlan = isCloud() && models.isError && /no Copilot plan/i.test((models.error as Error).message);
-  return { accounts: q, noPlan, connected: Boolean(q.data?.signedIn) && !noPlan };
+  const cloud = isCloud();
+  const noPlan = cloud && models.isError && /no Copilot plan/i.test((models.error as Error).message);
+  // In the cloud, "ready" means Copilot answered for this account; anything else is said in words.
+  const problem = cloud && models.isError && !noPlan ? (models.error as Error).message : undefined;
+  const checking = cloud && Boolean(q.data?.signedIn) && models.isLoading;
+  return { accounts: q, noPlan, problem, checking, connected: Boolean(q.data?.signedIn) && (!cloud || models.isSuccess) };
 }
 
 /** After a change of account: the models, prices and checks belong to the new one. */
 function useRefreshAfterSwitch() {
   const qc = useQueryClient();
   return () => {
-    for (const key of ['copilot-accounts', 'bootstrap', 'settings', 'models', 'doctor']) void qc.invalidateQueries({ queryKey: [key] });
+    for (const key of ['copilot-accounts', 'bootstrap', 'settings', 'models', 'doctor', 'workspace']) void qc.invalidateQueries({ queryKey: [key] });
   };
 }
 
@@ -212,7 +216,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
 
   const title = kind === 'proxima' ? "Sign in to your company's GitHub" : kind === 'entra' ? 'Sign in with Microsoft' : 'Sign in to GitHub';
   return (
-    <Dialog open onClose={close} title={title} description="Use the account that has your Copilot plan. Tandem never sees your password; the sign-in stays on the runner's computer.">
+    <Dialog open onClose={close} title={title} description={`Use the account that has your Copilot plan. Tandem never sees your password; the sign-in is kept ${isCloud() ? 'encrypted, for this workspace only' : "on the runner's computer"}.`}>
       <div className="min-h-[148px]">
         {!step || (busy && step.kind !== 'open-url') ? (
           <p className="flex items-center gap-2.5 py-6 text-[13.5px] text-muted">
@@ -265,9 +269,11 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                 </p>
               </li>
             </ol>
-            <button type="button" onClick={() => void begin('browser')} className="self-start text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
-              Sign in through the browser instead
-            </button>
+            {!isCloud() && (
+              <button type="button" onClick={() => void begin('browser')} className="self-start text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
+                Sign in through the browser instead
+              </button>
+            )}
           </div>
         ) : step.kind === 'open-url' || step.kind === 'awaiting' || step.kind === 'needs-interaction' ? (
           <div className="flex flex-col gap-4">
@@ -441,19 +447,31 @@ export function CopilotConnect({ compact, bare }: { compact?: boolean; /** In se
 function HostedCopilot() {
   const qc = useQueryClient();
   const toast = useToast();
-  const { accounts: q, noPlan } = useCopilotReady();
+  const refresh = useRefreshAfterSwitch();
+  const { accounts: q, noPlan, problem, checking } = useCopilotReady();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: { id: string; login: string; name: string; avatarUrl?: string } }>('/api/me') });
   const ws = useQuery({ queryKey: ['workspace'], queryFn: () => api<{ members?: Array<{ id: string; login: string; name: string; avatarUrl?: string }> }>('/api/workspace') });
   const [disconnecting, setDisconnecting] = useState(false);
+  const [signIn, setSignIn] = useState<ProviderKind | null>(null);
   const mine = useMutation({
     mutationFn: () => post('/api/copilot/use-mine'),
     onSuccess: () => {
-      for (const key of ['copilot-accounts', 'models', 'workspace']) void qc.invalidateQueries({ queryKey: [key] });
+      refresh();
       toast('Copilot here now runs on your plan.', 'ok');
     },
     onError: (e) => toast((e as Error).message, 'danger'),
   });
-  const disconnect = useMutation({ mutationFn: () => post('/auth/disconnect-github'), onSuccess: () => window.location.assign('/'), onError: (e) => toast((e as Error).message, 'danger') });
+  const leaveGitHub = useMutation({ mutationFn: () => post('/auth/disconnect-github'), onSuccess: () => window.location.assign('/'), onError: (e) => toast((e as Error).message, 'danger') });
+  const leaveWork = useMutation({
+    mutationFn: () => del('/api/copilot/accounts/work'),
+    onSuccess: () => {
+      setDisconnecting(false);
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['copilot-accounts'] });
+      toast('Work account disconnected.', 'ok');
+    },
+    onError: (e) => toast((e as Error).message, 'danger'),
+  });
   if (q.isLoading || me.isLoading)
     return (
       <p className="flex items-center gap-2.5 py-3 text-[13px] text-muted">
@@ -462,59 +480,98 @@ function HostedCopilot() {
     );
   const a = q.data?.active;
   const you = me.data?.user;
+  const work = a?.id === 'work';
   const isMe = Boolean(a && you && a.id === you.id);
-  // The person whose plan the workspace uses, as GitHub shows them.
-  const holder = a ? (isMe ? you : ws.data?.members?.find((m) => m.id === a.id)) : undefined;
+  // The person whose plan the workspace uses, as GitHub shows them; a work account by its login.
+  const holder = a && !work ? (isMe ? you : ws.data?.members?.find((m) => m.id === a.id)) : undefined;
   const name = holder?.name ?? a?.login ?? 'Nobody yet';
-  const copilot: { tone: 'ok' | 'warn'; label: string } = noPlan ? { tone: 'warn', label: 'No Copilot plan' } : q.data?.signedIn ? { tone: 'ok', label: 'Copilot ready' } : { tone: 'warn', label: 'Copilot not connected' };
+  const canWork = Boolean(q.data?.providers.some((p) => p.kind === 'proxima'));
+  const copilot: { tone: 'ok' | 'warn' | 'wait'; label: string } = !q.data?.signedIn ? { tone: 'warn', label: 'Copilot not connected' } : checking ? { tone: 'wait', label: 'Checking Copilot…' } : noPlan ? { tone: 'warn', label: 'No Copilot plan' } : problem ? { tone: 'warn', label: "Copilot can't be reached" } : { tone: 'ok', label: 'Copilot ready' };
   return (
-    <div className="overflow-hidden rounded-xl bg-surface shadow-[0_0_0_1px_var(--border)]">
-      <div className="flex flex-wrap items-center gap-3.5 px-4 py-3.5">
-        <PersonAvatar name={name} src={holder?.avatarUrl} size={44} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[14.5px] font-semibold">
-            {name}
-            {isMe && <span className="font-normal text-faint"> (you)</span>}
-          </p>
-          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted">
-            <BrandLogo brand="github" size={12} className="shrink-0" />
-            <span className="truncate">{a ? `@${a.login} · github.com` : 'Choose whose Copilot plan this workspace uses'}</span>
-          </p>
+    <div className="flex flex-col gap-3">
+      <div className="overflow-hidden rounded-xl bg-surface shadow-[0_0_0_1px_var(--border)]">
+        <div className="flex flex-wrap items-center gap-3.5 px-4 py-3.5">
+          {work ? (
+            <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-text">
+              <Building2 className="size-5" />
+            </span>
+          ) : (
+            <PersonAvatar name={name} src={holder?.avatarUrl} size={44} />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14.5px] font-semibold">
+              {name}
+              {isMe && <span className="font-normal text-faint"> (you)</span>}
+            </p>
+            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted">
+              {a?.host === 'github.com' || !a ? <BrandLogo brand="github" size={12} className="shrink-0" /> : <Building2 aria-hidden className="size-3.5 shrink-0" strokeWidth={1.8} />}
+              <span className="truncate">{a ? `@${a.login} · ${a.host}${work ? ' · work account' : ''}` : 'Choose whose Copilot plan this workspace uses'}</span>
+            </p>
+          </div>
+          {work || isMe ? (
+            <Button size="sm" variant="ghost" onClick={() => setDisconnecting(true)}>
+              Disconnect
+            </Button>
+          ) : (
+            <Button size="sm" busy={mine.isPending} onClick={() => mine.mutate()}>
+              Use my Copilot plan
+            </Button>
+          )}
         </div>
-        {isMe ? (
-          <Button size="sm" variant="ghost" onClick={() => setDisconnecting(true)}>
-            Disconnect
-          </Button>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-line bg-surface-2/40 px-4 py-2.5 text-[12.5px]">
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className={cx('size-1.5 rounded-full', a ? 'bg-ok' : 'bg-faint')} />
+            {work ? 'Signed in with a code' : a ? 'GitHub connected' : 'GitHub not connected'}
+          </span>
+          <span className={cx('inline-flex items-center gap-1.5', copilot.tone === 'warn' && 'text-warn')}>
+            {copilot.tone === 'wait' ? <Spinner className="size-3" /> : <span aria-hidden className={cx('size-1.5 rounded-full', copilot.tone === 'ok' ? 'bg-ok' : 'bg-warn')} />}
+            {copilot.label}
+          </span>
+        </div>
+        {(q.data?.error ?? problem) && <p className="border-t border-line px-4 py-3 text-[12.5px] text-warn">{q.data?.error ?? problem}</p>}
+      </div>
+      {!work && canWork && (
+        noPlan || problem ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-accent-soft/50 px-4 py-3.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-medium">Is your Copilot from work?</p>
+              <p className="mt-0.5 text-[12.5px] text-muted">{noPlan ? 'This account has no Copilot plan.' : "Copilot can't be used with this account right now."} Sign in to your work account instead: you get a code to enter at your company's GitHub.</p>
+            </div>
+            <Button variant="primary" icon={Building2} onClick={() => setSignIn('proxima')}>
+              Connect your work account
+            </Button>
+          </div>
         ) : (
-          <Button size="sm" busy={mine.isPending} onClick={() => mine.mutate()}>
-            Use my Copilot plan
-          </Button>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-line bg-surface-2/40 px-4 py-2.5 text-[12.5px]">
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className={cx('size-1.5 rounded-full', a ? 'bg-ok' : 'bg-faint')} />
-          {a ? 'GitHub connected' : 'GitHub not connected'}
-        </span>
-        <span className={cx('inline-flex items-center gap-1.5', copilot.tone === 'warn' && 'text-warn')}>
-          <span aria-hidden className={cx('size-1.5 rounded-full', copilot.tone === 'ok' ? 'bg-ok' : 'bg-warn')} />
-          {copilot.label}
-        </span>
-      </div>
-      {(noPlan || q.data?.error) && (
-        <p className="border-t border-line px-4 py-3 text-[12.5px] text-muted">
-          {q.data?.error ?? "This account has no Copilot plan Tandem can use. If your Copilot is from work, on your company's GitHub, let Tandem work on a company computer (Workspace, above): it signs in to Copilot there."}
+          <p className="px-1 text-[12.5px] text-muted">
+            Copilot from work?{' '}
+            <button type="button" onClick={() => setSignIn('proxima')} className="font-medium text-accent-text underline-offset-2 hover:underline">
+              Connect your work account
+            </button>
+          </p>
+        )
+      )}
+      {!work && canWork && (
+        <p className="-mt-1 px-1 text-[12px] text-faint">
+          Work Copilot on github.com, under another account?{' '}
+          <button type="button" onClick={() => setSignIn('githubDotCom')} className="font-medium text-muted underline-offset-2 hover:text-fg hover:underline">
+            Sign in to that account
+          </button>
         </p>
       )}
+      {signIn && <SignInDialog kind={signIn} onClose={() => setSignIn(null)} />}
       <Dialog
         open={disconnecting}
         onClose={() => setDisconnecting(false)}
-        title="Disconnect GitHub?"
-        description={`Tandem's access to ${a ? `@${a.login}` : 'your GitHub account'} is revoked at GitHub, and you're signed out everywhere.${isMe ? " This workspace's Copilot stops until a member uses their plan." : ''} Your workspaces and their data stay. To come back, continue with GitHub again.`}
+        title={work ? 'Disconnect the work account?' : 'Disconnect GitHub?'}
+        description={
+          work
+            ? `Copilot here stops using @${a?.login ?? 'the work account'}, and its sign-in is deleted. Copilot runs on a member's plan again.`
+            : `Tandem's access to ${a ? `@${a.login}` : 'your GitHub account'} is revoked at GitHub, and you're signed out everywhere. This workspace's Copilot stops until a member uses their plan. Your workspaces and their data stay. To come back, continue with GitHub again.`
+        }
         footer={
           <>
             <Button onClick={() => setDisconnecting(false)}>Cancel</Button>
-            <Button variant="danger" icon={LogOut} busy={disconnect.isPending} onClick={() => disconnect.mutate()}>
+            <Button variant="danger" icon={LogOut} busy={leaveGitHub.isPending || leaveWork.isPending} onClick={() => (work ? leaveWork.mutate() : leaveGitHub.mutate())}>
               Disconnect
             </Button>
           </>

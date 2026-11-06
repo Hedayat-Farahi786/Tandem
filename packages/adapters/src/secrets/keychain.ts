@@ -1,6 +1,6 @@
 import { redactor } from '@tandem/core';
 
-export type SecretName = 'jira-token' | 'jira-oauth' | 'github-token' | 'aws-connection' | 'aws-external-id' | 'runner-key' | 'copilot-sign-ins';
+export type SecretName = 'jira-token' | 'jira-oauth' | 'github-token' | 'aws-connection' | 'aws-external-id' | 'runner-key' | 'copilot-sign-ins' | 'copilot-work';
 
 export interface SecretStore {
   /** Whether an OS keychain is usable on this machine. */

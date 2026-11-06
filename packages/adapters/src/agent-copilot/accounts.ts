@@ -205,6 +205,8 @@ export class RuntimeAccounts implements CopilotAccounts {
       fetch?: Fetch;
       /** Where sign-ins go that the runtime cannot save itself (no keychain). */
       kept?: KeptSignIns;
+      /** Hosted: a code sign-in's token is handed here instead of to the runtime. */
+      onToken?: (host: string, token: string) => Promise<{ login?: string; host: string; saved: boolean }>;
     },
   ) {}
 
@@ -266,7 +268,8 @@ export class RuntimeAccounts implements CopilotAccounts {
       if (typeof t.access_token === 'string') {
         this.flows.delete(flowId);
         try {
-          const r = await this.signInWithToken(c.host, t.access_token);
+          const r = this.o.onToken ? await this.o.onToken(c.host, t.access_token) : await this.signInWithToken(c.host, t.access_token);
+          if (this.o.onToken) await this.o.useHost(c.host);
           return { kind: 'done', ...(r.login ? { login: r.login } : {}), host: r.host, saved: r.saved };
         } catch (err) {
           return { kind: 'error', message: String((err as Error)?.message ?? err).replace(/^Request \S+ failed with message:\s*/, '') };

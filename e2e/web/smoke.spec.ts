@@ -39,8 +39,8 @@ test('setup: connect Copilot, then detect and add a repository', async () => {
   await expect(page.getByText('@mona · github.com')).toBeVisible();
   await expect(page.getByText('Copilot ready')).toBeVisible();
   await expect(page.getByText('Connected', { exact: true })).toBeVisible();
-  // Copilot from work: the company computer is offered right here.
-  await expect(page.getByRole('button', { name: 'Use a company computer' })).toBeVisible();
+  // Copilot from work: the work account, with a code; a company computer stays one fold away.
+  await expect(page.getByText("Code that must stay on your company's own computers?")).toBeVisible();
   await checkScreen(page, '04-setup-connect');
   await page.getByRole('button', { name: 'Continue' }).click();
   // Repositories: from GitHub, CodeCommit, or a URL.

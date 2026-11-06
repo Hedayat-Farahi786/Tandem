@@ -45,6 +45,18 @@ All notable changes to Tandem. The format follows
     pretend GitHub. The real-Copilot and real-CodeCommit flows run through a
     company runner on the test computer, as a company would.
 
+- **Your work Copilot, in the browser, with no runner.** A cloud workspace
+  can now use a work Copilot account directly: in setup or Settings › GitHub &
+  Copilot, **Connect your work account**, enter your company's GitHub address
+  (`*.ghe.com`), enter the code Tandem shows at GitHub and approve. The
+  sign-in is kept encrypted for that workspace, Copilot works as that account
+  on its host, and **Disconnect** returns to a member's plan. A work seat on
+  github.com under another account connects the same way. When the signed-in
+  account has no Copilot plan, setup says so and puts this button first.
+  "Copilot ready" now means Copilot answered for the account; a refused or
+  expired sign-in is said in words. A company computer (the runner) is now an
+  option for code that must stay on a company's own machines, one fold away.
+
 - **A cleaner Settings, with your GitHub account as GitHub shows it.**
   - *One "GitHub & Copilot" section* instead of separate Copilot and GitHub
     sections. It shows the account Tandem works as, with its GitHub picture,

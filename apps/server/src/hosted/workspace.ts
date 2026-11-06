@@ -75,51 +75,111 @@ export class WorkspaceSecrets implements SecretStore {
   }
 }
 
-const NO_LOCAL_SIGN_IN = 'In the web app, Copilot uses the GitHub account you signed in with. To use your own plan here, choose "Use my Copilot plan".';
+/** A work Copilot account (a company's GitHub, or another github.com account), kept for the workspace. */
+interface WorkAccount {
+  host: string;
+  login?: string | undefined;
+  token: string;
+}
+
+const hostOf = (h: string) => h.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase() || 'github.com';
+const apiOf = (host: string) => (host === 'github.com' ? 'https://api.github.com' : `https://api.${host}`);
 
 /**
- * Copilot accounts in a hosted workspace: the member whose plan it uses. Signing in happens on the
- * web app's own GitHub sign-in; choosing whose plan is a separate, signed-in action of the member.
+ * Copilot accounts in a hosted workspace. By default Copilot runs on the plan of a member, through
+ * their sign-in to Tandem. When that plan isn't the one to use (Copilot from work, on a company's
+ * GitHub), a member signs in to their work account with a code, right in the browser: its token is
+ * kept sealed for this workspace and Copilot works as that account until it is disconnected.
  */
 export class WorkspaceAccounts implements CopilotAccounts {
+  private signIn: CopilotAccounts | undefined;
   constructor(
     private readonly directory: Directory,
     private readonly workspaceId: string,
     private readonly tokens: GitHubTokens,
+    private readonly secrets: SecretStore = new WorkspaceSecrets(directory, workspaceId),
+    private readonly http: typeof fetch = fetch,
   ) {}
+
+  /** The runtime's code sign-in, once the workspace's runtime exists. */
+  useCodeSignIn(signIn: CopilotAccounts) {
+    this.signIn = signIn;
+  }
+
+  private async work(): Promise<WorkAccount | undefined> {
+    try {
+      const v = await this.secrets.get('copilot-work');
+      return v ? (JSON.parse(v) as WorkAccount) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** A code sign-in finished: keep the work account, named as its GitHub names it. */
+  async keepWork(host: string, token: string): Promise<{ login?: string; host: string; saved: boolean }> {
+    const h = hostOf(host);
+    const me = await this.http(`${apiOf(h)}/user`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'tandem' } })
+      .then((r): Promise<{ login?: string }> | { login?: string } => (r.ok ? (r.json() as Promise<{ login?: string }>) : {}))
+      .catch((): { login?: string } => ({}));
+    await this.secrets.set('copilot-work', JSON.stringify({ host: h, ...(me.login ? { login: me.login } : {}), token } satisfies WorkAccount));
+    return { host: h, ...(me.login ? { login: me.login } : {}), saved: true };
+  }
+
   async state(): Promise<AccountState> {
+    const providers = this.signIn ? [{ kind: 'proxima' as const, label: "Your company's GitHub", available: true }, { kind: 'githubDotCom' as const, label: 'Another GitHub.com account', available: true }] : [];
+    const work = await this.work();
+    if (work) {
+      const active = { id: 'work', login: work.login ?? 'Work account', host: work.host, active: true, source: 'copilot' as const };
+      return { signedIn: true, active, accounts: [active], providers };
+    }
     const userId = await this.directory.copilotUser(this.workspaceId);
     const user = userId ? await this.directory.user(userId) : undefined;
     const id = userId ? await this.tokens.identity(userId) : undefined;
-    if (!user) return { signedIn: false, accounts: [], providers: [] };
+    if (!user) return { signedIn: false, accounts: [], providers };
     const active = { id: user.id, login: user.login, host: 'github.com', active: true, source: 'copilot' as const };
-    return { signedIn: Boolean(id), active, accounts: [active], providers: [], ...(id ? {} : { error: `${user.name}'s GitHub sign-in has expired. They need to sign in to Tandem again.` }) };
+    return { signedIn: Boolean(id), active, accounts: [active], providers, ...(id ? {} : { error: `${user.name}'s GitHub sign-in has expired. They need to sign in to Tandem again.` }) };
   }
-  async begin(): Promise<{ flowId: string; step: SignInStep }> {
-    throw new Error(NO_LOCAL_SIGN_IN);
+  private need(): CopilotAccounts {
+    if (!this.signIn) throw new Error('Signing in to a work account needs the Copilot runtime, which this Tandem does not run.');
+    return this.signIn;
   }
-  async advance(): Promise<SignInStep> {
-    return { kind: 'error', message: NO_LOCAL_SIGN_IN };
+  async begin(kind: Parameters<CopilotAccounts['begin']>[0]): Promise<{ flowId: string; step: SignInStep }> {
+    if (kind === 'entra') throw new Error('Sign in with your company\'s GitHub instead.');
+    // Always with a code: the browser may be anywhere, and nothing has to reach this server.
+    return this.need().begin(kind, 'code');
+  }
+  async advance(flowId: string, input?: string): Promise<SignInStep> {
+    return this.signIn ? this.signIn.advance(flowId, input) : { kind: 'error', message: 'This sign-in has expired. Start again.' };
   }
   async finishWithUrl(): Promise<SignInStep> {
-    return { kind: 'error', message: NO_LOCAL_SIGN_IN };
+    return { kind: 'error', message: 'Sign in with a code instead.' };
   }
-  async cancel(): Promise<void> {}
+  async cancel(flowId: string): Promise<void> {
+    await this.signIn?.cancel(flowId);
+  }
   async signInWithToken(): Promise<{ login?: string; host: string; saved: boolean }> {
-    throw new Error(NO_LOCAL_SIGN_IN);
+    throw new Error('Sign in with a code instead: it works from any browser.');
   }
   async switchTo(): Promise<void> {
-    throw new Error(NO_LOCAL_SIGN_IN);
+    throw new Error('Disconnect the work account to use a member\'s plan again.');
   }
-  async signOut(): Promise<void> {
+  async signOut(id: string): Promise<void> {
+    if (id === 'work') {
+      await this.secrets.delete('copilot-work');
+      return;
+    }
     throw new Error('To stop using your plan here, another member chooses "Use my Copilot plan", or you leave the workspace.');
   }
   async tokenFor(host: string): Promise<string | undefined> {
-    if (host !== 'github.com') return undefined;
+    const work = await this.work();
+    if (work && hostOf(host) === work.host) return work.token;
+    if (hostOf(host) !== 'github.com') return undefined;
     const userId = await this.directory.copilotUser(this.workspaceId);
     return userId ? (await this.tokens.identity(userId))?.token : undefined;
   }
   async identity(): Promise<GitHubIdentity | undefined> {
+    const work = await this.work();
+    if (work) return { token: work.token, host: work.host, ...(work.login ? { login: work.login } : {}) };
     const userId = await this.directory.copilotUser(this.workspaceId);
     return userId ? this.tokens.identity(userId) : undefined;
   }

@@ -265,18 +265,23 @@ function ConnectStep({ onNext, onBack }: { boot: Bootstrap; onNext: () => void; 
     >
       <p className="mb-4 text-[13px] text-muted">
         {cloud
-          ? 'Tandem uses the Copilot plan of the GitHub account you signed in with.'
+          ? "Tandem uses the Copilot plan of the GitHub account you signed in with, or your work account if your Copilot is from work."
           : "Sign in with the GitHub account that has your Copilot plan: personal, or from work on your company's GitHub. You get a short code to enter at GitHub, from any browser."}
       </p>
       <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
         <CopilotConnect bare />
       </div>
       {cloud && (
-        <div className="mt-5">
-          <p className="text-[13.5px] font-medium">Copilot from work, or code that stays in your company?</p>
-          <p className="mt-0.5 text-[12.5px] text-muted">Tandem can work on a company computer instead (a laptop, VM or server): with its git, AWS sign-in and your work Copilot account.</p>
+        <details className="group mt-5">
+          <summary className="cursor-pointer list-none text-[13px] font-medium text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <span aria-hidden className="inline-block transition-transform group-open:rotate-90">
+              ›
+            </span>{' '}
+            Code that must stay on your company's own computers?
+          </summary>
+          <p className="mt-2 text-[12.5px] text-muted">Tandem can work on a computer of yours instead (a laptop, VM or server), with its git and AWS sign-in. It needs a small program running there; most teams don't need this.</p>
           <RunnerControls />
-        </div>
+        </details>
       )}
       <div className="mt-6 flex justify-between">
         <Button onClick={onBack}>Back</Button>

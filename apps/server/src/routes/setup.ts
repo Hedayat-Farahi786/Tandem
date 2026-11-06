@@ -260,6 +260,7 @@ export function registerSetupRoutes(app: FastifyInstance, ctx: ServerContext) {
       const why = String((err as Error).message ?? err);
       // The usual two, in words: nobody signed in yet, or an account without a Copilot plan.
       if (/not authenticated|please authenticate/i.test(why)) throw new HttpError(409, "Copilot isn't connected yet. Sign in under Copilot to choose models.");
+      if (/401|bad credentials|unauthorized/i.test(why)) throw new HttpError(409, 'GitHub refused the sign-in Copilot uses: it expired or was revoked. Sign in to that account again.');
       if (/not authorized to use this copilot feature|"status":403|forbidden/i.test(why)) throw new HttpError(409, 'This GitHub account has no Copilot plan Tandem can use. Sign in with the account that has one; for Copilot from work, use a company computer (Settings › Workspace).');
       throw new HttpError(502, `Could not list Copilot models: ${why.slice(0, 200)}. Check the Copilot host and run Doctor.`);
     }
