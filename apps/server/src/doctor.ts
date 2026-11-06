@@ -91,7 +91,7 @@ export async function runDoctor(t: Tandem, agent: AgentRuntime, opts: { onCheck?
     add({ id: 'disk', group: 'Machine', label: 'Disk space', status: 'warn', message: `Could not check: ${String(err)}` });
   }
   const kc = await t.secrets.available();
-  add(kc.ok ? { id: 'keychain', group: 'Machine', label: 'OS keychain', status: 'pass', message: kc.message } : { id: 'keychain', group: 'Machine', label: 'OS keychain', status: 'fail', message: kc.message, fix: 'Needed to keep your Copilot sign-in, and a Jira or GitHub token if you use one. Tandem never stores secrets in files.' });
+  add(kc.ok ? { id: 'keychain', group: 'Machine', label: 'Sign-ins and keys', status: 'pass', message: kc.message } : { id: 'keychain', group: 'Machine', label: 'Sign-ins and keys', status: 'fail', message: kc.message, fix: 'Needed to keep your Copilot sign-in, and a Jira or GitHub token if you use one. Make Tandem\'s data folder writable.' });
 
   // Copilot
   if (agent instanceof CopilotRuntime) {

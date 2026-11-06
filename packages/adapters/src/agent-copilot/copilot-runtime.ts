@@ -7,7 +7,8 @@ import { BudgetError, RetryableError, allowedBuiltins, type AgentEvent, type Age
 import { vendorOf, type ModelOption, type Settings } from '@tandem/shared';
 import { copilotRuntimeEnv, enforcement } from './enforce.js';
 import { strictResponseSchema, type ResponseSchemaLike } from './strict-schema.js';
-import { RuntimeAccounts, settingsHost, type AccountClientLike } from './accounts.js';
+import { RuntimeAccounts, keptSignIns, restoreSignIns, settingsHost, type AccountClientLike, type KeptSignIns } from './accounts.js';
+import type { SecretStore } from '../secrets/keychain.js';
 
 /* Structural views of the SDK objects Tandem uses (lets tests drive the adapter with a fake). */
 export interface SessionEventLike {
@@ -70,6 +71,11 @@ export interface CopilotRuntimeOptions {
    * session and renewed on demand; the runtime never uses a sign-in of its own.
    */
   identity?: () => Promise<GitHubIdentity | undefined>;
+  /**
+   * Where Tandem keeps Copilot sign-ins the runtime cannot save itself (a computer without a
+   * keychain); they are handed back to the runtime each time it starts. Not in hosted mode.
+   */
+  keep?: SecretStore;
   /** Tandem's cloud: the runtime, and every command Copilot runs, start inside this sandbox. */
   sandbox?: { wrap(argv: readonly string[], cwd?: string): { file: string; args: string[]; env: Record<string, string> } };
 }
@@ -126,8 +132,12 @@ export class CopilotRuntime implements AgentRuntime {
   /** Connecting, switching and signing out Copilot accounts, through the runtime's own sign-in. */
   readonly accounts: RuntimeAccounts;
 
+  private readonly kept: KeptSignIns | undefined;
+
   constructor(private readonly o: CopilotRuntimeOptions) {
+    this.kept = o.keep && !o.identity ? keptSignIns(o.keep) : undefined;
     this.accounts = new RuntimeAccounts({
+      ...(this.kept ? { kept: this.kept } : {}),
       client: async () => (await this.ensureClient()) as unknown as AccountClientLike,
       useHost: async (host) => {
         // Another account means other models and prices; a new host also restarts the runtime.
@@ -164,6 +174,9 @@ export class CopilotRuntime implements AgentRuntime {
         ? this.o.createClient(env, cliPath)
         : (new CopilotClient({ logLevel: 'error', useLoggedInUser: !this.o.identity, ...(home ? { baseDirectory: home.copilot } : {}), ...(this.o.sandbox ? isolated() : cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath, env }) } : { env }) }) as unknown as ClientLike);
       await c.start();
+      if (this.kept) {
+        await restoreSignIns(c as unknown as AccountClientLike, this.kept, s.copilot.host, (host, err) => this.o.logger?.warn('a kept Copilot sign-in was not accepted', { host, error: String((err as Error)?.message ?? err) }));
+      }
       this.client = c;
       return c;
     })();

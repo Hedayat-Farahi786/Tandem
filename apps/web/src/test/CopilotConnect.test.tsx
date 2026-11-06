@@ -81,7 +81,7 @@ describe('Connecting Copilot on a company runner', () => {
     expect(open.getAttribute('href')).toBe('https://github.com/login/device');
     // It finishes on its own once the code is approved; a computer without a keychain says so.
     expect(await within(dialog).findByText('Copilot is connected', {}, { timeout: 3000 })).toBeTruthy();
-    expect(within(dialog).getByText(/no keychain to keep the sign-in/)).toBeTruthy();
+    expect(within(dialog).getByText(/couldn't be saved on the runner's computer/)).toBeTruthy();
   });
 
   it('can still sign in through the browser instead', async () => {

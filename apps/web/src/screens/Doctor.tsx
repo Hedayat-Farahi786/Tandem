@@ -109,7 +109,7 @@ export function DoctorSummary({ report }: { report: DoctorReport }) {
 
 const INTRO: Array<[string, string]> = [
   ['tools', 'Git, Node, the Copilot CLI and the AWS CLI'],
-  ['machine', 'Free disk space and the OS keychain'],
+  ['machine', 'Free disk space and where sign-ins are kept'],
   ['copilot', 'Sign-in and the models you can use'],
   ['repositories', 'Read access and permission to open pull requests'],
   ['aws', 'The profile and its session'],

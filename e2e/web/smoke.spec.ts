@@ -36,8 +36,10 @@ test('signing in with GitHub opens the setup wizard', async () => {
 test('setup: connect Copilot, then detect and add a repository', async () => {
   await page.getByRole('button', { name: 'Start' }).click();
   // Copilot first: it runs on the plan of the person who signed in.
-  await expect(page.getByText('Connected', { exact: true })).toBeVisible();
   await expect(page.getByText('Your Copilot plan')).toBeVisible();
+  await expect(page.getByText('Connected', { exact: true })).toHaveCount(2);
+  // Copilot from work: the company computer is offered right here.
+  await expect(page.getByRole('button', { name: 'Use a company computer' })).toBeVisible();
   await checkScreen(page, '04-setup-connect');
   await page.getByRole('button', { name: 'Continue' }).click();
   // Repositories: from GitHub, CodeCommit, or a URL.

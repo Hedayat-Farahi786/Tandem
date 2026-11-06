@@ -176,6 +176,25 @@ describe('Projects', () => {
 });
 
 describe('Setup wizard', () => {
+  it('says plainly when the GitHub account has no Copilot plan, and offers a company computer', async () => {
+    mockApi({
+      'GET /api/bootstrap': boot({ setupComplete: false, projects: [], repos: [] }),
+      'GET /api/copilot/accounts': { signedIn: true, active: { id: 'u1', login: 'mona', host: 'github.com', active: true, source: 'copilot' }, accounts: [], providers: [] },
+      'GET /api/copilot/models': new Response(JSON.stringify({ error: 'This GitHub account has no Copilot plan Tandem can use. Sign in with the account that has one; for Copilot from work, use a company computer (Settings › Workspace).' }), { status: 409 }),
+      'GET /api/me': { user: { id: 'u1', login: 'mona', name: 'Mona' }, workspaces: [] },
+      'GET /api/workspace': { role: 'owner', runner: { mode: 'cloud', connected: false } },
+    });
+    const user = userEvent.setup();
+    renderApp('/');
+    await waitFor(() => expect(window.location.pathname).toBe('/setup'));
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('No Copilot plan')).toBeTruthy();
+    expect(screen.getByText(/has no Copilot plan Tandem can use/)).toBeTruthy();
+    expect(screen.getByText('Not connected')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Skip for now' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Use a company computer' })).toBeTruthy();
+  });
+
   it('redirects to setup on first launch and adds a detected repository', async () => {
     let added: unknown;
     mockApi({
@@ -194,7 +213,8 @@ describe('Setup wizard', () => {
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     // Copilot first, then repositories.
     expect(await screen.findByRole('heading', { name: 'Connect GitHub Copilot' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // Not connected yet: it can wait.
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     // Pick from GitHub, CodeCommit, a clone on this computer, or paste a URL.
     await user.click(await screen.findByRole('tab', { name: 'Clone URL' }));
     await user.type(screen.getByRole('textbox', { name: 'Clone URL' }), 'ftp://nope');

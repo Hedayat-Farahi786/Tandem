@@ -10,7 +10,7 @@ export const isCompanyRunner = () => document.querySelector('meta[name="tandem-r
 /** A workspace in Tandem's cloud, where nothing of a computer (folders, keychain, profiles) is reachable. */
 export const isCloud = () => !isCompanyRunner();
 /** Where secrets are kept, in words. */
-export const secretsKept = () => (isCompanyRunner() ? "in the keychain of the runner's computer" : 'encrypted, for this workspace only');
+export const secretsKept = () => (isCompanyRunner() ? "on the runner's computer, never in plain text" : 'encrypted, for this workspace only');
 
 interface Me {
   user: { id: string; login: string; name: string; avatarUrl?: string };

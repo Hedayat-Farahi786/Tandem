@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { KeychainSecrets, ScriptedAgent, createTandem, defaultScript } from '@tandem/adapters';
+import { ScriptedAgent, createTandem, defaultScript, localSecrets } from '@tandem/adapters';
 import { runDoctor, type DoctorCheck } from './doctor.js';
 import { LEGAL_DIR, VERSION, WEB_DIR, loadDotenv, readConfig } from './start.js';
 import { readHostedConfig, startHosted } from './hosted/server.js';
@@ -69,7 +69,7 @@ async function start(open: boolean): Promise<void> {
 
 /**
  * `tandem runner [--url <web app>] [--key <runner key>]`: a web app workspace, working on this
- * computer. The key goes to the OS keychain and the address to <home>/runner.json, so the next
+ * computer. The key goes to the OS keychain (or sealed in its data folder without one) and the address to <home>/runner.json, so the next
  * start is just `tandem runner`. Its data lives apart from the local app's (~/.tandem-runner).
  */
 async function runner(): Promise<void> {
@@ -85,14 +85,14 @@ async function runner(): Promise<void> {
   const saved = existsSync(savedFile) ? (JSON.parse(readFileSync(savedFile, 'utf8')) as { url?: string }) : {};
   const url = (flag('url') ?? process.env.TANDEM_RUNNER_URL ?? saved.url)?.replace(/\/+$/, '');
   if (!url || !/^https?:\/\//.test(url)) throw new Error('Give the web app\'s address: tandem runner --url https://app.example.com --key <runner key> (Settings › Workspace shows the whole command).');
-  const keychain = new KeychainSecrets();
+  const keychain = await localSecrets(config.home);
   const given = flag('key') ?? process.env.TANDEM_RUNNER_KEY;
   const key = given ?? (await keychain.get('runner-key').catch(() => undefined));
   if (!key) throw new Error('No runner key yet. An owner makes one in the web app, Settings › Workspace › "Use a company computer", which shows the command to run here.');
   if (flag('key')) {
     const kc = await keychain.available();
     if (kc.ok) await keychain.set('runner-key', key);
-    else console.log('No OS keychain here, so the key is not saved: pass it again next time, or set TANDEM_RUNNER_KEY.');
+    else console.log(`The key could not be saved (${kc.message}): pass it again next time, or set TANDEM_RUNNER_KEY.`);
   }
   writeFileSync(savedFile, JSON.stringify({ url }, null, 2), { mode: 0o600 });
   console.log(`Tandem ${VERSION} runner · data in ${config.home}`);
@@ -161,7 +161,7 @@ async function backupOrRestore(kind: 'backup' | 'restore'): Promise<void> {
 const USAGE = `Tandem ${VERSION}
 
   tandem [start] [--no-open]        Tandem, the web app (GitHub sign-in; see docs/DEPLOYMENT.md)
-  tandem doctor [--json]            Check this computer for a company runner: git, Copilot, keychain
+  tandem doctor [--json]            Check this computer for a company runner: git, Copilot, sign-ins
   tandem runner [--url <web app>] [--key <runner key>]
                                     Run a web app workspace on this computer (a company runner)
   tandem backup --to <folder>       Copy Tandem's databases while it runs

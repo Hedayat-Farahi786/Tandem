@@ -1,6 +1,6 @@
 import { redactor } from '@tandem/core';
 
-export type SecretName = 'jira-token' | 'jira-oauth' | 'github-token' | 'aws-connection' | 'aws-external-id' | 'runner-key';
+export type SecretName = 'jira-token' | 'jira-oauth' | 'github-token' | 'aws-connection' | 'aws-external-id' | 'runner-key' | 'copilot-sign-ins';
 
 export interface SecretStore {
   /** Whether an OS keychain is usable on this machine. */
@@ -20,9 +20,9 @@ type EntryCtor = new (service: string, account: string) => KeyringEntry;
 const SERVICE = 'tandem';
 
 /**
- * Secrets live only in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret
- * Service). There is no file fallback: if no keychain exists, saving a secret fails with a fix.
- * Every value read is registered with the redactor so it can never be logged.
+ * Secrets in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+ * On a computer without one, `localSecrets` seals them in Tandem's data folder instead
+ * (SealedFileSecrets). Every value read is registered with the redactor so it can never be logged.
  */
 export class KeychainSecrets implements SecretStore {
   private entryCtor: EntryCtor | undefined;
@@ -63,7 +63,7 @@ export class KeychainSecrets implements SecretStore {
     try {
       (await this.entry(name)).setPassword(value);
     } catch (err) {
-      throw new Error(`Could not save ${name} to the OS keychain: ${String((err as Error).message ?? err)}. Tandem never stores secrets in files.`, { cause: err });
+      throw new Error(`Could not save ${name} to the OS keychain: ${String((err as Error).message ?? err)}. Tandem keeps secrets sealed in its data folder when there is no keychain.`, { cause: err });
     }
   }
 

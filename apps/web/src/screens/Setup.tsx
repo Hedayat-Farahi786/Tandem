@@ -7,8 +7,10 @@ import { useRouter } from '../lib/router';
 import type { Bootstrap } from '../lib/types';
 import { ArrowRight, Plus } from 'lucide-react';
 import { BrandLogo, BrandTile, TechStack, hostBrand } from '../ui/brands';
-import { Button, Callout, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
-import { CopilotConnect } from '../ui/copilot-connect';
+import { Button, Card, Checkbox, ErrorState, Input, Loading, PageHeader, Pill, RadioCards, Select, cx, useToast } from '../ui/kit';
+import { CopilotConnect, useCopilotReady } from '../ui/copilot-connect';
+import { RunnerControls } from '../ui/runner-section';
+import { isCloud } from '../ui/account-menu';
 import { RepoImporter } from '../ui/repo-importer';
 import { JiraConnect, useJira } from '../ui/jira-connect';
 import { DoctorList, DoctorSummary } from './Doctor';
@@ -17,9 +19,28 @@ import { RepoCommandsEditor } from './Projects';
 const STEPS = ['Welcome', 'Copilot', 'Repositories', 'Project', 'Jira (optional)', 'Check'] as const;
 type Step = (typeof STEPS)[number];
 
+const STEP_KEY = 'tandem-setup-step';
+const savedStep = (): Step | undefined => {
+  try {
+    const v = sessionStorage.getItem(STEP_KEY);
+    return STEPS.find((s) => s === v);
+  } catch {
+    return undefined;
+  }
+};
+
 export function SetupScreen() {
-  // Back from Atlassian's sign-in: on the Jira step again.
-  const [step, setStep] = useState<Step>(() => (new URLSearchParams(window.location.search).has('jira') ? 'Jira (optional)' : 'Welcome'));
+  // Back from Atlassian's sign-in: on the Jira step again. After a reload (the runner connecting,
+  // a sign-in): where the person was.
+  const [step, setStepState] = useState<Step>(() => (new URLSearchParams(window.location.search).has('jira') ? 'Jira (optional)' : (savedStep() ?? 'Welcome')));
+  const setStep = (s: Step) => {
+    setStepState(s);
+    try {
+      sessionStorage.setItem(STEP_KEY, s);
+    } catch {
+      // private window: the step is just not remembered
+    }
+  };
   const boot = useQuery({ queryKey: ['bootstrap'], queryFn: () => api<Bootstrap>('/api/bootstrap') });
   const i = STEPS.indexOf(step);
   const next = () => setStep(STEPS[Math.min(i + 1, STEPS.length - 1)]!);
@@ -76,7 +97,7 @@ function Nav({ onBack, onNext, nextLabel = 'Continue', nextDisabled, busy }: { o
   );
 }
 
-function Welcome({ boot, onNext }: { boot: Bootstrap; onNext: () => void }) {
+function Welcome({ onNext }: { boot: Bootstrap; onNext: () => void }) {
   return (
     <Card title="How Tandem works">
       <ol className="flex list-decimal flex-col gap-2 pl-5 text-[13px]">
@@ -85,13 +106,6 @@ function Welcome({ boot, onNext }: { boot: Bootstrap; onNext: () => void }) {
         <li>Copilot builds it on a separate branch, Tandem runs your checks and reviews the change.</li>
         <li>You get pull requests to review. Agents never merge and never push to your default branch.</li>
       </ol>
-      {boot.doctor && !boot.doctor.ok && (
-        <div className="mt-4">
-          <Callout tone="warn" title="Doctor found problems on first launch">
-            You can continue; the last step shows what to fix.
-          </Callout>
-        </div>
-      )}
       <Nav onNext={onNext} nextLabel="Start" />
     </Card>
   );
@@ -231,7 +245,14 @@ function ProjectStep({ boot, onNext, onBack }: { boot: Bootstrap; onNext: () => 
   );
 }
 
+/**
+ * Copilot, and where Tandem works. In the cloud, Copilot runs on the plan of the GitHub account
+ * that signed in; when Copilot is from work (a company's GitHub) or code must stay in the company,
+ * the workspace moves to a company computer right here, and Copilot is signed in there with a code.
+ */
 function ConnectStep({ onNext, onBack }: { boot: Bootstrap; onNext: () => void; onBack: () => void }) {
+  const { connected } = useCopilotReady();
+  const cloud = isCloud();
   return (
     <Card
       title={
@@ -240,11 +261,30 @@ function ConnectStep({ onNext, onBack }: { boot: Bootstrap; onNext: () => void; 
           Connect GitHub Copilot
         </h2>
       }
+      actions={<Pill tone={connected ? 'ok' : 'neutral'}>{connected ? 'Connected' : 'Not connected'}</Pill>}
     >
+      <p className="mb-4 text-[13px] text-muted">
+        {cloud
+          ? 'Tandem uses the Copilot plan of the GitHub account you signed in with.'
+          : "Sign in with the GitHub account that has your Copilot plan: personal, or from work on your company's GitHub. You get a short code to enter at GitHub, from any browser."}
+      </p>
       <div className="rounded-xl bg-surface-2/50 p-4 shadow-[inset_0_0_0_1px_var(--border)]">
-        <CopilotConnect />
+        <CopilotConnect bare />
       </div>
-      <Nav onBack={onBack} onNext={onNext} />
+      {cloud && (
+        <div className="mt-5">
+          <p className="text-[13.5px] font-medium">Copilot from work, or code that stays in your company?</p>
+          <p className="mt-0.5 text-[12.5px] text-muted">Tandem can work on a company computer instead (a laptop, VM or server): with its git, AWS sign-in and your work Copilot account.</p>
+          <RunnerControls />
+        </div>
+      )}
+      <div className="mt-6 flex justify-between">
+        <Button onClick={onBack}>Back</Button>
+        <Button variant={connected ? 'primary' : 'secondary'} onClick={onNext}>
+          {connected ? 'Continue' : 'Skip for now'}
+          {connected && <ArrowRight aria-hidden className="size-4" />}
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -290,7 +330,17 @@ function CheckStep({ onBack }: { onBack: () => void }) {
       )}
       <div className="mt-6 flex justify-between">
         <Button onClick={onBack}>Back</Button>
-        <Button variant="primary" onClick={() => navigate('/chat')}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            try {
+              sessionStorage.removeItem(STEP_KEY);
+            } catch {
+              // nothing remembered
+            }
+            navigate('/chat');
+          }}
+        >
           Finish and open chat
         </Button>
       </div>

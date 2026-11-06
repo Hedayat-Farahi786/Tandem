@@ -80,6 +80,62 @@ export function hostName(host: string | undefined): string {
 /** The value Tandem keeps in Settings for a host: empty for github.com. */
 export const settingsHost = (host: string | undefined) => (hostName(host) === 'github.com' ? '' : hostName(host));
 
+/** A sign-in Tandem keeps because the runtime could not (no system keychain on this computer). */
+export interface KeptSignIn {
+  host: string;
+  login?: string | undefined;
+  token: string;
+}
+
+/**
+ * Sign-ins the runtime could not save, kept sealed by Tandem (in the keychain, or sealed with this
+ * computer's key when there is none) and handed back to the runtime each time it starts.
+ */
+export function keptSignIns(store: { get(name: 'copilot-sign-ins'): Promise<string | undefined>; set(name: 'copilot-sign-ins', value: string): Promise<void>; delete(name: 'copilot-sign-ins'): Promise<void> }) {
+  const list = async (): Promise<KeptSignIn[]> => {
+    try {
+      return JSON.parse((await store.get('copilot-sign-ins')) ?? '[]') as KeptSignIn[];
+    } catch {
+      return [];
+    }
+  };
+  const save = async (all: KeptSignIn[]) => (all.length ? store.set('copilot-sign-ins', JSON.stringify(all)) : store.delete('copilot-sign-ins'));
+  const same = (a: KeptSignIn, host: string, login?: string) => hostName(a.host) === hostName(host) && (!login || !a.login || a.login === login);
+  return {
+    list,
+    async add(k: KeptSignIn) {
+      await save([...(await list()).filter((a) => !same(a, k.host, k.login)), { ...k, host: hostName(k.host) }]);
+    },
+    async remove(host: string, login?: string) {
+      await save((await list()).filter((a) => !same(a, host, login)));
+    },
+  };
+}
+export type KeptSignIns = ReturnType<typeof keptSignIns>;
+
+/**
+ * Hands the kept sign-ins back to a runtime that just started: each one it does not know yet, the
+ * account on the active host last, so it is the one in use.
+ */
+export async function restoreSignIns(client: AccountClientLike, kept: KeptSignIns, activeHost: string | undefined, onError?: (host: string, err: unknown) => void): Promise<number> {
+  const all = await kept.list();
+  if (!all.length) return 0;
+  const known = await client.rpc.account.getAllUsers().catch(() => []);
+  const active = hostName(activeHost);
+  const missing = all.filter((k) => !known.some((u) => hostName(u.authInfo.host) === hostName(k.host) && (!k.login || u.authInfo.login === k.login)));
+  missing.sort((a, b) => Number(hostName(a.host) === active) - Number(hostName(b.host) === active));
+  let n = 0;
+  for (const k of missing) {
+    try {
+      await client.rpc.account.login({ host: `https://${hostName(k.host)}`, token: k.token, ...(k.login ? { login: k.login } : {}) });
+      n++;
+    } catch (err) {
+      onError?.(k.host, err);
+    }
+  }
+  return n;
+}
+
 const SOURCE: Record<string, CopilotAccount['source']> = { user: 'copilot', account: 'copilot', 'gh-cli': 'gh', token: 'token', env: 'environment' };
 
 /* Structural views of the runtime's account API (experimental in the SDK). */
@@ -147,6 +203,8 @@ export class RuntimeAccounts implements CopilotAccounts {
       /** After a sign-in or switch: use this account's host from now on, and start the runtime afresh. */
       useHost: (host: string) => Promise<void>;
       fetch?: Fetch;
+      /** Where sign-ins go that the runtime cannot save itself (no keychain). */
+      kept?: KeptSignIns;
     },
   ) {}
 
@@ -284,9 +342,9 @@ export class RuntimeAccounts implements CopilotAccounts {
         const r = s.result;
         if (r?.status === 'needs-account-selection') return { kind: 'choose-account', accounts: (r.accounts ?? []).map((a) => ({ id: a.selectionId, login: a.login, host: hostName(a.host) })) };
         if (r?.status === 'needs-plaintext-consent' || r?.status === 'declined') {
-          // Tokens go only in the system keychain: without one, Tandem does not save them in plain text.
+          // The runtime would keep this one in plain text: never. A code sign-in is kept sealed by Tandem.
           await this.cancel(flowId);
-          return { kind: 'error', message: 'This computer has no system keychain to keep the sign-in safe, so it was not saved. Set up the keychain (on Linux, GNOME Keyring or KWallet) and sign in again.' };
+          return { kind: 'error', message: "This computer has no system keychain, so a browser sign-in can't be kept here. Sign in with a code instead: Tandem keeps that one safely." };
         }
         await this.close(flowId);
         if (r?.host) await this.o.useHost(r.host);
@@ -369,9 +427,16 @@ export class RuntimeAccounts implements CopilotAccounts {
     const h = hostName(host);
     const client = await this.o.client();
     const r = await client.rpc.account.login({ host: `https://${h}`, token: t });
+    const cur = await client.rpc.account.getCurrentAuth().catch(() => ({}) as { authInfo?: AuthInfoLike });
+    const login = cur.authInfo && hostName(cur.authInfo.host) === h ? cur.authInfo.login : undefined;
+    // No keychain for the runtime: Tandem keeps the sign-in, sealed, and hands it back on each start.
+    let saved = r.storedInVault;
+    if (!saved && this.o.kept) {
+      await this.o.kept.add({ host: h, login, token: t });
+      saved = true;
+    }
     await this.o.useHost(h);
-    const cur = await (await this.o.client()).rpc.account.getCurrentAuth().catch(() => ({}) as { authInfo?: AuthInfoLike });
-    return { host: h, saved: r.storedInVault, ...(cur.authInfo?.login ? { login: cur.authInfo.login } : {}) };
+    return { host: h, saved, ...(login ? { login } : {}) };
   }
 
   async switchTo(id: string): Promise<void> {
@@ -396,12 +461,14 @@ export class RuntimeAccounts implements CopilotAccounts {
   }
 
   async signOut(id: string): Promise<void> {
+    const gone = (await (await this.o.client()).rpc.account.getAllUsers().catch(() => [])).find((u) => u.selectionId === id);
     const s = await this.session();
     try {
       await s.rpc.accounts.set({ command: { kind: 'logout', selectionId: id } });
     } finally {
       await s.disconnect().catch(() => undefined);
     }
+    if (gone && this.o.kept) await this.o.kept.remove(gone.authInfo.host ?? 'github.com', gone.authInfo.login);
   }
 }
 

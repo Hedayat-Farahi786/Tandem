@@ -26,7 +26,8 @@ import { installCredentialHelper, type CredentialRequest } from './git/credentia
 import { RepoGit } from './git/repo-git.js';
 import { tandemPaths } from './paths.js';
 import { ShellProcessRunner } from './process/process-runner.js';
-import { KeychainSecrets, type SecretStore } from './secrets/keychain.js';
+import type { SecretStore } from './secrets/keychain.js';
+import { localSecrets } from './secrets/sealed-file.js';
 import { CodeCommitHost, type CodeCommitHostOptions } from './source-codecommit/codecommit-host.js';
 import { GitHubHost, type GitHubHostOptions } from './source-github/github-host.js';
 import { SqliteStore } from './storage-sqlite/sqlite-store.js';
@@ -102,7 +103,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
   const store = await SqliteStore.open(paths.db);
   const clock = o.clock ?? systemClock;
   const ids = () => randomUUID();
-  const secrets = o.hosted?.secrets ?? o.secrets ?? new KeychainSecrets();
+  const secrets = o.hosted?.secrets ?? o.secrets ?? (await localSecrets(paths.home));
   const ambient = !o.hosted;
   await seedSettings(store.settings, o.seeds ?? {});
   const settings = async () => effectiveSettings(await store.settings.get(), o.overrides ?? {});
@@ -139,7 +140,7 @@ export async function createTandem(o: TandemOptions): Promise<Tandem> {
     const s = await store.settings.get();
     if (s && s.copilot.host !== host) await store.settings.set({ ...s, copilot: { ...s.copilot, host } });
   };
-  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.sandbox ? { sandbox: o.sandbox } : {}), ...(o.logger ? { logger: o.logger } : {}) });
+  const agent = o.agent ?? new CopilotRuntime({ settings, useHost, home: paths.home, ...(o.hosted ? {} : { keep: secrets }), ...(o.hosted ? { identity: o.hosted.identity } : {}), ...(o.sandbox ? { sandbox: o.sandbox } : {}), ...(o.logger ? { logger: o.logger } : {}) });
   const catalog = o.agent && o.realModels ? new CopilotRuntime({ settings, ...(o.logger ? { logger: o.logger } : {}) }) : undefined;
   if (catalog) {
     agent.models = () => catalog.models();

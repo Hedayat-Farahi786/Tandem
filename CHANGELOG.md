@@ -45,6 +45,30 @@ All notable changes to Tandem. The format follows
     pretend GitHub. The real-Copilot and real-CodeCommit flows run through a
     company runner on the test computer, as a company would.
 
+- **Copilot stays connected on a server, and setup says what's going on.**
+  - *Sign-ins that last on a computer without a keychain.* A company runner on
+    a Linux server usually has no system keychain, so Copilot couldn't save a
+    sign-in and lost it at once: right after signing in, Tandem restarts
+    Copilot for the new account, and the account was gone, so it never showed
+    as connected. Tandem now keeps such a sign-in itself, sealed with
+    AES-256-GCM under this computer's key (`secret.key` in its data folder,
+    owner-only), and hands it back to Copilot each time it starts. Jira and AWS
+    connections and the runner key are kept the same way there. With a
+    keychain, nothing changes. Signing out removes the kept sign-in.
+  - *A runner started from the repository ignores the web app's `.env`*: its
+    port, data folder and secrets are the web app's.
+  - *Setup asks Copilot, not just GitHub.* In the cloud, a GitHub account
+    without a Copilot plan showed "Connected"; it now shows "No Copilot plan"
+    and says why. The Copilot step offers "Use a company computer" right
+    there, for Copilot from work or code that stays in the company. It shows
+    whether Copilot is connected, says "Skip for now" until it is, and comes
+    back to the same step after the page reloads (when the runner connects).
+    The doubled heading, the token link and the early doctor warning are gone
+    from setup.
+  - *Plain messages.* Before Copilot is connected, Settings no longer shows a
+    raw "Could not list Copilot models" error, and no screen says sign-ins are
+    "in the keychain" where there is none.
+
 - **Sign in to Copilot with a code, from any browser.** Connecting a
   Copilot account now shows a short code: copy it, open GitHub (on any
   computer or phone), enter it and approve, and Tandem finishes on its own.

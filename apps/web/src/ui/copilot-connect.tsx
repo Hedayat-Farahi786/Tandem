@@ -10,7 +10,7 @@ import { Button, Callout, CopyButton, Dialog, Input, Spinner, cx, useToast } fro
  * Connecting GitHub Copilot, for anyone: a personal plan (Free, Pro, Pro+) or a work account
  * (Business or Enterprise on github.com, or GitHub Enterprise Cloud on its own *.ghe.com host).
  * Sign-in happens in the browser through Copilot's own sign-in; Tandem never sees a password, and
- * the sign-in is kept in the keychain of the runner's computer. In the cloud, Copilot uses a member's plan.
+ * the sign-in stays on the runner's computer. In the cloud, Copilot uses a member's plan.
  */
 
 type ProviderKind = 'githubDotCom' | 'proxima' | 'entra';
@@ -49,6 +49,17 @@ const SOURCE: Record<Account['source'], string> = {
 
 export function useCopilotAccounts() {
   return useQuery({ queryKey: ['copilot-accounts'], queryFn: () => api<AccountState>('/api/copilot/accounts'), staleTime: 30_000 });
+}
+
+/**
+ * Whether Copilot is ready: signed in, and (in the cloud, where signing in to Tandem is signing in
+ * to GitHub) the account has a Copilot plan. Asking for the models spends no request.
+ */
+export function useCopilotReady() {
+  const q = useCopilotAccounts();
+  const models = useQuery({ queryKey: ['models'], queryFn: () => api<unknown>('/api/copilot/models'), staleTime: 5 * 60_000, retry: false, enabled: Boolean(q.data?.signedIn) && isCloud() });
+  const noPlan = isCloud() && models.isError && /no Copilot plan/i.test((models.error as Error).message);
+  return { accounts: q, noPlan, connected: Boolean(q.data?.signedIn) && !noPlan };
 }
 
 /** After a change of account: the models, prices and checks belong to the new one. */
@@ -200,7 +211,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
 
   const title = kind === 'proxima' ? "Sign in to your company's GitHub" : kind === 'entra' ? 'Sign in with Microsoft' : 'Sign in to GitHub';
   return (
-    <Dialog open onClose={close} title={title} description="Use the account that has your Copilot plan. Tandem never sees your password; the sign-in is kept in the keychain of the runner's computer.">
+    <Dialog open onClose={close} title={title} description="Use the account that has your Copilot plan. Tandem never sees your password; the sign-in stays on the runner's computer.">
       <div className="min-h-[148px]">
         {!step || (busy && step.kind !== 'open-url') ? (
           <p className="flex items-center gap-2.5 py-6 text-[13.5px] text-muted">
@@ -333,7 +344,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                 'You are signed in.'
               )}
             </p>
-            {step.saved === false && <p className="max-w-sm text-[12.5px] text-warn">This computer has no keychain to keep the sign-in, so you'll sign in again after Tandem restarts.</p>}
+            {step.saved === false && <p className="max-w-sm text-[12.5px] text-warn">This sign-in couldn't be saved on the runner's computer, so you'll sign in again after the runner restarts.</p>}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -377,7 +388,7 @@ function TokenDialog({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title="Connect with a token"
-      description="For a computer without a browser. The token goes straight to Copilot's keychain; Tandem doesn't keep a copy."
+      description="For a computer without a browser. The token stays on the runner's computer, never in plain text."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -417,9 +428,9 @@ function TokenDialog({ onClose }: { onClose: () => void }) {
  * The Copilot account card: who Tandem works as, other signed-in accounts to switch to, and the
  * ways to connect one. Used in setup and in Settings.
  */
-export function CopilotConnect({ compact }: { compact?: boolean }) {
+export function CopilotConnect({ compact, bare }: { compact?: boolean; /** In setup: its own heading, and only the sign-ins. */ bare?: boolean }) {
   if (isCloud()) return <HostedCopilot />;
-  return <LocalCopilotConnect compact={compact} />;
+  return <LocalCopilotConnect compact={compact} bare={bare} />;
 }
 
 /**
@@ -429,7 +440,7 @@ export function CopilotConnect({ compact }: { compact?: boolean }) {
 function HostedCopilot() {
   const qc = useQueryClient();
   const toast = useToast();
-  const q = useCopilotAccounts();
+  const { accounts: q, noPlan } = useCopilotReady();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: { id: string; name: string } }>('/api/me') });
   const mine = useMutation({
     mutationFn: () => post('/api/copilot/use-mine'),
@@ -452,7 +463,7 @@ function HostedCopilot() {
       <div className="flex items-center gap-3.5 rounded-xl bg-surface px-4 py-3.5 shadow-[0_0_0_1px_var(--border)]">
         <span className="relative">
           <Initials login={a?.login ?? '?'} size={40} />
-          {q.data?.signedIn && (
+          {q.data?.signedIn && !noPlan && (
             <span aria-hidden className="absolute -right-0.5 -bottom-0.5 grid size-4 place-items-center rounded-full bg-ok ring-2 ring-surface">
               <Check className="size-2.5 text-white" strokeWidth={3.5} />
             </span>
@@ -461,10 +472,11 @@ function HostedCopilot() {
         <div className="min-w-0 flex-1">
           <p className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[14.5px] font-semibold">{a ? (isMe ? 'Your Copilot plan' : `${a.login}'s Copilot plan`) : 'No Copilot plan yet'}</span>
-            {q.data?.signedIn ? <span className="shrink-0 rounded-full bg-ok-soft px-2 py-px text-[11.5px] font-medium text-ok">Connected</span> : <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">Needs sign-in</span>}
+            {noPlan ? <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">No Copilot plan</span> : q.data?.signedIn ? <span className="shrink-0 rounded-full bg-ok-soft px-2 py-px text-[11.5px] font-medium text-ok">Connected</span> : <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">Needs sign-in</span>}
           </p>
-          <p className="mt-0.5 truncate text-[12.5px] text-muted">
-            <BrandLogo brand="github" size={12} /> {a ? `github.com/${a.login} · used for Copilot and GitHub in this workspace` : 'Choose whose plan this workspace uses'}
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted">
+            <BrandLogo brand="github" size={12} className="shrink-0" />
+            <span className="truncate">{a ? `github.com/${a.login} · used for Copilot and GitHub in this workspace` : 'Choose whose plan this workspace uses'}</span>
           </p>
         </div>
         {!isMe && (
@@ -474,12 +486,18 @@ function HostedCopilot() {
         )}
       </div>
       {q.data?.error && <p className="px-1 text-[12.5px] text-warn">{q.data.error}</p>}
-      <p className="px-1 text-[12px] text-faint">Every Copilot request in this workspace counts against this plan. Any member can switch it to their own.</p>
+      {noPlan ? (
+        <p className="px-1 text-[12.5px] text-warn">
+          {a ? `github.com/${a.login}` : 'This GitHub account'} has no Copilot plan Tandem can use. If your Copilot is from work, on your company's GitHub, let Tandem work on a company computer: it signs in to Copilot there.
+        </p>
+      ) : (
+        <p className="px-1 text-[12px] text-faint">Every Copilot request in this workspace counts against this plan. Any member can switch it to their own.</p>
+      )}
     </div>
   );
 }
 
-function LocalCopilotConnect({ compact }: { compact?: boolean | undefined }) {
+function LocalCopilotConnect({ compact, bare }: { compact?: boolean | undefined; bare?: boolean | undefined }) {
   const q = useCopilotAccounts();
   const toast = useToast();
   const refresh = useRefreshAfterSwitch();
@@ -529,7 +547,7 @@ function LocalCopilotConnect({ compact }: { compact?: boolean | undefined }) {
   if (!s?.signedIn)
     return (
       <div className="flex flex-col gap-3">
-        {!compact && (
+        {!compact && !bare && (
           <div>
             <p className="text-[14px] font-semibold">Connect GitHub Copilot</p>
             <p className="mt-0.5 text-[13px] text-muted">Sign in with the GitHub account that has your Copilot plan: personal (Free, Pro, Pro+) or from work (Business, Enterprise).</p>
@@ -537,9 +555,11 @@ function LocalCopilotConnect({ compact }: { compact?: boolean | undefined }) {
         )}
         {s?.error && <p className="text-[12.5px] text-warn">{s.error}</p>}
         <SignInButtons state={s} onPick={setSignIn} />
-        <button type="button" onClick={() => setToken(true)} className="self-start text-[12.5px] text-muted underline-offset-2 hover:text-fg hover:underline">
-          No browser on the runner's computer? Use a token instead
-        </button>
+        {!bare && (
+          <button type="button" onClick={() => setToken(true)} className="self-start text-[12.5px] text-muted underline-offset-2 hover:text-fg hover:underline">
+            Or connect with a token
+          </button>
+        )}
         {dialogs}
       </div>
     );

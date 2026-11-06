@@ -8,7 +8,7 @@ import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
-import { CopilotConnect } from '../ui/copilot-connect';
+import { CopilotConnect, useCopilotAccounts } from '../ui/copilot-connect';
 import { isCompanyRunner, isCloud, secretsKept } from '../ui/account-menu';
 import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
@@ -249,6 +249,7 @@ export function SettingsScreen() {
   const jira = useJira();
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<Usage>('/api/usage') });
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), retry: false });
+  const copilotState = useCopilotAccounts();
   const [s, setS] = useState<Settings | null>(null);
   useEffect(() => {
     if (settings.data && !s) setS(settings.data);
@@ -298,7 +299,7 @@ export function SettingsScreen() {
 
       <WorkspaceSection />
 
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays in that computer's keychain."}>
+      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays on that computer."}>
         <div className="py-4">
           <CopilotConnect />
         </div>
@@ -308,7 +309,7 @@ export function SettingsScreen() {
         <Row label="Default model for chat, specs and reviews" htmlFor="set-light" description={note('copilot.lightModel', 'Read-only steps, when the model is Auto.')} wide>
           <Select id="set-light" disabled={Boolean(lock('copilot.lightModel'))} value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} />
         </Row>
-        {models.isError && (
+        {models.isError && copilotState.data?.signedIn && (
           <div className="py-4">
             <Callout tone="warn" title="Could not list your Copilot models">
               {(models.error as Error).message}
