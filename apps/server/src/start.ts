@@ -24,9 +24,12 @@ export function loadDotenv(): void {
   if (existsSync(dotenv)) process.loadEnvFile(dotenv);
 }
 
-/** The engine's settings (a company runner, tandem doctor), after .env (development). */
+/**
+ * The engine's settings (a company runner, tandem doctor), from the environment only. The
+ * repository's .env is the web app's (its port, data folder and secrets), so a runner started from
+ * the same checkout must not pick it up.
+ */
 export function readConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
-  if (env === process.env) loadDotenv();
   const e = { ...env };
   if (e.TANDEM_HOME?.startsWith('~')) e.TANDEM_HOME = join(homedir(), e.TANDEM_HOME.slice(1));
   return loadConfig(e, homedir(), join);
