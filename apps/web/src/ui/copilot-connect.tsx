@@ -4,7 +4,7 @@ import { ArrowUpRight, Building2, Check, CheckCircle2, ChevronDown, KeyRound, Lo
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
 import { isCloud } from './account-menu';
-import { Button, Callout, Dialog, Input, Spinner, cx, useToast } from './kit';
+import { Button, Callout, CopyButton, Dialog, Input, Spinner, cx, useToast } from './kit';
 
 /*
  * Connecting GitHub Copilot, for anyone: a personal plan (Free, Pro, Pro+) or a work account
@@ -35,7 +35,8 @@ type Step =
   | { kind: 'awaiting' }
   | { kind: 'needs-interaction' }
   | { kind: 'choose-account'; accounts: Array<{ id: string; login: string; host: string }> }
-  | { kind: 'done'; login?: string; host?: string }
+  | { kind: 'device-code'; code: string; url: string; expiresAt: string }
+  | { kind: 'done'; login?: string; host?: string; saved?: boolean }
   | { kind: 'error'; message: string };
 
 const SOURCE: Record<Account['source'], string> = {
@@ -105,8 +106,13 @@ function SignInButtons({ state, onPick, compact }: { state?: AccountState | unde
   );
 }
 
-/** The sign-in, step by step: the company's address if needed, then GitHub in the browser, then done. */
+/**
+ * The sign-in, step by step: the company's address if needed, then a code to enter at GitHub (from any
+ * browser, so it works when Tandem runs on another computer), then done. Signing in through the
+ * browser is the alternative, for when the browser is on the same computer as Tandem.
+ */
 function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connected: boolean) => void }) {
+  const [method, setMethod] = useState<'code' | 'browser'>(kind === 'entra' ? 'browser' : 'code');
   const [flow, setFlow] = useState<string | null>(null);
   const [step, setStep] = useState<Step | null>(null);
   const [host, setHost] = useState('');
@@ -116,12 +122,14 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
   const live = useRef(true);
   const refresh = useRefreshAfterSwitch();
 
-  const begin = async () => {
+  const begin = async (how: 'code' | 'browser' = method) => {
     setBusy(true);
     setStep(null);
     setOpened(false);
+    setMethod(how);
+    if (flow) void del(`/api/copilot/sign-in/${flow}`).catch(() => undefined);
     try {
-      const r = await post<{ flowId: string; step: Step }>('/api/copilot/sign-in', { kind });
+      const r = await post<{ flowId: string; step: Step }>('/api/copilot/sign-in', { kind, method: how });
       setFlow(r.flowId);
       setStep(r.step);
     } catch (err) {
@@ -140,7 +148,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
   }, []);
 
   // While GitHub is open in the browser, keep asking for the next step.
-  const waiting = step?.kind === 'awaiting' || step?.kind === 'needs-interaction' || (step?.kind === 'open-url' && opened);
+  const waiting = step?.kind === 'awaiting' || step?.kind === 'needs-interaction' || step?.kind === 'device-code' || (step?.kind === 'open-url' && opened);
   useEffect(() => {
     if (!flow || !waiting) return;
     let stop = false;
@@ -213,6 +221,42 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
               </Button>
             </div>
           </form>
+        ) : step.kind === 'device-code' ? (
+          <div className="flex flex-col gap-4">
+            <ol className="flex flex-col gap-4 text-[13.5px]">
+              <li className="flex gap-3">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent-text">1</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">Copy your code</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <code aria-label="Your sign-in code" className="rounded-lg bg-surface-2 px-3.5 py-2 font-mono text-[20px] font-semibold tracking-[0.18em] shadow-[0_0_0_1px_var(--border)]">{step.code}</code>
+                    <CopyButton text={step.code} />
+                  </div>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent-text">2</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">Enter it at GitHub, and approve</p>
+                  <p className="text-[12.5px] text-muted">From any browser, even another computer or your phone.</p>
+                  <a href={step.url} target="_blank" rel="noreferrer" onClick={() => setOpened(true)} className="mt-2.5 inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-[13.5px] font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover">
+                    <BrandLogo brand="github" size={15} className="invert dark:invert-0" />
+                    {opened ? 'Open GitHub again' : 'Open GitHub'}
+                  </a>
+                  <p className="mt-1.5 truncate text-[12px] text-faint">{step.url.replace(/^https:\/\//, '')}</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-2 text-[12px] font-semibold text-muted">3</span>
+                <p role="status" className="flex items-center gap-2 pt-0.5 text-muted">
+                  <Spinner className="size-3.5" /> Tandem finishes on its own once you approve.
+                </p>
+              </li>
+            </ol>
+            <button type="button" onClick={() => void begin('browser')} className="self-start text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
+              Sign in through the browser instead
+            </button>
+          </div>
         ) : step.kind === 'open-url' || step.kind === 'awaiting' || step.kind === 'needs-interaction' ? (
           <div className="flex flex-col gap-4">
             <ol className="flex flex-col gap-3 text-[13.5px]">
@@ -256,6 +300,11 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                 </div>
               </details>
             )}
+            {kind !== 'entra' && (
+              <button type="button" onClick={() => void begin('code')} className="self-start text-[12.5px] font-medium text-muted hover:text-fg hover:underline">
+                Sign in with a code instead
+              </button>
+            )}
           </div>
         ) : step.kind === 'choose-account' ? (
           <div className="flex flex-col gap-2">
@@ -284,6 +333,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                 'You are signed in.'
               )}
             </p>
+            {step.saved === false && <p className="max-w-sm text-[12.5px] text-warn">This computer has no keychain to keep the sign-in, so you'll sign in again after Tandem restarts.</p>}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

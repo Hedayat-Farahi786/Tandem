@@ -56,6 +56,59 @@ describe('Connecting Copilot on a company runner', () => {
     expect(screen.getByText(/github\.com · Signed in with Copilot/)).toBeTruthy();
   });
 
+  it('signs in with a code by default, which works from any browser', async () => {
+    const begun: unknown[] = [];
+    let polls = 0;
+    mockApi(
+      routes({ signedIn: false, accounts: [], providers, host: 'github.com' }, {
+        'POST /api/copilot/sign-in': (b: unknown) => {
+          begun.push(b);
+          return (b as { method: string }).method === 'code'
+            ? { flowId: 'f9', step: { kind: 'device-code', code: 'WDJB-MJHT', url: 'https://github.com/login/device', expiresAt: '2026-11-06T12:00:00Z' } }
+            : { flowId: 'f10', step: { kind: 'open-url', url: 'https://github.com/login/oauth/authorize?client_id=x' } };
+        },
+        'POST /api/copilot/sign-in/f9/next': () => new Promise((r) => setTimeout(() => r(++polls < 3 ? { kind: 'awaiting' } : { kind: 'done', login: 'mona', host: 'github.com', saved: false }), 300)),
+        'DELETE /api/copilot/sign-in/f9': { ok: true },
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/settings');
+    await user.click(await screen.findByRole('button', { name: /GitHub\.com/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign in to GitHub' });
+    expect((await within(dialog).findByLabelText('Your sign-in code')).textContent).toBe('WDJB-MJHT');
+    expect(begun[0]).toEqual({ kind: 'githubDotCom', method: 'code' });
+    const open = within(dialog).getByRole('link', { name: /Open GitHub/ });
+    expect(open.getAttribute('href')).toBe('https://github.com/login/device');
+    // It finishes on its own once the code is approved; a computer without a keychain says so.
+    expect(await within(dialog).findByText('Copilot is connected', {}, { timeout: 3000 })).toBeTruthy();
+    expect(within(dialog).getByText(/no keychain to keep the sign-in/)).toBeTruthy();
+  });
+
+  it('can still sign in through the browser instead', async () => {
+    const begun: unknown[] = [];
+    mockApi(
+      routes({ signedIn: false, accounts: [], providers, host: 'github.com' }, {
+        'POST /api/copilot/sign-in': (b: unknown) => {
+          begun.push(b);
+          return (b as { method: string }).method === 'code'
+            ? { flowId: 'f11', step: { kind: 'device-code', code: 'WDJB-MJHT', url: 'https://github.com/login/device', expiresAt: '2026-11-06T12:00:00Z' } }
+            : { flowId: 'f12', step: { kind: 'open-url', url: 'https://github.com/login/oauth/authorize?client_id=x' } };
+        },
+        // The server holds each check open while GitHub hasn't answered.
+        'POST /api/copilot/sign-in/f11/next': () => new Promise((r) => setTimeout(() => r({ kind: 'awaiting' }), 300)),
+        'DELETE /api/copilot/sign-in/f11': { ok: true },
+        'DELETE /api/copilot/sign-in/f12': { ok: true },
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/settings');
+    await user.click(await screen.findByRole('button', { name: /GitHub\.com/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign in to GitHub' });
+    await user.click(await within(dialog).findByRole('button', { name: 'Sign in through the browser instead' }));
+    expect((await within(dialog).findByRole('link', { name: /Open GitHub/ })).getAttribute('href')).toBe('https://github.com/login/oauth/authorize?client_id=x');
+    expect(begun.at(-1)).toEqual({ kind: 'githubDotCom', method: 'browser' });
+  });
+
   it("asks for the company's GitHub address first", async () => {
     let sent: unknown;
     mockApi(

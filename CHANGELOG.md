@@ -45,6 +45,17 @@ All notable changes to Tandem. The format follows
     pretend GitHub. The real-Copilot and real-CodeCommit flows run through a
     company runner on the test computer, as a company would.
 
+- **Sign in to Copilot with a code, from any browser.** Connecting a
+  Copilot account now shows a short code: copy it, open GitHub (on any
+  computer or phone), enter it and approve, and Tandem finishes on its own.
+  Nothing has to reach back to the computer Tandem runs on, so it works for a
+  company runner on a server, where the browser sign-in sent GitHub back to a
+  local address the browser could not reach. It uses the same GitHub app,
+  scopes and host as Copilot's own sign-in, on github.com and on a company's
+  `*.ghe.com`. "Sign in through the browser instead" keeps the old way, and
+  Microsoft Entra still signs in through its own page. Without a keychain the
+  dialog says the sign-in lasts until Tandem restarts.
+
 - **Connect Jira in a few clicks.** Settings › Jira and the setup wizard
   have one **Connect Jira** button:
   - In the web app (with Tandem's Atlassian app, `TANDEM_JIRA_CLIENT_ID` and

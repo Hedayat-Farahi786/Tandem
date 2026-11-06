@@ -31,9 +31,9 @@ export function registerCopilotRoutes(app: FastifyInstance, ctx: ServerContext):
   });
 
   app.post('/api/copilot/sign-in', async (req) => {
-    const { kind } = z.object({ kind: z.enum(['githubDotCom', 'proxima', 'entra']) }).parse(req.body);
+    const { kind, method } = z.object({ kind: z.enum(['githubDotCom', 'proxima', 'entra']), method: z.enum(['code', 'browser']).default('code') }).parse(req.body);
     await idle();
-    return tandem.accounts.begin(kind);
+    return tandem.accounts.begin(kind, method);
   });
 
   app.post('/api/copilot/sign-in/:flow/next', async (req) => {

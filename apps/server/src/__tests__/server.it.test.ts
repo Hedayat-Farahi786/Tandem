@@ -92,14 +92,19 @@ describe('server in test mode', () => {
     expect(before.data.providers.map((p) => p.kind)).toEqual(['githubDotCom', 'proxima', 'entra']);
     const begun = await call<{ flowId: string; step: { kind: string } }>('POST', '/api/copilot/sign-in', { kind: 'proxima' });
     expect(begun.data.step.kind).toBe('input-required');
-    const open = await call<{ kind: string; url: string }>('POST', `/api/copilot/sign-in/${begun.data.flowId}/next`, { input: 'https://acme.ghe.com' });
-    expect(open.data).toMatchObject({ kind: 'open-url' });
-    expect(new URL(open.data.url).host).toBe('acme.ghe.com');
+    // A code to enter at the company's GitHub (the default: it works from any browser).
+    const code = await call<{ kind: string; url: string; code: string }>('POST', `/api/copilot/sign-in/${begun.data.flowId}/next`, { input: 'https://acme.ghe.com' });
+    expect(code.data).toMatchObject({ kind: 'device-code', code: expect.any(String) });
+    expect(new URL(code.data.url).host).toBe('acme.ghe.com');
     const done = await call<{ kind: string; host: string }>('POST', `/api/copilot/sign-in/${begun.data.flowId}/next`, {});
     expect(done.data).toMatchObject({ kind: 'done', host: 'acme.ghe.com' });
     const after = await call<{ active: { login: string; host: string }; accounts: unknown[] }>('GET', '/api/copilot/accounts');
     expect(after.data.active).toMatchObject({ login: 'mona_work', host: 'acme.ghe.com' });
     expect(JSON.stringify(after.data)).not.toMatch(/token/i);
+    // Through the browser, when asked for.
+    const viaBrowser = await call<{ flowId: string; step: { kind: string } }>('POST', '/api/copilot/sign-in', { kind: 'githubDotCom', method: 'browser' });
+    expect(viaBrowser.data.step.kind).toBe('open-url');
+    await call('DELETE', `/api/copilot/sign-in/${viaBrowser.data.flowId}`);
     const bad = await call('POST', '/api/copilot/sign-in', { kind: 'nope' });
     expect(bad.status).toBe(400);
     // Back to the first account, so the rest of the run is unchanged.

@@ -4,9 +4,10 @@ import { RuntimeAccounts, hostName, settingsHost, type AccountClientLike, type A
 type Step = { kind: string; url?: string; prompt?: string; message?: string; result?: { status: string; host?: string; login?: string; accounts?: Array<{ selectionId: string; host: string; login: string }> } };
 
 /** A pretend runtime: a scripted list of login steps, and a record of what Tandem asked for. */
-function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; login: string; id: string }> = []) {
+function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; login: string; id: string }> = [], fetch?: ConstructorParameters<typeof RuntimeAccounts>[0]['fetch']) {
   const calls: string[] = [];
   const hosts: string[] = [];
+  const tokens: string[] = [];
   let current = users[0];
   const session: AccountSessionLike = {
     rpc: {
@@ -43,14 +44,16 @@ function fakeRuntime(steps: Step[], users: Array<{ type: string; host: string; l
         getCurrentAuth: async () => (current ? { authInfo: { type: current.type, host: current.host, login: current.login } } : {}),
         login: async (p) => {
           calls.push(`token-login:${p.host}`);
+          tokens.push(p.token);
+          if (!current) current = { type: 'user', host: p.host, login: 'mona_work', id: 's9' };
           return { storedInVault: true };
         },
       },
     },
     createSession: async () => session,
   };
-  const accounts = new RuntimeAccounts({ client: async () => client, useHost: async (h) => void hosts.push(settingsHost(h)) });
-  return { accounts, calls, hosts };
+  const accounts = new RuntimeAccounts({ client: async () => client, useHost: async (h) => void hosts.push(settingsHost(h)), ...(fetch ? { fetch } : {}) });
+  return { accounts, calls, hosts, tokens };
 }
 
 describe('Copilot accounts', () => {
@@ -84,7 +87,7 @@ describe('Copilot accounts', () => {
       { kind: 'open-url', url: 'https://acme.ghe.com/login/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2F127.0.0.1%3A40123%2Fcallback' },
       { kind: 'completed', result: { status: 'completed', host: 'https://acme.ghe.com', login: 'mona_acme' } },
     ]);
-    const b = await accounts.begin('proxima');
+    const b = await accounts.begin('proxima', 'browser');
     expect(b.step).toEqual({ kind: 'input-required', prompt: 'Enter your GitHub Enterprise Cloud host' });
     const open = await accounts.advance(b.flowId, 'https://acme.ghe.com');
     expect(open.kind).toBe('open-url');
@@ -102,7 +105,7 @@ describe('Copilot accounts', () => {
       { kind: 'completed', result: { status: 'needs-account-selection', accounts: [{ selectionId: 'p1', host: 'https://github.com', login: 'mona' }] } },
       { kind: 'completed', result: { status: 'completed', host: 'https://github.com', login: 'mona' } },
     ]);
-    const b = await accounts.begin('githubDotCom');
+    const b = await accounts.begin('githubDotCom', 'browser');
     expect(await accounts.advance(b.flowId)).toEqual({ kind: 'choose-account', accounts: [{ id: 'p1', login: 'mona', host: 'github.com' }] });
     expect(await accounts.advance(b.flowId, 'p1')).toMatchObject({ kind: 'done', login: 'mona' });
   });
@@ -112,7 +115,7 @@ describe('Copilot accounts', () => {
       { kind: 'open-url', url: 'https://github.com/login/oauth/authorize?x=1' },
       { kind: 'completed', result: { status: 'needs-plaintext-consent' } },
     ]);
-    const b = await accounts.begin('githubDotCom');
+    const b = await accounts.begin('githubDotCom', 'browser');
     const step = await accounts.advance(b.flowId);
     expect(step.kind).toBe('error');
     expect(step.kind === 'error' && step.message).toMatch(/keychain/);
@@ -131,5 +134,56 @@ describe('Copilot accounts', () => {
     expect(hosts).toEqual(['acme.ghe.com', 'acme.ghe.com']);
     await accounts.signOut('s1');
     expect(calls).toEqual(expect.arrayContaining(['token-login:https://acme.ghe.com', 'set:switchActive:s2', 'set:logout:s1']));
+  });
+
+  describe('signing in with a code', () => {
+    /** GitHub's device flow, faked: the code, then "pending" until the person approves. */
+    const github = (answers: Array<Record<string, unknown>>) => {
+      const asked: Array<{ url: string; body: Record<string, string> }> = [];
+      const fetch = async (url: string, init: { body: string }) => {
+        const body = Object.fromEntries(new URLSearchParams(init.body));
+        asked.push({ url, body });
+        if (url.endsWith('/login/device/code')) return { json: async () => ({ device_code: 'dev-123', user_code: 'WDJB-MJHT', verification_uri: 'https://acme.ghe.com/login/device', expires_in: 900, interval: 0 }) };
+        return { json: async () => answers.shift() ?? { error: 'authorization_pending' } };
+      };
+      return { fetch, asked };
+    };
+    const authorize = 'https://acme.ghe.com/login/oauth/authorize?client_id=Ov23-app&redirect_uri=http%3A%2F%2F127.0.0.1%3A41234%2Fcallback&scope=read%3Auser+repo';
+
+    it('turns the runtime\'s browser sign-in into a code for the same app and host, and signs in with the token', async () => {
+      const g = github([{ error: 'authorization_pending' }, { access_token: 'gho_token-from-device-flow', token_type: 'bearer' }]);
+      const { accounts, calls, hosts, tokens } = fakeRuntime([{ kind: 'input-required', prompt: 'host?' }, { kind: 'open-url', url: authorize }], [], g.fetch);
+      const b = await accounts.begin('proxima');
+      expect(b.step).toEqual({ kind: 'input-required', prompt: 'host?' });
+      const code = await accounts.advance(b.flowId, 'https://acme.ghe.com');
+      expect(code).toMatchObject({ kind: 'device-code', code: 'WDJB-MJHT', url: 'https://acme.ghe.com/login/device' });
+      // The same app and scopes the runtime would have used, on the same host; its browser sign-in is let go.
+      expect(g.asked[0]).toEqual({ url: 'https://acme.ghe.com/login/device/code', body: { client_id: 'Ov23-app', scope: 'read:user repo' } });
+      expect(calls).toEqual(expect.arrayContaining(['cancel', 'disconnect']));
+      const done = await accounts.advance(b.flowId);
+      expect(done).toEqual({ kind: 'done', login: 'mona_work', host: 'acme.ghe.com', saved: true });
+      expect(g.asked.filter((a) => a.url.endsWith('/login/oauth/access_token')).map((a) => a.body.grant_type)).toEqual(['urn:ietf:params:oauth:grant-type:device_code', 'urn:ietf:params:oauth:grant-type:device_code']);
+      expect(calls).toContain('token-login:https://acme.ghe.com');
+      expect(tokens).toEqual(['gho_token-from-device-flow']);
+      expect(hosts).toContain('acme.ghe.com');
+      // Finished flows are gone.
+      expect(await accounts.advance(b.flowId)).toMatchObject({ kind: 'error', message: expect.stringMatching(/expired/) });
+    });
+
+    it('says plainly when the person cancels at GitHub, or the code runs out', async () => {
+      const denied = fakeRuntime([{ kind: 'open-url', url: authorize }], [], github([{ error: 'access_denied' }]).fetch);
+      const a = await denied.accounts.begin('githubDotCom');
+      expect(a.step.kind).toBe('device-code');
+      expect(await denied.accounts.advance(a.flowId)).toEqual({ kind: 'error', message: 'The sign-in was cancelled at GitHub.' });
+      const expired = fakeRuntime([{ kind: 'open-url', url: authorize }], [], github([{ error: 'expired_token' }]).fetch);
+      const e = await expired.accounts.begin('githubDotCom');
+      expect(await expired.accounts.advance(e.flowId)).toMatchObject({ kind: 'error', message: expect.stringMatching(/expired before it was entered/) });
+    });
+
+    it('points to the browser sign-in when a GitHub offers no codes', async () => {
+      const off = async () => ({ json: async () => ({ error: 'device_flow_disabled' }) });
+      const { accounts } = fakeRuntime([{ kind: 'open-url', url: authorize }], [], off);
+      expect((await accounts.begin('githubDotCom')).step).toEqual({ kind: 'error', message: "Signing in with a code isn't offered by this GitHub. Sign in through the browser instead." });
+    });
   });
 });

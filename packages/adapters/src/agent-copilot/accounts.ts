@@ -4,7 +4,15 @@
  * (Business or Enterprise on github.com, GitHub Enterprise Cloud on *.ghe.com, or Microsoft Entra)
  * from the browser, without a terminal. Tokens stay with the runtime, which keeps them in the
  * system keychain; none of this ever returns a token.
+ *
+ * Two ways to sign in. With a code (the default): Tandem shows a short code, the person enters it at
+ * GitHub's device page from any browser, and nothing has to reach this computer, so it works for a
+ * company runner on a server as well as on a laptop. In the browser: GitHub sends the browser back to
+ * the runtime's address on this computer (127.0.0.1), which only works when the browser is here too.
  */
+
+/** How to sign in: a code entered at GitHub (works from any browser), or GitHub sending the browser back here. */
+export type SignInMethod = 'code' | 'browser';
 
 /** A provider the runtime offers for interactive sign-in. */
 export interface SignInProvider {
@@ -39,12 +47,15 @@ export type SignInStep =
   | { kind: 'awaiting' }
   | { kind: 'needs-interaction' }
   | { kind: 'choose-account'; accounts: Array<{ id: string; login: string; host: string }> }
-  | { kind: 'done'; login?: string; host?: string }
+  /** Enter this code at the address (GitHub's device page), from any browser. */
+  | { kind: 'device-code'; code: string; url: string; expiresAt: string }
+  /** Signed in; `saved: false` when no keychain could keep it past a restart. */
+  | { kind: 'done'; login?: string; host?: string; saved?: boolean }
   | { kind: 'error'; message: string };
 
 export interface CopilotAccounts {
   state(): Promise<AccountState>;
-  begin(kind: SignInProvider['kind']): Promise<{ flowId: string; step: SignInStep }>;
+  begin(kind: SignInProvider['kind'], method?: SignInMethod): Promise<{ flowId: string; step: SignInStep }>;
   advance(flowId: string, input?: string): Promise<SignInStep>;
   /** For a browser on another machine: the address the sign-in ended on, handed to the local callback. */
   finishWithUrl(flowId: string, url: string): Promise<SignInStep>;
@@ -115,7 +126,14 @@ interface Flow {
   callback?: string;
   pending?: Promise<LoginStepLike> | undefined;
   at: number;
+  /** Sign in with a code: once the runtime names its GitHub app, the device flow takes over. */
+  wantCode?: boolean;
+  code?: { origin: string; clientId: string; deviceCode: string; interval: number; nextAt: number; expiresAt: number; host: string };
 }
+
+type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ json(): Promise<unknown> }>;
+const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const WAIT_MS = 20_000;
 const FLOW_TTL = 15 * 60_000;
@@ -128,8 +146,85 @@ export class RuntimeAccounts implements CopilotAccounts {
       client: () => Promise<AccountClientLike>;
       /** After a sign-in or switch: use this account's host from now on, and start the runtime afresh. */
       useHost: (host: string) => Promise<void>;
+      fetch?: Fetch;
     },
   ) {}
+
+  /** A form POST to GitHub, answered in JSON. */
+  private async form(url: string, body: Record<string, string>): Promise<Record<string, unknown>> {
+    const f = this.o.fetch ?? (globalThis.fetch as unknown as Fetch);
+    try {
+      const res = await f(url, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body).toString(), signal: AbortSignal.timeout(20_000) });
+      return ((await res.json()) ?? {}) as Record<string, unknown>;
+    } catch (err) {
+      return { error: 'unreachable', error_description: String((err as Error)?.message ?? err) };
+    }
+  }
+
+  /**
+   * The runtime is about to send the browser to GitHub: instead, ask GitHub for a code for the same app
+   * (its client and scopes, on the same host), and let the person enter it from wherever they are.
+   */
+  private async toDeviceCode(flowId: string, f: Flow, authorizeUrl: string): Promise<SignInStep> {
+    let u: URL;
+    try {
+      u = new URL(authorizeUrl);
+    } catch {
+      await this.close(flowId);
+      return { kind: 'error', message: 'The sign-in could not start. Try again.' };
+    }
+    const clientId = u.searchParams.get('client_id') ?? '';
+    // The runtime's browser sign-in is not needed any more.
+    await f.session.rpc.accounts.login.cancel({ flowId }).catch(() => undefined);
+    await f.session.disconnect().catch(() => undefined);
+    const r = await this.form(`${u.origin}/login/device/code`, { client_id: clientId, scope: u.searchParams.get('scope') ?? '' });
+    if (typeof r.user_code !== 'string' || typeof r.device_code !== 'string') {
+      this.flows.delete(flowId);
+      return { kind: 'error', message: r.error === 'device_flow_disabled' ? "Signing in with a code isn't offered by this GitHub. Sign in through the browser instead." : 'GitHub did not give a code right now. Try again, or sign in through the browser.' };
+    }
+    // GitHub sets the pace (at least 5 seconds); asking faster only earns a slow_down.
+    const interval = Number(r.interval ?? 5) * 1000;
+    const expiresAt = Date.now() + Number(r.expires_in ?? 900) * 1000;
+    f.code = { origin: u.origin, clientId, deviceCode: r.device_code, interval, nextAt: Date.now() + interval, expiresAt, host: u.host };
+    f.at = Date.now();
+    return { kind: 'device-code', code: r.user_code, url: typeof r.verification_uri === 'string' ? r.verification_uri : `${u.origin}/login/device`, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
+  /** Asks GitHub, at the pace it sets, whether the code was entered; waits up to 20 seconds per call. */
+  private async pollCode(flowId: string, f: Flow): Promise<SignInStep> {
+    const c = f.code!;
+    const end = Date.now() + WAIT_MS;
+    while (Date.now() < end) {
+      if (Date.now() > c.expiresAt) {
+        this.flows.delete(flowId);
+        return { kind: 'error', message: 'The code expired before it was entered. Start again.' };
+      }
+      const wait = c.nextAt - Date.now();
+      if (wait > 0) await sleep(Math.min(wait, Math.max(0, end - Date.now())));
+      if (Date.now() < c.nextAt) continue;
+      const t = await this.form(`${c.origin}/login/oauth/access_token`, { client_id: c.clientId, device_code: c.deviceCode, grant_type: DEVICE_GRANT });
+      c.nextAt = Date.now() + c.interval;
+      f.at = Date.now();
+      if (typeof t.access_token === 'string') {
+        this.flows.delete(flowId);
+        try {
+          const r = await this.signInWithToken(c.host, t.access_token);
+          return { kind: 'done', ...(r.login ? { login: r.login } : {}), host: r.host, saved: r.saved };
+        } catch (err) {
+          return { kind: 'error', message: String((err as Error)?.message ?? err).replace(/^Request \S+ failed with message:\s*/, '') };
+        }
+      }
+      if (t.error === 'authorization_pending' || t.error === 'unreachable') continue;
+      if (t.error === 'slow_down') {
+        c.interval += 5000;
+        c.nextAt = Date.now() + c.interval;
+        continue;
+      }
+      this.flows.delete(flowId);
+      return { kind: 'error', message: t.error === 'expired_token' ? 'The code expired before it was entered. Start again.' : t.error === 'access_denied' ? 'The sign-in was cancelled at GitHub.' : `GitHub did not finish the sign-in (${String(t.error ?? 'no answer')}). Start again.` };
+    }
+    return { kind: 'awaiting' };
+  }
 
   private async session(): Promise<AccountSessionLike> {
     // A bare session: no model, no tools, nothing allowed. It only carries the account calls.
@@ -171,6 +266,7 @@ export class RuntimeAccounts implements CopilotAccounts {
     f.at = Date.now();
     switch (s.kind) {
       case 'open-url': {
+        if (f.wantCode && s.url) return this.toDeviceCode(flowId, f, s.url);
         try {
           const back = new URL(s.url!).searchParams.get('redirect_uri');
           if (back) f.callback = new URL(back).origin;
@@ -202,12 +298,13 @@ export class RuntimeAccounts implements CopilotAccounts {
     }
   }
 
-  async begin(kind: SignInProvider['kind']): Promise<{ flowId: string; step: SignInStep }> {
+  async begin(kind: SignInProvider['kind'], method: SignInMethod = 'code'): Promise<{ flowId: string; step: SignInStep }> {
     this.sweep();
     const session = await this.session();
     try {
       const b = await session.rpc.accounts.login.begin({ kind });
-      const f: Flow = { session, at: Date.now() };
+      // Microsoft Entra signs in through its own broker; a code is for GitHub hosts.
+      const f: Flow = { session, at: Date.now(), ...(method === 'code' && kind !== 'entra' ? { wantCode: true } : {}) };
       this.flows.set(b.flowId, f);
       return { flowId: b.flowId, step: await this.toStep(b.flowId, f, b.step) };
     } catch (err) {
@@ -220,6 +317,7 @@ export class RuntimeAccounts implements CopilotAccounts {
   async advance(flowId: string, input?: string): Promise<SignInStep> {
     const f = this.flows.get(flowId);
     if (!f) return { kind: 'error', message: 'This sign-in has expired. Start again.' };
+    if (f.code) return this.pollCode(flowId, f);
     if (input !== undefined || !f.pending) {
       f.pending = f.session.rpc.accounts.login.advance({ flowId, ...(input !== undefined ? { input } : {}) });
       f.pending.catch(() => undefined);
@@ -320,16 +418,19 @@ export class ScriptedAccounts implements CopilotAccounts {
     ] };
   }
   private hostFor = new Map<string, string>();
-  async begin(kind: SignInProvider['kind']) {
+  private byCode = new Set<string>();
+  private codeStep = (host: string): SignInStep => ({ kind: 'device-code', code: 'WDJB-MJHT', url: `https://${host}/login/device`, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() });
+  async begin(kind: SignInProvider['kind'], method: SignInMethod = 'code'): Promise<{ flowId: string; step: SignInStep }> {
     const flowId = `f${++this.next}`;
+    if (method === 'code') this.byCode.add(flowId);
     if (kind === 'proxima') return { flowId, step: { kind: 'input-required' as const, prompt: 'Enter your GitHub Enterprise Cloud host (e.g. https://your-tenant.ghe.com)' } };
     this.hostFor.set(flowId, 'github.com');
-    return { flowId, step: { kind: 'open-url' as const, url: 'https://github.com/login/oauth/authorize?client_id=test' } };
+    return { flowId, step: method === 'code' ? this.codeStep('github.com') : { kind: 'open-url' as const, url: 'https://github.com/login/oauth/authorize?client_id=test' } };
   }
   async advance(flowId: string, input?: string): Promise<SignInStep> {
     if (input && !this.hostFor.has(flowId)) {
       this.hostFor.set(flowId, hostName(input));
-      return { kind: 'open-url', url: `https://${hostName(input)}/login/oauth/authorize?client_id=test` };
+      return this.byCode.has(flowId) ? this.codeStep(hostName(input)) : { kind: 'open-url', url: `https://${hostName(input)}/login/oauth/authorize?client_id=test` };
     }
     const host = this.hostFor.get(flowId) ?? 'github.com';
     this.accounts = [...this.accounts.map((a) => ({ ...a, active: false })), { id: `a${this.accounts.length + 1}`, login: host === 'github.com' ? 'mona' : 'mona_work', host, active: true, source: 'copilot' }];
