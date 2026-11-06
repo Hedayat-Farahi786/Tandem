@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, Download, LogOut, Plus, Trash2, type LucideIcon } from 'lucide-react';
 import { api, del, post } from '../lib/api';
-import { Avatar, Button, Dialog, Input, useToast } from './kit';
+import { Button, Dialog, Input, useToast } from './kit';
+import { PersonAvatar } from './person-avatar';
 import { ActionMenu, type MenuItem } from './thread-actions';
 
 /** A workspace that works on a company computer (its runner): its folders, keychain and sign-ins are that computer's. The page says so in a meta tag. */
@@ -54,7 +55,7 @@ export function AccountMenu() {
   ];
   return (
     <div className="group/acct flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-      <Avatar name={user.name} />
+      <PersonAvatar name={user.name} src={user.avatarUrl} size={28} />
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-[13px] font-medium">{user.name}</p>
         <p className="truncate text-[12px] text-faint">{ws?.name ?? 'No workspace'}</p>

@@ -4,6 +4,7 @@ import { ArrowUpRight, Building2, Check, CheckCircle2, ChevronDown, KeyRound, Lo
 import { api, del, post } from '../lib/api';
 import { BrandLogo } from './brands';
 import { isCloud } from './account-menu';
+import { PersonAvatar } from './person-avatar';
 import { Button, Callout, CopyButton, Dialog, Input, Spinner, cx, useToast } from './kit';
 
 /*
@@ -82,8 +83,8 @@ function SignInButtons({ state, onPick, compact }: { state?: AccountState | unde
   return (
     <div className={cx('grid gap-2', !compact && 'sm:grid-cols-2')}>
       <button type="button" onClick={() => onPick('githubDotCom')} className="group flex items-center gap-3 rounded-xl bg-surface px-3.5 py-3 text-left shadow-[0_0_0_1px_var(--border)] transition-[box-shadow,background-color] duration-150 hover:bg-surface-2 hover:shadow-[0_0_0_1px_var(--border-strong)]">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-fg text-bg">
-          <BrandLogo brand="github" size={18} className="invert dark:invert-0" />
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#181717] text-white shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
+          <BrandLogo brand="github" size={18} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-medium">GitHub.com</span>
@@ -251,7 +252,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                   <p className="font-medium">Enter it at GitHub, and approve</p>
                   <p className="text-[12.5px] text-muted">From any browser, even another computer or your phone.</p>
                   <a href={step.url} target="_blank" rel="noreferrer" onClick={() => setOpened(true)} className="mt-2.5 inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-[13.5px] font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover">
-                    <BrandLogo brand="github" size={15} className="invert dark:invert-0" />
+                    <BrandLogo brand="github" size={15} />
                     {opened ? 'Open GitHub again' : 'Open GitHub'}
                   </a>
                   <p className="mt-1.5 truncate text-[12px] text-faint">{step.url.replace(/^https:\/\//, '')}</p>
@@ -278,7 +279,7 @@ function SignInDialog({ kind, onClose }: { kind: ProviderKind; onClose: (connect
                   <p className="text-[12.5px] text-muted">GitHub opens in a new tab. Check the account, then choose Authorize.</p>
                   {step.kind === 'open-url' && (
                     <a href={step.url} target="_blank" rel="noreferrer" onClick={() => setOpened(true)} className="mt-2.5 inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-[13.5px] font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover">
-                      <BrandLogo brand="github" size={15} className="invert dark:invert-0" />
+                      <BrandLogo brand="github" size={15} />
                       {opened ? 'Open GitHub again' : 'Open GitHub'}
                     </a>
                   )}
@@ -441,7 +442,9 @@ function HostedCopilot() {
   const qc = useQueryClient();
   const toast = useToast();
   const { accounts: q, noPlan } = useCopilotReady();
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: { id: string; name: string } }>('/api/me') });
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: { id: string; login: string; name: string; avatarUrl?: string } }>('/api/me') });
+  const ws = useQuery({ queryKey: ['workspace'], queryFn: () => api<{ members?: Array<{ id: string; login: string; name: string; avatarUrl?: string }> }>('/api/workspace') });
+  const [disconnecting, setDisconnecting] = useState(false);
   const mine = useMutation({
     mutationFn: () => post('/api/copilot/use-mine'),
     onSuccess: () => {
@@ -450,49 +453,73 @@ function HostedCopilot() {
     },
     onError: (e) => toast((e as Error).message, 'danger'),
   });
+  const disconnect = useMutation({ mutationFn: () => post('/auth/disconnect-github'), onSuccess: () => window.location.assign('/'), onError: (e) => toast((e as Error).message, 'danger') });
   if (q.isLoading || me.isLoading)
     return (
       <p className="flex items-center gap-2.5 py-3 text-[13px] text-muted">
-        <Spinner /> Checking Copilot for this workspace…
+        <Spinner /> Checking your GitHub account…
       </p>
     );
   const a = q.data?.active;
-  const isMe = a && me.data && a.id === me.data.user.id;
+  const you = me.data?.user;
+  const isMe = Boolean(a && you && a.id === you.id);
+  // The person whose plan the workspace uses, as GitHub shows them.
+  const holder = a ? (isMe ? you : ws.data?.members?.find((m) => m.id === a.id)) : undefined;
+  const name = holder?.name ?? a?.login ?? 'Nobody yet';
+  const copilot: { tone: 'ok' | 'warn'; label: string } = noPlan ? { tone: 'warn', label: 'No Copilot plan' } : q.data?.signedIn ? { tone: 'ok', label: 'Copilot ready' } : { tone: 'warn', label: 'Copilot not connected' };
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3.5 rounded-xl bg-surface px-4 py-3.5 shadow-[0_0_0_1px_var(--border)]">
-        <span className="relative">
-          <Initials login={a?.login ?? '?'} size={40} />
-          {q.data?.signedIn && !noPlan && (
-            <span aria-hidden className="absolute -right-0.5 -bottom-0.5 grid size-4 place-items-center rounded-full bg-ok ring-2 ring-surface">
-              <Check className="size-2.5 text-white" strokeWidth={3.5} />
-            </span>
-          )}
-        </span>
+    <div className="overflow-hidden rounded-xl bg-surface shadow-[0_0_0_1px_var(--border)]">
+      <div className="flex flex-wrap items-center gap-3.5 px-4 py-3.5">
+        <PersonAvatar name={name} src={holder?.avatarUrl} size={44} />
         <div className="min-w-0 flex-1">
-          <p className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[14.5px] font-semibold">{a ? (isMe ? 'Your Copilot plan' : `${a.login}'s Copilot plan`) : 'No Copilot plan yet'}</span>
-            {noPlan ? <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">No Copilot plan</span> : q.data?.signedIn ? <span className="shrink-0 rounded-full bg-ok-soft px-2 py-px text-[11.5px] font-medium text-ok">Connected</span> : <span className="shrink-0 rounded-full bg-warn-soft px-2 py-px text-[11.5px] font-medium text-warn">Needs sign-in</span>}
+          <p className="truncate text-[14.5px] font-semibold">
+            {name}
+            {isMe && <span className="font-normal text-faint"> (you)</span>}
           </p>
           <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted">
             <BrandLogo brand="github" size={12} className="shrink-0" />
-            <span className="truncate">{a ? `github.com/${a.login} · used for Copilot and GitHub in this workspace` : 'Choose whose plan this workspace uses'}</span>
+            <span className="truncate">{a ? `@${a.login} · github.com` : 'Choose whose Copilot plan this workspace uses'}</span>
           </p>
         </div>
-        {!isMe && (
+        {isMe ? (
+          <Button size="sm" variant="ghost" onClick={() => setDisconnecting(true)}>
+            Disconnect
+          </Button>
+        ) : (
           <Button size="sm" busy={mine.isPending} onClick={() => mine.mutate()}>
             Use my Copilot plan
           </Button>
         )}
       </div>
-      {q.data?.error && <p className="px-1 text-[12.5px] text-warn">{q.data.error}</p>}
-      {noPlan ? (
-        <p className="px-1 text-[12.5px] text-warn">
-          {a ? `github.com/${a.login}` : 'This GitHub account'} has no Copilot plan Tandem can use. If your Copilot is from work, on your company's GitHub, let Tandem work on a company computer: it signs in to Copilot there.
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-line bg-surface-2/40 px-4 py-2.5 text-[12.5px]">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className={cx('size-1.5 rounded-full', a ? 'bg-ok' : 'bg-faint')} />
+          {a ? 'GitHub connected' : 'GitHub not connected'}
+        </span>
+        <span className={cx('inline-flex items-center gap-1.5', copilot.tone === 'warn' && 'text-warn')}>
+          <span aria-hidden className={cx('size-1.5 rounded-full', copilot.tone === 'ok' ? 'bg-ok' : 'bg-warn')} />
+          {copilot.label}
+        </span>
+      </div>
+      {(noPlan || q.data?.error) && (
+        <p className="border-t border-line px-4 py-3 text-[12.5px] text-muted">
+          {q.data?.error ?? "This account has no Copilot plan Tandem can use. If your Copilot is from work, on your company's GitHub, let Tandem work on a company computer (Workspace, above): it signs in to Copilot there."}
         </p>
-      ) : (
-        <p className="px-1 text-[12px] text-faint">Every Copilot request in this workspace counts against this plan. Any member can switch it to their own.</p>
       )}
+      <Dialog
+        open={disconnecting}
+        onClose={() => setDisconnecting(false)}
+        title="Disconnect GitHub?"
+        description={`Tandem's access to ${a ? `@${a.login}` : 'your GitHub account'} is revoked at GitHub, and you're signed out everywhere.${isMe ? " This workspace's Copilot stops until a member uses their plan." : ''} Your workspaces and their data stay. To come back, continue with GitHub again.`}
+        footer={
+          <>
+            <Button onClick={() => setDisconnecting(false)}>Cancel</Button>
+            <Button variant="danger" icon={LogOut} busy={disconnect.isPending} onClick={() => disconnect.mutate()}>
+              Disconnect
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }

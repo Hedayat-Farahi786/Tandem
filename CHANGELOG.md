@@ -45,6 +45,22 @@ All notable changes to Tandem. The format follows
     pretend GitHub. The real-Copilot and real-CodeCommit flows run through a
     company runner on the test computer, as a company would.
 
+- **A cleaner Settings, with your GitHub account as GitHub shows it.**
+  - *One "GitHub & Copilot" section* instead of separate Copilot and GitHub
+    sections. It shows the account Tandem works as, with its GitHub picture,
+    name and @login, and two plain states: GitHub connected, Copilot ready (or
+    no Copilot plan). The default models appear once Copilot is ready, and the
+    extra token for repositories the account can't reach is folded away.
+  - *Disconnect GitHub.* Revokes Tandem's access at GitHub, deletes its tokens
+    and signs the person out on every device; workspaces and their data stay,
+    and continuing with GitHub again brings them back.
+  - *Members and the account menu show GitHub pictures* (initials when there is
+    none).
+  - *One message per problem*: an account without a Copilot plan is explained
+    once, in the account card.
+  - *The GitHub logo is white on dark backgrounds*: the sign-in buttons and
+    tiles no longer turn it black.
+
 - **Copilot stays connected on a server, and setup says what's going on.**
   - *Sign-ins that last on a computer without a keychain.* A company runner on
     a Linux server usually has no system keychain, so Copilot couldn't save a

@@ -234,6 +234,14 @@ export class Directory {
     return next;
   }
 
+  /** Disconnecting GitHub: the person's GitHub tokens and every session they have, gone. */
+  async forgetGitHub(userId: string): Promise<void> {
+    await this.sql.tx(async (q) => {
+      await q.run('DELETE FROM github_tokens WHERE user_id = ?', userId);
+      await q.run('DELETE FROM sessions WHERE user_id = ?', userId);
+    });
+  }
+
   /* ---------------------------------------------------------------- sessions */
 
   /** A new session; returns the cookie value (only its hash is stored). */

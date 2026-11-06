@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boot, catalog, detail, settings, task } from './fixtures';
@@ -102,6 +102,33 @@ describe('Settings', () => {
     ...over,
   });
 
+  it('shows the GitHub account as GitHub does, with Copilot ready, and disconnects it', async () => {
+    let disconnected = false;
+    mockApi(
+      routes({
+        'GET /api/copilot/accounts': { signedIn: true, active: { id: 'u1', login: 'mona', host: 'github.com', active: true, source: 'copilot' }, accounts: [], providers: [] },
+        'GET /api/me': { user: { id: 'u1', login: 'mona', name: 'Mona Lisa', avatarUrl: 'https://avatars.githubusercontent.com/u/1' }, workspaces: [] },
+        'GET /api/workspace': { role: 'owner', me: 'u1', members: [], runner: { mode: 'cloud', connected: false } },
+        'POST /auth/disconnect-github': () => ((disconnected = true), { ok: true }),
+      }),
+    );
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const user = userEvent.setup();
+    renderApp('/settings');
+    expect(await screen.findByText('@mona · github.com')).toBeTruthy();
+    expect(screen.getAllByText('Mona Lisa').length).toBeGreaterThan(0);
+    expect(screen.getByText('Copilot ready')).toBeTruthy();
+    expect(document.querySelector('img[src="https://avatars.githubusercontent.com/u/1"]')).toBeTruthy();
+    // Models only once Copilot is ready.
+    expect(screen.getByLabelText('Default model for code')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Disconnect GitHub?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(disconnected).toBe(true));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/'));
+  });
+
   it('shows the save bar only with unsaved changes, and saves', async () => {
     let saved: unknown;
     mockApi(routes({ 'PUT /api/settings': (b: unknown) => ((saved = b), b) }));
@@ -124,12 +151,15 @@ describe('Settings', () => {
     expect(await screen.findByText('Settings saved.')).toBeTruthy();
   });
 
-  it("explains a missing keychain on the runner's computer and disables token fields", async () => {
+  it("says why tokens can't be kept on the runner's computer, and disables token fields", async () => {
     const leave = asCompanyRunner();
     try {
-      mockApi(routes({ 'GET /api/secrets': { keychain: { ok: false, reason: 'No Secret Service' }, jiraToken: false, githubToken: false } }));
+      mockApi(routes({ 'GET /api/secrets': { keychain: { ok: false, message: 'Secrets cannot be kept: the data folder is read-only.' }, jiraToken: false, githubToken: false } }));
       renderApp('/settings');
-      expect(await screen.findByText("No OS keychain on the runner's computer")).toBeTruthy();
+      expect(await screen.findByText('Secrets cannot be kept: the data folder is read-only.')).toBeTruthy();
+      // One section for GitHub and Copilot.
+      expect(screen.getAllByRole('heading', { name: 'GitHub & Copilot' })).toHaveLength(1);
+      expect(screen.queryByRole('heading', { name: 'GitHub' })).toBeNull();
       expect((screen.getByLabelText('Extra GitHub token') as HTMLInputElement).disabled).toBe(true);
     } finally {
       leave();

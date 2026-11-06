@@ -593,6 +593,29 @@ export async function startHosted(input: z.input<typeof HostedConfig>, o: { webD
   });
 
   /** GDPR: delete the account; workspaces the person alone owned are deleted with all their data. */
+  /**
+   * Disconnect GitHub: Tandem's access is revoked at GitHub (the person authorizes it again on their
+   * next sign-in), its tokens are deleted, and the person is signed out everywhere. Workspaces and
+   * their data stay.
+   */
+  app.post('/auth/disconnect-github', async (req, reply) => {
+    const s = await signedIn(req, reply);
+    if (!s) return reply;
+    const t = await directory.gitHubTokens(s.session.userId).catch(() => undefined);
+    if (t?.access) {
+      const basic = Buffer.from(`${cfg.github.clientId}:${cfg.github.clientSecret}`).toString('base64');
+      const res = await http(new URL(`/applications/${encodeURIComponent(cfg.github.clientId)}/grant`, cfg.github.apiUrl), {
+        method: 'DELETE',
+        headers: { Authorization: `Basic ${basic}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'tandem' },
+        body: JSON.stringify({ access_token: t.access }),
+      }).catch(() => undefined);
+      if (!res || (res.status !== 204 && res.status !== 404 && res.status !== 422)) logger.warn('GitHub did not confirm revoking access', { status: res?.status });
+    }
+    await directory.forgetGitHub(s.session.userId);
+    logger.info('github disconnected', { user: s.session.userId });
+    return reply.header('Set-Cookie', cookie(SESSION, '', 0)).send({ ok: true });
+  });
+
   app.delete('/api/me', async (req, reply) => {
     const s = await signedIn(req, reply);
     if (!s) return reply;

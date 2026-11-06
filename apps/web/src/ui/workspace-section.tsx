@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link2, LogOut, Trash2, Users } from 'lucide-react';
 import { api, del, patch, post } from '../lib/api';
-import { Avatar, Button, CopyButton, Dialog, Input, Row, Select, SettingsSection, Spinner, useToast } from './kit';
+import { Button, CopyButton, Dialog, Input, Row, Select, SettingsSection, Spinner, useToast } from './kit';
 import { IconTile } from './visual';
 import { RunnerControls } from './runner-section';
+import { PersonAvatar } from './person-avatar';
 
 interface WorkspaceInfo {
   id: string;
@@ -13,7 +14,7 @@ interface WorkspaceInfo {
   me: string;
   copilotUserId: string | null;
   runner?: { mode: 'cloud' | 'company' };
-  members: Array<{ id: string; login: string; name: string; role: 'owner' | 'member' }>;
+  members: Array<{ id: string; login: string; name: string; avatarUrl?: string; role: 'owner' | 'member' }>;
 }
 
 /** The web app's workspace: its name, who is in it, invitation links, leaving and deleting it. */
@@ -83,7 +84,7 @@ export function WorkspaceSection() {
         <ul className="flex flex-col divide-y divide-line rounded-xl shadow-[0_0_0_1px_var(--border)]">
           {w.members.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
-              <Avatar name={m.name} />
+              <PersonAvatar name={m.name} src={m.avatarUrl} size={32} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13.5px] font-medium">
                   {m.name}

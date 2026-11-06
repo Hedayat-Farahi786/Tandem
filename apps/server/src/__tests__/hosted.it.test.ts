@@ -10,8 +10,14 @@ const people: Record<string, { id: number; login: string; name: string }> = {
   'code-mona': { id: 1, login: 'mona', name: 'Mona Lisa' },
   'code-hubot': { id: 2, login: 'hubot', name: 'Hubot' },
 };
-const fakeFetch = (async (input: URL | string, init?: { body?: string; headers?: Record<string, string> }) => {
+/** Grants revoked at GitHub ("Disconnect GitHub"): the tokens, with the app's own credentials. */
+const revoked: Array<{ token: string; auth: string }> = [];
+const fakeFetch = (async (input: URL | string, init?: { method?: string; body?: string; headers?: Record<string, string> }) => {
   const url = new URL(String(input));
+  if (init?.method === 'DELETE' && url.pathname === '/applications/Iv1.test/grant') {
+    revoked.push({ token: (JSON.parse(init.body ?? '{}') as { access_token: string }).access_token, auth: String(init.headers?.Authorization ?? '') });
+    return new Response(null, { status: 204 });
+  }
   if (url.pathname === '/login/oauth/access_token') {
     const { code } = JSON.parse(init?.body ?? '{}') as { code: string };
     return new Response(JSON.stringify(people[code] ? { access_token: `ghu_${code}`, expires_in: 28800, refresh_token: `ghr_${code}`, refresh_token_expires_in: 15897600 } : { error: 'bad_verification_code' }), { headers: { 'content-type': 'application/json' } });
@@ -144,6 +150,23 @@ describe('hosted Tandem', () => {
     const write = (url: string, body: unknown) => h.app.inject({ method: 'POST', url, headers: { cookie: mona.cookie, 'x-tandem-token': mona.csrf, 'content-type': 'application/json' }, payload: JSON.stringify(body) });
     expect((await write('/api/aws/role', { roleArn: 'arn:aws:iam::444455556666:role/SomethingElse' })).json().error).toMatch(/can't assume .* yet/);
     expect((await write('/api/aws/role', { roleArn: 'arn:aws:iam::444455556666:role/TandemCodeCommit' })).json()).toMatchObject({ connected: true, kind: 'role', label: 'Role TandemCodeCommit in 444455556666' });
+  });
+
+  it('disconnects GitHub: access revoked at GitHub, signed out everywhere, workspaces kept', async () => {
+    const here = await signIn('code-mona');
+    const there = await signIn('code-mona');
+    const ws = (await h.app.inject({ method: 'GET', url: '/api/me', headers: { cookie: here.cookie } })).json() as { workspaces: Array<{ id: string }> };
+    // A change needs the session's CSRF token, like every other.
+    expect((await h.app.inject({ method: 'POST', url: '/auth/disconnect-github', headers: { cookie: here.cookie } })).statusCode).toBe(403);
+    const out = await h.app.inject({ method: 'POST', url: '/auth/disconnect-github', headers: { cookie: here.cookie, 'x-tandem-token': here.csrf } });
+    expect(out.json()).toEqual({ ok: true });
+    expect(out.headers['set-cookie']).toEqual(expect.stringMatching(/^tandem_session=;/));
+    expect(revoked).toEqual([{ token: 'ghu_code-mona', auth: `Basic ${Buffer.from('Iv1.test:secret').toString('base64')}` }]);
+    for (const s of [here, there]) expect((await h.app.inject({ method: 'GET', url: '/api/me', headers: { cookie: s.cookie } })).statusCode).toBe(401);
+    // Back with GitHub: the same workspaces.
+    const again = await signIn('code-mona');
+    const after = (await h.app.inject({ method: 'GET', url: '/api/me', headers: { cookie: again.cookie } })).json() as { workspaces: Array<{ id: string }> };
+    expect(after.workspaces.map((w) => w.id)).toEqual(ws.workspaces.map((w) => w.id));
   });
 
   it('exports the account, and deletes it with the workspaces only that person owned', async () => {

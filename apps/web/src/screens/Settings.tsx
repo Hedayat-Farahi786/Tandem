@@ -8,7 +8,7 @@ import { api, del, put } from '../lib/api';
 import type { ModelCatalog } from '../lib/types';
 import { formatCredits } from '../ui/model-picker';
 import { CreditsInfo, creditsToUsd } from '../ui/credits-info';
-import { CopilotConnect, useCopilotAccounts } from '../ui/copilot-connect';
+import { CopilotConnect, useCopilotReady } from '../ui/copilot-connect';
 import { isCompanyRunner, isCloud, secretsKept } from '../ui/account-menu';
 import { WorkspaceSection } from '../ui/workspace-section';
 import { AWS_REGIONS, AwsConnect } from '../ui/aws-connect';
@@ -186,12 +186,11 @@ function AuditSection() {
 /** The sections, in order. Names come from GitHub, so there is no "your name" section. */
 const NAV = [
   ['workspace', 'Workspace', Users],
-  ['copilot', 'Copilot', 'copilot'],
+  ['copilot', 'GitHub & Copilot', 'github'],
   ['budget', 'Budget', Gauge],
   ['workflow', 'Workflow', Workflow],
   ['aws', 'AWS', 'aws'],
   ['jira', 'Jira', 'jira'],
-  ['github', 'GitHub', 'github'],
   ['audit', 'Audit log', ShieldCheck],
 ] as const satisfies ReadonlyArray<readonly [string, string, LucideIcon | Brand]>;
 /** Where secrets are kept, in words. */
@@ -249,7 +248,7 @@ export function SettingsScreen() {
   const jira = useJira();
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<Usage>('/api/usage') });
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<ModelCatalog>('/api/copilot/models'), retry: false });
-  const copilotState = useCopilotAccounts();
+  const copilot = useCopilotReady();
   const [s, setS] = useState<Settings | null>(null);
   useEffect(() => {
     if (settings.data && !s) setS(settings.data);
@@ -299,23 +298,45 @@ export function SettingsScreen() {
 
       <WorkspaceSection />
 
-      <SettingsSection id="copilot" icon={<BrandTile brand="copilot" />} title="Copilot" description={isCloud() ? "Copilot runs on the plan of one member of this workspace: personal (Free, Pro, Pro+) or from work (Business, Enterprise)." : "The GitHub account signed in to Copilot on the runner's computer: often the company's Business or Enterprise plan. The sign-in stays on that computer."}>
+      <SettingsSection
+        id="copilot"
+        icon={<BrandTile brand="github" />}
+        title="GitHub & Copilot"
+        description={isCloud() ? 'The GitHub account Tandem works as: Copilot runs on its plan, and it reads and writes your GitHub repositories.' : "The GitHub account signed in to Copilot on the runner's computer, often your company's. The sign-in stays on that computer."}
+      >
         <div className="py-4">
           <CopilotConnect />
         </div>
-        <Row label="Default model for code" htmlFor="set-build" description={note('copilot.buildModel', "Builds and fixes, when a task's model is Auto.")} wide>
-          <Select id="set-build" disabled={Boolean(lock('copilot.buildModel'))} value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} />
-        </Row>
-        <Row label="Default model for chat, specs and reviews" htmlFor="set-light" description={note('copilot.lightModel', 'Read-only steps, when the model is Auto.')} wide>
-          <Select id="set-light" disabled={Boolean(lock('copilot.lightModel'))} value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} />
-        </Row>
-        {models.isError && copilotState.data?.signedIn && (
-          <div className="py-4">
-            <Callout tone="warn" title="Could not list your Copilot models">
-              {(models.error as Error).message}
-            </Callout>
-          </div>
+        {copilot.connected && (
+          <>
+            <Row label="Default model for code" htmlFor="set-build" description={note('copilot.buildModel', "Builds and fixes, when a task's model is Auto.")} wide>
+              <Select id="set-build" disabled={Boolean(lock('copilot.buildModel'))} value={s.copilot.buildModel} onChange={(buildModel) => set('copilot', { ...s.copilot, buildModel })} options={modelOptions("Copilot's own choice")} />
+            </Row>
+            <Row label="Default model for chat, specs and reviews" htmlFor="set-light" description={note('copilot.lightModel', 'Read-only steps, when the model is Auto.')} wide>
+              <Select id="set-light" disabled={Boolean(lock('copilot.lightModel'))} value={s.copilot.lightModel} onChange={(lightModel) => set('copilot', { ...s.copilot, lightModel })} options={modelOptions('Cheapest available')} />
+            </Row>
+            {models.isError && (
+              <div className="py-4">
+                <Callout tone="warn" title="Could not list your Copilot models">
+                  {(models.error as Error).message}
+                </Callout>
+              </div>
+            )}
+          </>
         )}
+        <details className="group py-4">
+          <summary className="cursor-pointer list-none text-[13px] font-medium text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <span className="inline-block transition-transform group-open:rotate-90" aria-hidden>
+              ›
+            </span>{' '}
+            GitHub repositories this account can't reach
+          </summary>
+          <div className="mt-3">
+            <Row label="Extra GitHub token" htmlFor="set-gtoken" description={secrets.data && !kcOk ? secrets.data.keychain.message : 'Optional. A fine-grained token with Contents and Pull requests (read and write) on those repositories.'} wide>
+              <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
+            </Row>
+          </div>
+        </details>
       </SettingsSection>
 
       <SettingsSection id="budget" icon={<IconTile icon={Gauge} />} title="Copilot budget" description="Plans are often shared. A run that reaches a limit stops at once, and the task waits until you raise it.">
@@ -422,23 +443,10 @@ export function SettingsScreen() {
           </span>
         }
       >
-        {!kcOk && secrets.data && (
-          <div className="py-4">
-            <Callout tone="warn" title="No OS keychain on the runner's computer">
-              {secrets.data.keychain.message}
-            </Callout>
-          </div>
-        )}
         <div className="py-4">
           <JiraConnect />
         </div>
         {jira.data?.connected && <JiraPickers jira={s.jira} onChange={(j) => set('jira', j)} />}
-      </SettingsSection>
-
-      <SettingsSection id="github" icon={<BrandTile brand="github" />} title="GitHub" description="GitHub repositories use the GitHub account you connected for Copilot: it reads, pushes and opens pull requests. Add a token only for repositories that account can't reach.">
-        <Row label="Extra GitHub token" htmlFor="set-gtoken" description="Optional. A fine-grained token with Contents and Pull requests (read and write) on those repositories." wide>
-          <SecretField id="set-gtoken" name="github-token" present={secrets.data?.githubToken ?? false} disabled={!kcOk} />
-        </Row>
       </SettingsSection>
 
       <AuditSection />
